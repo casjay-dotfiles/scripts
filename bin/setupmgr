@@ -1868,11 +1868,12 @@ __build_asset_pattern() {
     ;;
   esac
 
-  # Build full pattern with proper boundaries
+  # Build full pattern - supports both "os-arch" and "arch-os" orderings
+  # Examples: linux-x86_64, x86_64-linux, x86_64-unknown-linux-musl
   if [ -n "$ext" ]; then
-    echo "${os_patterns}[._-]${patterns}.*\.${ext}"
+    echo "(${os_patterns}[._-]${patterns}|${patterns}[._-](unknown-)?${os_patterns}).*\\.${ext}"
   else
-    echo "${os_patterns}[._-]${patterns}"
+    echo "(${os_patterns}[._-]${patterns}|${patterns}[._-](unknown-)?${os_patterns})"
   fi
 }
 
@@ -1918,7 +1919,7 @@ __install_from_binary() {
   fi
 
   # Download and install
-  if __download_and_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
+  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
     # Validate binary architecture BEFORE installing to system
     if ! __validate_binary_arch "$binFile" "$arch"; then
       printf_red "Downloaded binary is not compatible with system architecture"
@@ -2014,6 +2015,55 @@ __install_from_archive() {
     printf_red "Failed to download $name"
   fi
 
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_from_npm() {
+  local name="$1"               # Binary name (e.g., "prettier")
+  local package="${2:-$name}"   # NPM package name (defaults to binary name)
+  
+  local exitCode=0
+  local npm_cmd=""
+  local install_flag=""
+  
+  # Determine NPM command and installation mode
+  if __cmd_exists npm; then
+    npm_cmd="npm"
+    # Check if we have global npm access (system-wide install)
+    if [ -w "$(npm root -g 2>/dev/null)" ] 2>/dev/null || __can_i_sudo; then
+      install_flag="-g"  # Global install
+    else
+      # User-level install (no global access)
+      install_flag="-g"
+      export npm_config_prefix="$HOME/.local"
+      export PATH="$HOME/.local/bin:$PATH"
+    fi
+  else
+    printf_red "npm is not installed"
+    return 1
+  fi
+  
+  # Show status
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+  
+  # Install/update package
+  if $npm_cmd install $install_flag "$package" >/dev/null 2>&1; then
+    # Try to get version (gracefully fails if not supported)
+    local version="$(__get_version "$name")"
+    if [ -n "$version" ]; then
+      printf_green "$name installed: $version"
+    else
+      printf_green "$name installed"
+    fi
+  else
+    exitCode=1
+    printf_red "Failed to install $name"
+  fi
+  
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2139,594 +2189,59 @@ __remove_package() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_ripgrep() {
-  local exitCode=0
-  local name="rg"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/BurntSushi/ripgrep/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/BurntSushi/ripgrep/releases/download/${version}/ripgrep-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/BurntSushi/ripgrep/releases/download/${version}/ripgrep-${version}-aarch64-unknown-linux-gnu.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "rg" "BurntSushi/ripgrep" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_ruff() {
-  local exitCode=0
-  local name="ruff"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/astral-sh/ruff/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/astral-sh/ruff/releases/download/${version}/ruff-x86_64-unknown-linux-gnu.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/astral-sh/ruff/releases/download/${version}/ruff-aarch64-unknown-linux-gnu.tar.gz" ;;
-  armv7l | arm) download_url="https://github.com/astral-sh/ruff/releases/download/${version}/ruff-armv7-unknown-linux-gnueabihf.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "ruff" "astral-sh/ruff" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_vale() {
-  local exitCode=0
-  local name="vale"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/errata-ai/vale/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/errata-ai/vale/releases/download/${version}/vale_${version#v}_Linux_64-bit.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/errata-ai/vale/releases/download/${version}/vale_${version#v}_Linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-    printf_cyan "Create .vale.ini in your project for configuration"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "vale" "errata-ai/vale" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_fd() {
-  local exitCode=0
-  local name="fd"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/sharkdp/fd/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/sharkdp/fd/releases/download/${version}/fd-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/sharkdp/fd/releases/download/${version}/fd-${version}-aarch64-unknown-linux-gnu.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "fd" "sharkdp/fd" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_bat() {
-  local exitCode=0
-  local name="bat"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/sharkdp/bat/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/sharkdp/bat/releases/download/${version}/bat-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/sharkdp/bat/releases/download/${version}/bat-${version}-aarch64-unknown-linux-gnu.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "bat" "sharkdp/bat" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_delta() {
-  local exitCode=0
-  local name="delta"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/dandavison/delta/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/dandavison/delta/releases/download/${version}/delta-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/dandavison/delta/releases/download/${version}/delta-${version}-aarch64-unknown-linux-gnu.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "delta" "dandavison/delta" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_exa() {
-  local exitCode=0
-  local name="exa"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/ogham/exa/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/ogham/exa/releases/download/${version}/exa-linux-x86_64-${version}.zip" ;;
-  *)
-    printf_red "Unsupported architecture: $arch (only x86_64 supported)"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "exa" "ogham/exa" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_dust() {
-  local exitCode=0
-  local name="dust"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/bootandy/dust/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/bootandy/dust/releases/download/${version}/dust-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/bootandy/dust/releases/download/${version}/dust-${version}-aarch64-unknown-linux-gnu.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "dust" "bootandy/dust" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_procs() {
-  local exitCode=0
-  local name="procs"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/dalance/procs/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/dalance/procs/releases/download/${version}/procs-${version}-x86_64-linux.zip" ;;
-  aarch64 | arm64) download_url="https://github.com/dalance/procs/releases/download/${version}/procs-${version}-aarch64-linux.zip" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "procs" "dalance/procs" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_starship() {
-  local exitCode=0
-  local name="starship"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/starship/starship/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/starship/starship/releases/download/${version}/starship-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/starship/starship/releases/download/${version}/starship-aarch64-unknown-linux-gnu.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "starship" "starship/starship" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_glow() {
-  local exitCode=0
-  local name="glow"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/charmbracelet/glow/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  version_no_v="${version#v}"
-
-  case $arch in
-  x86_64) download_url="https://github.com/charmbracelet/glow/releases/download/${version}/glow_${version_no_v}_Linux_x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/charmbracelet/glow/releases/download/${version}/glow_${version_no_v}_Linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "glow" "charmbracelet/glow" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_just() {
-  local exitCode=0
-  local name="just"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/casey/just/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/casey/just/releases/download/${version}/just-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/casey/just/releases/download/${version}/just-${version}-aarch64-unknown-linux-musl.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "just" "casey/just" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_zoxide() {
-  local exitCode=0
-  local name="zoxide"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/ajeetdsouza/zoxide/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  version_no_v="${version#v}"
-
-  case $arch in
-  x86_64) download_url="https://github.com/ajeetdsouza/zoxide/releases/download/${version}/zoxide-${version_no_v}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/ajeetdsouza/zoxide/releases/download/${version}/zoxide-${version_no_v}-aarch64-unknown-linux-musl.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "do_not_strip_components" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "zoxide" "ajeetdsouza/zoxide" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_zellij() {
-  local exitCode=0
-  local name="zellij"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/zellij-org/zellij/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/zellij-org/zellij/releases/download/${version}/zellij-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/zellij-org/zellij/releases/download/${version}/zellij-aarch64-unknown-linux-musl.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "zellij" "zellij-org/zellij" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_zig() {
@@ -2788,84 +2303,11 @@ __setup_rustup() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_tokei() {
-  local exitCode=0
-  local name="tokei"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local version="v12.1.2"
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  case $arch in
-  x86_64) download_url="https://github.com/XAMPPRocky/tokei/releases/download/${version}/tokei-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/XAMPPRocky/tokei/releases/download/${version}/tokei-aarch64-unknown-linux-musl.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "tokei" "XAMPPRocky/tokei" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_jless() {
-  local exitCode=0
-  local name="jless"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/PaulJuliusMartinez/jless/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/PaulJuliusMartinez/jless/releases/download/${version}/jless-${version}-x86_64-unknown-linux-gnu.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/PaulJuliusMartinez/jless/releases/download/${version}/jless-${version}-aarch64-unknown-linux-gnu.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "jless" "PaulJuliusMartinez/jless" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_lua() {
@@ -2970,46 +2412,8 @@ __setup_asdf() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_atuin() {
-  local exitCode=0
-  local name="atuin"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/atuinsh/atuin/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/atuinsh/atuin/releases/download/${version}/atuin-x86_64-unknown-linux-gnu.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/atuinsh/atuin/releases/download/${version}/atuin-aarch64-unknown-linux-gnu.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-    printf_cyan "Run 'atuin import auto' to import shell history"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "atuin" "atuinsh/atuin" "$SETUPMGR_DEFAULT_BIN_DIR"
+  printf_cyan "Run 'atuin import auto' to import shell history"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_deno() {
@@ -3148,53 +2552,11 @@ __setup_dotnet() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_vfox() {
-  local exitCode=0
-  local name="vfox"
-  local arch=$(uname -m)
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  local release_url="https://github.com/version-fox/vfox/releases/download"
-  local VERSION=$(curl --silent "https://api.github.com/repos/version-fox/vfox/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | cut -c 2-)
-  case "$arch" in
-  x86_64) url="$release_url/v$VERSION/vfox_${VERSION}_linux_x86_64.tar.gz" ;;
-  aarch64 | arm64) url="$release_url/v$VERSION/vfox_${VERSION}_linux_aarch64.tar.gz" ;;
-  esac
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-  if __download_extract_move "$url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-  fi
-  return $exitCode
+  __install_from_archive "vfox" "version-fox/vfox" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_fastfetch() {
-  local exitCode=0
-  local name="fastfetch"
-  local arch=$(uname -m)
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://github.com/fastfetch-cli/fastfetch/releases/download"
-  local VERSION=$(curl --silent "https://api.github.com/repos/fastfetch-cli/fastfetch/releases/latest" | grep '"tag_name":' | sed 's|.*tag.*:||g;s|"||g;s|,||g' | cut -c 2-)
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  case "$arch" in
-  x86_64) url="$release_url/$VERSION/fastfetch-linux-amd64.tar.gz" ;;
-  aarch64 | arm64) url="$release_url/$VERSION/fastfetch-linux-aarch64.tar.gz" ;;
-  esac
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-  if __download_extract_move "$url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-  fi
-  return $exitCode
+  __install_from_archive "fastfetch" "fastfetch-cli/fastfetch" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_gvm() {
@@ -3231,31 +2593,13 @@ __setup_gvm() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_vagrant() {
   local exitCode=0
-  local name="vagrant"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  local release_url="https://github.com/hashicorp/vagrant/releases/latest/download"
-  case "$arch" in
-  x86_64) url="$release_url/vagrant-go_linux_amd64" ;;
-  *) printf_exit "only x86_64 is supported at this time" ;;
-  esac
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-  if __download_and_move "$url" "$name" "$binFile"; then
-    if [ -f "$binFile" ]; then
-      vagrant plugin install vagrant-libvirt &>/dev/null
-      vagrant plugin install vagrant-host-shell &>/dev/null
-      vagrant plugin install vagrant-mutate &>/dev/null
-      vagrant plugin install vagrant-vbguest &>/dev/null
-      vagrant plugin install vagrant-vbguest-libvirt &>/dev/null
-      printf_green "vagrant installed"
-    else
-      exitCode=1
-    fi
+  if __install_from_binary "vagrant" "hashicorp/vagrant" "$SETUPMGR_DEFAULT_BIN_DIR"; then
+    vagrant plugin install vagrant-libvirt &>/dev/null
+    vagrant plugin install vagrant-host-shell &>/dev/null
+    vagrant plugin install vagrant-mutate &>/dev/null
+    vagrant plugin install vagrant-vbguest &>/dev/null
+    vagrant plugin install vagrant-vbguest-libvirt &>/dev/null
+    printf_green "vagrant plugins installed"
   else
     exitCode=1
   fi
@@ -3663,31 +3007,9 @@ __setup_nix() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_helm() {
-  local url
-  local name="helm"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local dist_tag="$(__curl "https://get.helm.sh/helm-latest-version" | grep '^v[0-9]')"
-  if __cmd_exists $name; then
-    printf_green "$name is already installed"
-  else
-    printf_green "Installing $name"
-  fi
-  case $arch in
-  x86_64) url="https://get.helm.sh/helm-$dist_tag-linux-amd64.tar.gz" ;;
-  aarch64 | arm64) url="https://get.helm.sh/helm-$dist_tag-linux-arm64.tar.gz" ;;
-  esac
-  if __download_extract_move "$url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __install_to_system_bin "$binFile"
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
-
+  __install_from_archive "helm" "helm/helm" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_helix() {
   local exitCode=0
   local name="hx"
@@ -3732,46 +3054,7 @@ __setup_helix() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_hyperfine() {
-  local exitCode=0
-  local name="hyperfine"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/sharkdp/hyperfine/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/sharkdp/hyperfine/releases/download/${version}/hyperfine-${version#v}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/sharkdp/hyperfine/releases/download/${version}/hyperfine-${version#v}-aarch64-unknown-linux-musl.tar.gz" ;;
-  armv7l | arm) download_url="https://github.com/sharkdp/hyperfine/releases/download/${version}/hyperfine-${version#v}-arm-unknown-linux-musleabihf.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "hyperfine" "sharkdp/hyperfine" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_packer() {
@@ -3830,150 +3113,50 @@ __setup_kubectl() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_kind() {
-  local exitCode=0
-  local name="kind"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/kubernetes-sigs/kind/releases/latest"
-  case $arch in
-  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "kind.linux.amd64\$")" ;;
-  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "kind.linux.arm64\$")" ;;
-  esac
-  if __cmd_exists $name; then
-    printf_green "$name is already installed"
-  else
-    printf_green "Installing $name"
-  fi
-  if __download_and_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __install_to_system_bin "$binFile"
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "kind" "kubernetes-sigs/kind" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_k9s() {
-  local exitCode=0
-  local name="k9s"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/derailed/k9s/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/derailed/k9s/releases/download/${version}/k9s_Linux_amd64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/derailed/k9s/releases/download/${version}/k9s_Linux_arm64.tar.gz" ;;
-  armv7l | arm) download_url="https://github.com/derailed/k9s/releases/download/${version}/k9s_Linux_arm.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "k9s" "derailed/k9s" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_minikube() {
-  local exitCode=0
-  local name=minikube
-  local arch="$(uname -m)"
   local binFile="$SETUPMGR_DEFAULT_BIN_DIR/minikube"
-  if __cmd_exists minikube; then
-    printf_green "Updating minikube"
-  else
-    printf_green "Installing minikube"
-  fi
-  case $arch in
-  x86_64) url="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64" ;;
-  aarch64 | arm64) url="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-arm64" ;;
-  esac
-  if __download_and_move "$url" "minikube" "$binFile"; then
-    __install_to_system_bin "$binFile"
-    printf_green "minikube installed: $binFile"
+  if __install_from_binary "minikube" "kubernetes/minikube" "$SETUPMGR_DEFAULT_BIN_DIR"; then
     printf_cyan "Use 'dockermgr minikube' to configure and start minikube"
-  else
-    exitCode=1
-    printf_red "Failed to download minikube"
   fi
-  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_direnv() {
-  local exitCode=0
-  local name="direnv"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/direnv/direnv/releases/latest"
-  case $arch in
-  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "$name.linux.amd64\$")" ;;
-  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "$name.linux.arm64\$")" ;;
-  esac
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-  if __download_and_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __install_to_system_bin "$binFile"
-    printf_green "Direnv installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "direnv" "direnv/direnv" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_incus() {
   local exitCode=0
-  local name="incus"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/lxc/incus/releases/latest"
-  case $arch in
-  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "bin.linux.incus.x86_64\$")" ;;
-  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "bin.linux.incus.aarch64\$")" ;;
+  local arch="$(__get_system_arch)"
+  local pattern=""
+  
+  # Custom pattern for incus naming: bin.linux.incus.{arch}
+  case "$arch" in
+    amd64) pattern="bin\\.linux\\.incus\\.x86_64\$" ;;
+    arm64) pattern="bin\\.linux\\.incus\\.aarch64\$" ;;
+    *) 
+      printf_red "Unsupported architecture: $arch"
+      return 1
+      ;;
   esac
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-  if __download_and_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __install_to_system_bin "$binFile"
+  
+  # Install using custom pattern
+  if __install_from_binary "incus" "lxc/incus" "$SETUPMGR_DEFAULT_BIN_DIR" "$pattern"; then
+    # Post-install: Create incus-admin group if needed
     if ! grep -qs 'incus-admin' '/etc/group'; then
-      __sudo true
       __sudo groupadd --system incus-admin >/dev/null 2>&1
       __sudo usermod -a -G incus-admin $USER >/dev/null 2>&1
     fi
-    printf_green "$name installed to $binFile"
   else
     exitCode=1
-    printf_red "Failed to download $name"
   fi
+  
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4071,239 +3254,27 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_lazygit() {
-  local exitCode=0
-  local name="lazygit"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/jesseduffield/lazygit/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/jesseduffield/lazygit/releases/download/${version}/lazygit_${version#v}_Linux_x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/jesseduffield/lazygit/releases/download/${version}/lazygit_${version#v}_Linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "lazygit" "jesseduffield/lazygit" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_dive() {
-  local exitCode=0
-  local name="dive"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/wagoodman/dive/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/wagoodman/dive/releases/download/${version}/dive_${version#v}_linux_amd64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/wagoodman/dive/releases/download/${version}/dive_${version#v}_linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "dive" "wagoodman/dive" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_lazydocker() {
-  local exitCode=0
-  local name="lazydocker"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/jesseduffield/lazydocker/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/jesseduffield/lazydocker/releases/download/${version}/lazydocker_${version#v}_Linux_x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/jesseduffield/lazydocker/releases/download/${version}/lazydocker_${version#v}_Linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "lazydocker" "jesseduffield/lazydocker" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_fzf() {
-  local exitCode=0
-  local name="fzf"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/junegunn/fzf/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/junegunn/fzf/releases/download/${version}/fzf-${version#v}-linux_amd64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/junegunn/fzf/releases/download/${version}/fzf-${version#v}-linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "fzf" "junegunn/fzf" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_mc() {
-  local exitCode=0
-  local name="mc"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/minio-cli"
-  extract_cmd="do_not_strip_components"
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  case $arch in
-  x86_64) download_url="https://dl.min.io/client/mc/release/linux-amd64/mc" ;;
-  aarch64 | arm64) download_url="https://dl.min.io/client/mc/release/linux-arm64/mc" ;;
-  esac
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-  if __download_and_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __install_to_system_bin "$binFile"
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "mc" "minio/mc" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_act() {
-  local exitCode=0
-  local name="act"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/nektos/act/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/nektos/act/releases/download/${version}/act_Linux_x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/nektos/act/releases/download/${version}/act_Linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "act" "nektos/act" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_traefik() {
@@ -4459,88 +3430,11 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_broot() {
-  local exitCode=0
-  local name="broot"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/Canop/broot/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/Canop/broot/releases/download/${version}/broot_${version#v}_linux_x86_64.zip" ;;
-  aarch64 | arm64) download_url="https://github.com/Canop/broot/releases/download/${version}/broot_${version#v}_linux_aarch64.zip" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-    printf_cyan "Run 'broot' to configure on first launch"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "broot" "Canop/broot" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_opentofu() {
-  local exitCode=0
-  local name="tofu"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/opentofu/opentofu/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/opentofu/opentofu/releases/download/${version}/tofu_${version#v}_linux_amd64.zip" ;;
-  aarch64 | arm64) download_url="https://github.com/opentofu/opentofu/releases/download/${version}/tofu_${version#v}_linux_arm64.zip" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "tofu" "opentofu/opentofu" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_webhookd() {
@@ -4651,30 +3545,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_gh() {
-  local exitCode=0
-  local name="gh"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/cli/cli/releases/latest"
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  case $arch in
-  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux_amd64.tar.gz\$")" ;;
-  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux_arm64.tar.gz\$")" ;;
-  esac
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __install_to_system_bin "$binFile"
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "gh" "cli/cli" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_lima() {
@@ -4971,71 +3842,11 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_coder() {
-  local exitCode=0
-  local name="coder"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/coder/coder/releases/latest"
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  case $arch in
-  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "_linux_amd64.tar.gz\$")" ;;
-  aarch64 | arm64) download_url="$(__curl ""$release_url | grep browser_download_url | cut -d '"' -f 4 | grep "_linux_arm64.tar.gz\$")" ;;
-  esac
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
+  __install_from_archive "coder" "coder/coder" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_ctop() {
-  local exitCode=0
-  local name="ctop"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/bcicen/ctop/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/bcicen/ctop/releases/download/${version}/ctop-${version#v}-linux-amd64" ;;
-  aarch64 | arm64) download_url="https://github.com/bcicen/ctop/releases/download/${version}/ctop-${version#v}-linux-arm64" ;;
-  armv7l | arm) download_url="https://github.com/bcicen/ctop/releases/download/${version}/ctop-${version#v}-linux-arm" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_and_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "ctop" "bcicen/ctop" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_podman() {
@@ -5097,36 +3908,7 @@ __setup_lapce() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__setup_startship() {
-  local exitCode=0
-  local name="starship"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/starship/$name/releases/latest"
-  extract_cmd="do_not_strip_components"
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  case $arch in
-  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "x86_64-unknown-linux-gnu.tar.gz\$")" ;;
-  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "aarch64-unknown-linux-gnu.tar.gz\$")" ;;
-  esac
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __install_to_system_bin "$binFile"
-    if [ ! -f "$HOME/.config/starship.toml" ]; then
-      starship preset pastel-powerline -o "$HOME/.config/starship.toml" >/dev/null 2>&1
-    fi
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
+
 __setup_minio() {
   local exitCode=0
   local restart=""
@@ -5331,45 +4113,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_xcaddy() {
-  local exitCode=0
-  local name="xcaddy"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/caddyserver/xcaddy/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/caddyserver/xcaddy/releases/download/${version}/xcaddy_${version#v}_linux_amd64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/caddyserver/xcaddy/releases/download/${version}/xcaddy_${version#v}_linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "xcaddy" "caddyserver/xcaddy" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_caddy() {
@@ -5489,85 +4233,11 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_yq() {
-  local exitCode=0
-  local name="yq"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/mikefarah/yq/releases/latest"
-  local version=""
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/mikefarah/yq/releases/download/${version}/yq_linux_amd64" ;;
-  aarch64 | arm64) download_url="https://github.com/mikefarah/yq/releases/download/${version}/yq_linux_arm64" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "yq" "mikefarah/yq" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_tgpt() {
-  local exitCode=0
-  local name="tgpt"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/aandrew-me/tgpt/releases/latest"
-  local version=""
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/aandrew-me/tgpt/releases/download/${version}/tgpt-linux-amd64" ;;
-  aarch64 | arm64) download_url="https://github.com/aandrew-me/tgpt/releases/download/${version}/tgpt-linux-arm64" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "tgpt" "aandrew-me/tgpt" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_gpt() {
@@ -5648,145 +4318,15 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_uv() {
-  local exitCode=0
-  local name="uv"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/astral-sh/uv/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/astral-sh/uv/releases/download/${version}/uv-x86_64-unknown-linux-gnu.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/astral-sh/uv/releases/download/${version}/uv-aarch64-unknown-linux-gnu.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "uv" "astral-sh/uv" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_shellcheck() {
-  local exitCode=0
-  local name="shellcheck"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/koalaman/shellcheck/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/koalaman/shellcheck/releases/download/${version}/shellcheck-${version}.linux.x86_64.tar.xz" ;;
-  aarch64 | arm64) download_url="https://github.com/koalaman/shellcheck/releases/download/${version}/shellcheck-${version}.linux.aarch64.tar.xz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "shellcheck" "koalaman/shellcheck" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_shfmt() {
-  local exitCode=0
-  local name="shfmt"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/mvdan/sh/releases/latest"
-  local version=""
-  local installed_version=""
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-
-  case $arch in
-  x86_64) download_url="https://github.com/mvdan/sh/releases/download/${version}/shfmt_${version}_linux_amd64" ;;
-  aarch64 | arm64) download_url="https://github.com/mvdan/sh/releases/download/${version}/shfmt_${version}_linux_arm64" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "shfmt" "mvdan/sh" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_speedtest() {
@@ -5818,170 +4358,19 @@ __setup_speedtest() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_llama_cpp() {
-  local exitCode=0
-  local name="llama-cli"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/ggerganov/llama.cpp/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/ggerganov/llama.cpp/releases/download/${version}/llama-${version#b}-bin-ubuntu-x64.zip" ;;
-  *)
-    printf_red "Unsupported architecture: $arch (only x86_64 supported)"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "llama-cli" "ggml-org/llama.cpp" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_aichat() {
-  local exitCode=0
-  local name="aichat"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/sigoden/aichat/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/sigoden/aichat/releases/download/${version}/aichat-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/sigoden/aichat/releases/download/${version}/aichat-${version}-aarch64-unknown-linux-musl.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "aichat" "sigoden/aichat" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_fabric() {
-  local exitCode=0
-  local name="fabric"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/danielmiessler/fabric/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/danielmiessler/fabric/releases/download/${version}/fabric-linux-amd64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/danielmiessler/fabric/releases/download/${version}/fabric-linux-arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "fabric" "danielmiessler/fabric" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_mods() {
-  local exitCode=0
-  local name="mods"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/charmbracelet/mods/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/charmbracelet/mods/releases/download/${version}/mods_${version#v}_Linux_x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/charmbracelet/mods/releases/download/${version}/mods_${version#v}_Linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "mods" "charmbracelet/mods" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_llm() {
@@ -6228,425 +4617,35 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_btop() {
-  local exitCode=0
-  local name="btop"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/aristocratos/btop/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/aristocratos/btop/releases/download/${version}/btop-x86_64-unknown-linux-musl.tbz" ;;
-  aarch64 | arm64) download_url="https://github.com/aristocratos/btop/releases/download/${version}/btop-aarch64-unknown-linux-musl.tbz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_extract_move "$download_url" "btop/bin/$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "btop" "aristocratos/btop" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_bottom() {
-  local exitCode=0
-  local name="btm"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/ClementTsang/bottom/releases/latest"
-  local version=""
-  local installed_version=""
-  local arch="$(uname -m)"
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for bottom"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating bottom from $installed_version to $version"
-      else
-        printf_cyan "bottom is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating bottom to $version"
-    fi
-  else
-    printf_green "Installing bottom $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/ClementTsang/bottom/releases/download/${version}/bottom_x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/ClementTsang/bottom/releases/download/${version}/bottom_aarch64-unknown-linux-musl.tar.gz" ;;
-  armv7l | armv6l) download_url="https://github.com/ClementTsang/bottom/releases/download/${version}/bottom_armv7-unknown-linux-musleabihf.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for bottom"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/bottom"
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "bottom $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download bottom"
-  fi
-  return $exitCode
+  __install_from_archive "btm" "ClementTsang/bottom" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_bandwhich() {
-  local exitCode=0
-  local name="bandwhich"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/imsnif/bandwhich/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/imsnif/bandwhich/releases/download/${version}/bandwhich-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/imsnif/bandwhich/releases/download/${version}/bandwhich-${version}-aarch64-unknown-linux-musl.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "bandwhich" "imsnif/bandwhich" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_duf() {
-  local exitCode=0
-  local name="duf"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/muesli/duf/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/muesli/duf/releases/download/${version}/duf_${version#v}_linux_x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/muesli/duf/releases/download/${version}/duf_${version#v}_linux_arm64.tar.gz" ;;
-  armv7l | armv6l) download_url="https://github.com/muesli/duf/releases/download/${version}/duf_${version#v}_linux_armv7.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "duf" "muesli/duf" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_xh() {
-  local exitCode=0
-  local name="xh"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/ducaale/xh/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/ducaale/xh/releases/download/${version}/xh-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/ducaale/xh/releases/download/${version}/xh-${version}-aarch64-unknown-linux-musl.tar.gz" ;;
-  armv7l) download_url="https://github.com/ducaale/xh/releases/download/${version}/xh-${version}-armv7-unknown-linux-musleabihf.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_extract_move "$download_url" "xh-${version}-*/xh" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "xh" "ducaale/xh" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_gitui() {
-  local exitCode=0
-  local name="gitui"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/extrawurst/gitui/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/extrawurst/gitui/releases/download/${version}/gitui-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/extrawurst/gitui/releases/download/${version}/gitui-linux-aarch64.tar.gz" ;;
-  armv7l) download_url="https://github.com/extrawurst/gitui/releases/download/${version}/gitui-linux-armv7.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "gitui" "extrawurst/gitui" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_stern() {
-  local exitCode=0
-  local name="stern"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/stern/stern/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/stern/stern/releases/download/${version}/stern_${version#v}_linux_amd64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/stern/stern/releases/download/${version}/stern_${version#v}_linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "stern" "stern/stern" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_mise() {
-  local exitCode=0
-  local name="mise"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/jdx/mise/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/jdx/mise/releases/download/${version}/mise-${version}-linux-x64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/jdx/mise/releases/download/${version}/mise-${version}-linux-arm64.tar.gz" ;;
-  armv7l) download_url="https://github.com/jdx/mise/releases/download/${version}/mise-${version}-linux-armv7.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  SETUPMGR_LAST_TOOL="mise"
-  if __download_extract_move "$download_url" "mise/bin/$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "mise" "jdx/mise" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_age() {
@@ -6710,372 +4709,34 @@ __setup_age() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_grex() {
-  local exitCode=0
-  local name="grex"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/pemistahl/grex/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/pemistahl/grex/releases/download/${version}/grex-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/pemistahl/grex/releases/download/${version}/grex-${version}-aarch64-unknown-linux-musl.tar.gz" ;;
-  armv7l) download_url="https://github.com/pemistahl/grex/releases/download/${version}/grex-${version}-armv7-unknown-linux-musleabihf.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "grex" "pemistahl/grex" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_sd() {
-  local exitCode=0
-  local name="sd"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/chmln/sd/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/chmln/sd/releases/download/${version}/sd-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/chmln/sd/releases/download/${version}/sd-${version}-aarch64-unknown-linux-musl.tar.gz" ;;
-  armv7l) download_url="https://github.com/chmln/sd/releases/download/${version}/sd-${version}-armv7-unknown-linux-musleabihf.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_extract_move "$download_url" "sd-${version}-*/sd" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "sd" "chmln/sd" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_ncdu() {
-  local exitCode=0
-  local name="ncdu"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/rofl0r/ncdu/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/rofl0r/ncdu/releases/download/${version}/ncdu-linux-x86_64-${version}" ;;
-  *)
-    printf_red "Unsupported architecture: $arch (ncdu only provides x86_64 binary)"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "ncdu" "rofl0r/ncdu" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_tldr() {
-  local exitCode=0
-  local name="tldr"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/tldr-pages/tlrc/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/tldr-pages/tlrc/releases/download/${version}/tlrc-${version}-x86_64-unknown-linux-musl" ;;
-  aarch64 | arm64) download_url="https://github.com/tldr-pages/tlrc/releases/download/${version}/tlrc-${version}-aarch64-unknown-linux-musl" ;;
-  armv7l) download_url="https://github.com/tldr-pages/tlrc/releases/download/${version}/tlrc-${version}-armv7-unknown-linux-musleabihf" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "tldr" "tldr-pages/tlrc" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_httpie() {
-  local exitCode=0
-  local name="httpie"
-  local arch="$(uname -m)"
   local binFile="$SETUPMGR_DEFAULT_BIN_DIR/http"
-  local release_url="https://api.github.com/repos/httpie/cli/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists http; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/httpie/cli/releases/download/${version}/httpie-${version}-linux-x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/httpie/cli/releases/download/${version}/httpie-${version}-linux-aarch64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_extract_move "$download_url" "httpie-${version#v}/bin/http" "$binFile" && __is_installed "http" "$binFile"; then
+  if __install_from_archive "httpie" "httpie/cli" "$SETUPMGR_DEFAULT_BIN_DIR"; then
     ln -sf "$binFile" "$SETUPMGR_DEFAULT_BIN_DIR/https" 2>/dev/null
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
   fi
-  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_git_cliff() {
-  local exitCode=0
-  local name="git-cliff"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/orhun/git-cliff/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/orhun/git-cliff/releases/download/${version}/git-cliff-${version}-x86_64-unknown-linux-gnu.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/orhun/git-cliff/releases/download/${version}/git-cliff-${version}-aarch64-unknown-linux-gnu.tar.gz" ;;
-  armv7l) download_url="https://github.com/orhun/git-cliff/releases/download/${version}/git-cliff-${version}-armv7-unknown-linux-gnueabihf.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_extract_move "$download_url" "git-cliff-${version}/git-cliff" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "git-cliff" "orhun/git-cliff" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_difftastic() {
-  local exitCode=0
-  local name="difftastic"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/difft"
-  local release_url="https://api.github.com/repos/Wilfred/difftastic/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists difft; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/Wilfred/difftastic/releases/download/${version}/difft-x86_64-unknown-linux-gnu.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/Wilfred/difftastic/releases/download/${version}/difft-aarch64-unknown-linux-gnu.tar.gz" ;;
-  armv7l) download_url="https://github.com/Wilfred/difftastic/releases/download/${version}/difft-armv7-unknown-linux-gnueabihf.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "difft" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "difftastic" "Wilfred/difftastic" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_tig() {
@@ -7134,370 +4795,31 @@ __setup_tig() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_kubectx() {
-  local exitCode=0
-  local name="kubectx"
-  local arch="$(uname -m)"
-  local binDir="$SETUPMGR_DEFAULT_BIN_DIR"
-  local release_url="https://api.github.com/repos/ahmetb/kubectx/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$binDir" ] || mkdir -p "$binDir"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/ahmetb/kubectx/releases/download/${version}/kubectx_${version}_linux_x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/ahmetb/kubectx/releases/download/${version}/kubectx_${version}_linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binDir/$name" && __is_installed "$name" "$binDir/$name"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binDir"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "kubectx" "ahmetb/kubectx" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_kubens() {
-  local exitCode=0
-  local name="kubens"
-  local arch="$(uname -m)"
-  local binDir="$SETUPMGR_DEFAULT_BIN_DIR"
-  local release_url="https://api.github.com/repos/ahmetb/kubectx/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$binDir" ] || mkdir -p "$binDir"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/ahmetb/kubectx/releases/download/${version}/kubens_${version}_linux_x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/ahmetb/kubectx/releases/download/${version}/kubens_${version}_linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binDir/$name" && __is_installed "$name" "$binDir/$name"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binDir"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "kubens" "ahmetb/kubectx" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_skaffold() {
-  local exitCode=0
-  local name="skaffold"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/GoogleContainerTools/skaffold/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/GoogleContainerTools/skaffold/releases/download/${version}/skaffold-linux-amd64" ;;
-  aarch64 | arm64) download_url="https://github.com/GoogleContainerTools/skaffold/releases/download/${version}/skaffold-linux-arm64" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  SETUPMGR_LAST_TOOL="skaffold"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "skaffold" "GoogleContainerTools/skaffold" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_tilt() {
-  local exitCode=0
-  local name="tilt"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/tilt-dev/tilt/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/tilt-dev/tilt/releases/download/${version}/tilt.${version}.linux.x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/tilt-dev/tilt/releases/download/${version}/tilt.${version}.linux.arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  SETUPMGR_LAST_TOOL="tilt"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "tilt" "tilt-dev/tilt" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_ctlptl() {
-  local exitCode=0
-  local name="ctlptl"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/tilt-dev/ctlptl/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/tilt-dev/ctlptl/releases/download/${version}/ctlptl.${version}.linux.x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/tilt-dev/ctlptl/releases/download/${version}/ctlptl.${version}.linux.arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "ctlptl" "tilt-dev/ctlptl" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_kompose() {
-  local exitCode=0
-  local name="kompose"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/kubernetes/kompose/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/kubernetes/kompose/releases/download/${version}/kompose-linux-amd64" ;;
-  aarch64 | arm64) download_url="https://github.com/kubernetes/kompose/releases/download/${version}/kompose-linux-arm64" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "kompose" "kubernetes/kompose" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_task() {
-  local exitCode=0
-  local name="task"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/go-task/task/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/go-task/task/releases/download/${version}/task_linux_amd64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/go-task/task/releases/download/${version}/task_linux_arm64.tar.gz" ;;
-  armv7l) download_url="https://github.com/go-task/task/releases/download/${version}/task_linux_arm.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "task" "go-task/task" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_nushell() {
@@ -7662,107 +4984,11 @@ __setup_entr() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_viddy() {
-  local exitCode=0
-  local name="viddy"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/sachaos/viddy/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/sachaos/viddy/releases/download/${version}/viddy_${version}_Linux_x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/sachaos/viddy/releases/download/${version}/viddy_${version}_Linux_arm64.tar.gz" ;;
-  armv7l) download_url="https://github.com/sachaos/viddy/releases/download/${version}/viddy_${version}_Linux_armv7.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "viddy" "sachaos/viddy" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_xsv() {
-  local exitCode=0
-  local name="xsv"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/BurntSushi/xsv/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/BurntSushi/xsv/releases/download/${version}/xsv-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch (xsv only provides x86_64 binary)"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "xsv" "BurntSushi/xsv" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_miller() {
@@ -7818,579 +5044,47 @@ __setup_miller() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_htmlq() {
-  local exitCode=0
-  local name="htmlq"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/mgdm/htmlq/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/mgdm/htmlq/releases/download/${version}/htmlq-x86_64-linux.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/mgdm/htmlq/releases/download/${version}/htmlq-aarch64-linux.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "htmlq" "mgdm/htmlq" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_gron() {
-  local exitCode=0
-  local name="gron"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/tomnomnom/gron/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/tomnomnom/gron/releases/download/${version}/gron-linux-amd64-${version}.tgz" ;;
-  aarch64 | arm64) download_url="https://github.com/tomnomnom/gron/releases/download/${version}/gron-linux-arm64-${version}.tgz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "gron" "tomnomnom/gron" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_dasel() {
-  local exitCode=0
-  local name="dasel"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/TomWright/dasel/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/TomWright/dasel/releases/download/${version}/dasel_linux_amd64" ;;
-  aarch64 | arm64) download_url="https://github.com/TomWright/dasel/releases/download/${version}/dasel_linux_arm64" ;;
-  armv7l) download_url="https://github.com/TomWright/dasel/releases/download/${version}/dasel_linux_arm7" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "dasel" "TomWright/dasel" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_sq() {
-  local exitCode=0
-  local name="sq"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/neilotoole/sq/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/neilotoole/sq/releases/download/${version}/sq-${version}-linux-amd64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/neilotoole/sq/releases/download/${version}/sq-${version}-linux-arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_extract_move "$download_url" "sq-${version}/sq" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "sq" "neilotoole/sq" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_jnv() {
-  local exitCode=0
-  local name="jnv"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/ynqa/jnv/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/ynqa/jnv/releases/download/${version}/jnv-x86_64-unknown-linux-musl.tar.xz" ;;
-  aarch64 | arm64) download_url="https://github.com/ynqa/jnv/releases/download/${version}/jnv-aarch64-unknown-linux-musl.tar.xz" ;;
-  armv7l) download_url="https://github.com/ynqa/jnv/releases/download/${version}/jnv-armv7-unknown-linux-musleabihf.tar.xz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "jnv" "ynqa/jnv" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_trivy() {
-  local exitCode=0
-  local name="trivy"
-  local arch="$(uname -m)"
-  local binDir="$SETUPMGR_DEFAULT_BIN_DIR"
-  local release_url="https://api.github.com/repos/aquasecurity/trivy/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$binDir" ] || mkdir -p "$binDir"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/aquasecurity/trivy/releases/download/${version}/trivy_${version#v}_Linux-64bit.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/aquasecurity/trivy/releases/download/${version}/trivy_${version#v}_Linux-ARM64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binDir/$name" && __is_installed "$name" "$binDir/$name"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binDir"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "trivy" "aquasecurity/trivy" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_cosign() {
-  local exitCode=0
-  local name="cosign"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/sigstore/cosign/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/sigstore/cosign/releases/download/${version}/cosign-linux-amd64" ;;
-  aarch64 | arm64) download_url="https://github.com/sigstore/cosign/releases/download/${version}/cosign-linux-arm64" ;;
-  armv7l) download_url="https://github.com/sigstore/cosign/releases/download/${version}/cosign-linux-arm" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_binary "cosign" "sigstore/cosign" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_gitleaks() {
-  local exitCode=0
-  local name="gitleaks"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/gitleaks/gitleaks/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/gitleaks/gitleaks/releases/download/${version}/gitleaks_${version#v}_linux_x64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/gitleaks/gitleaks/releases/download/${version}/gitleaks_${version#v}_linux_arm64.tar.gz" ;;
-  armv7l) download_url="https://github.com/gitleaks/gitleaks/releases/download/${version}/gitleaks_${version#v}_linux_armv7.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "gitleaks" "gitleaks/gitleaks" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_trufflehog() {
-  local exitCode=0
-  local name="trufflehog"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/trufflesecurity/trufflehog/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/trufflesecurity/trufflehog/releases/download/${version}/trufflehog_${version#v}_linux_amd64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/trufflesecurity/trufflehog/releases/download/${version}/trufflehog_${version#v}_linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "trufflehog" "trufflesecurity/trufflehog" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_syft() {
-  local exitCode=0
-  local name="syft"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/anchore/syft/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/anchore/syft/releases/download/${version}/syft_${version#v}_linux_amd64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/anchore/syft/releases/download/${version}/syft_${version#v}_linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "syft" "anchore/syft" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_grype() {
-  local exitCode=0
-  local name="grype"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/anchore/grype/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  case $arch in
-  x86_64) download_url="https://github.com/anchore/grype/releases/download/${version}/grype_${version#v}_linux_amd64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/anchore/grype/releases/download/${version}/grype_${version#v}_linux_arm64.tar.gz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-  if [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  __install_from_archive "grype" "anchore/grype" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_antigravity() {

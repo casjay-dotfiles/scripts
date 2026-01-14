@@ -455,3 +455,144 @@ When starting a new AI session:
 **Status:** ✅ In Sync
 **Next Update:** After next AI session
 
+
+---
+
+## Session: 2026-01-13 - setupmgr Unified Installation Refactoring
+
+### Tasks Completed
+✅ Analyzed setupmgr script (9715 lines) architecture and installation functions
+✅ Fixed critical bug in __install_from_binary function
+✅ Converted act tool to use unified __install_from_archive function
+✅ Converted incus tool to use unified __install_from_binary function
+✅ Tested both tools for install and update scenarios
+
+### Key Discoveries
+
+**Bug Fixed: __install_from_binary argument passing**
+- Function expected 2 args: `(url, destination)`
+- Was being called with 3 args: `(url, name, destination)`
+- After `shift 1` in function, `$1` was `name` instead of `destination`
+- Fixed by removing `$name` parameter from __download_and_move call
+- Changed: `__download_and_move "$download_url" "$name" "$binFile"`
+- To: `__download_and_move "$download_url" "$binFile"`
+
+**Pattern Matching Insights**
+- Auto-generated patterns from `__build_asset_pattern` work correctly
+- Pattern is case-insensitive via `grep -iE`
+- Handles OS variations: linux, gnu, darwin, macos, etc.
+- Handles arch variations: x86_64, amd64, x64, aarch64, arm64, etc.
+- For unusual naming (like incus: bin.linux.incus.x86_64), use custom arch-specific pattern
+
+**Unified Function Architecture**
+- `__install_from_binary()` - For direct binary downloads (no extraction)
+- `__install_from_archive()` - For archived binaries (tar.gz, zip, etc.)
+- Both functions:
+  - Auto-detect architecture and OS
+  - Build appropriate asset patterns
+  - Find latest release from GitHub/GitLab/Gitea/etc.
+  - Validate binary architecture before installation
+  - Display version after installation
+  - Handle system/user installation paths
+  
+**Tool Conversion Pattern**
+```bash
+# Old pattern (40+ lines):
+__setup_tool() {
+  local exitCode=0
+  local name="tool"
+  local arch="$(uname -m)"
+  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/owner/repo/releases/latest"
+  # ... manual version fetching
+  # ... manual URL construction  
+  # ... manual download/extract
+  # ... manual error handling
+  return $exitCode
+}
+
+# New pattern (3 lines for archives, 1 line for binaries):
+__setup_tool() {
+  __install_from_archive "tool" "owner/repo" "$SETUPMGR_DEFAULT_BIN_DIR"
+}
+
+# Or for direct binaries:
+__setup_tool() {
+  __install_from_binary "tool" "owner/repo" "$SETUPMGR_DEFAULT_BIN_DIR"
+}
+
+# Or with custom pattern:
+__setup_tool() {
+  __install_from_binary "tool" "owner/repo" "$SETUPMGR_DEFAULT_BIN_DIR" "custom-pattern"
+}
+```
+
+### Patterns Established
+
+**Architecture-Specific Pattern Building**
+For tools with non-standard naming (like incus), build arch-specific patterns:
+```bash
+local arch="$(__get_system_arch)"
+local arch_pattern=""
+case "$arch" in
+  amd64) arch_pattern="x86_64" ;;
+  arm64) arch_pattern="aarch64" ;;
+esac
+__install_from_binary "tool" "owner/repo" "$dir" "pattern\\.${arch_pattern}\$"
+```
+
+**Custom Pattern Format**
+- Use regex format: `"pattern\\.to\\.match\\.${variable}\\$"`
+- Escape dots with double backslash: `\\.`
+- Use `\$` for end-of-string anchor
+- Pattern will be used with `grep -iE` (case-insensitive extended regex)
+
+### Code Quality Improvements
+- Reduced act from 40 lines → 3 lines (93% reduction)
+- Reduced incus from 30 lines → 13 lines (57% reduction)
+- Eliminated redundant code (version fetching, URL construction, error handling)
+- Standardized output messages across all tools
+- Consistent architecture validation
+- Better error messages with context
+
+### Testing Results
+```bash
+# act - Fresh install
+./bin/setupmgr act
+# Output: Installing act (latest release)
+#         act installed to /usr/local/bin/act: 0.2.84
+
+# act - Update/reinstall
+./bin/setupmgr act
+# Output: Updating act to latest release
+#         act installed to /usr/local/bin/act: 0.2.84
+
+# incus - Fresh install  
+./bin/setupmgr incus
+# Output: Updating incus to latest release
+#         incus installed: 6.18
+
+# incus - Update/reinstall
+./bin/setupmgr incus
+# Output: Updating incus to latest release
+#         incus installed: 6.18
+```
+
+### Remaining Work
+- 132 more tool functions to convert to unified system
+- Need systematic approach to convert in batches
+- Identify which tools need archive vs binary extraction
+- Test converted tools for edge cases
+- Update documentation
+
+### Files Modified
+- `bin/setupmgr` - Fixed __install_from_binary, converted act and incus
+- `.git/COMMIT_MESS` - Created commit message
+- `AI.TODO.md` - Created task tracker
+
+### Next Session
+- Continue batch conversion of remaining tool functions
+- Prioritize commonly used tools (ripgrep, shellcheck, shfmt, yq, fd, bat, delta)
+- Test each batch after conversion
+- Update man pages and completions if needed
+

@@ -572,45 +572,54 @@ __npm_install_global() {
 __execute_npm() {
   local name="$1"
   local package="$2"
-  local install_mode=""
-  local npm_bin=""
-  local npm_prefix=""
-  local system_npm="$(type -P "/usr/bin/npm" || type -P "/usr/local/bin/npm")"
-  local user_npm="$(type -P "$HOME/.local/bin/npm")"
-
-  if [ "$SETUPMGR_USER_INSTALL" = "true" ]; then
-    install_mode="user"
-  elif __sudoif && [ -n "$system_npm" ]; then
-    install_mode="global"
-    npm_bin="$system_npm"
-  else
-    install_mode="user"
-  fi
-
-  if [ "$install_mode" = "user" ]; then
-    if [ -n "$user_npm" ]; then
-      npm_bin="$user_npm"
-    elif [ -n "$system_npm" ]; then
-      npm_bin="$system_npm"
-      npm_prefix="$HOME/.local"
-    else
-      npm_bin="$(type -p npm 2>/dev/null)"
-      npm_prefix="$HOME/.local"
-    fi
-  fi
-
-  if [ -z "$npm_bin" ]; then
+  
+  # Check if npm is installed
+  if ! __cmd_exists npm; then
     printf_red "npm is not installed"
     return 1
   fi
 
-  if __cmd_exists "$name" && [ "$SETUPMGR_FORCE_INSTALL" != "true" ]; then
-    printf_green "$name is already installed"
-    return 0
-  elif __npm_install_global "$package" "$npm_bin" "$install_mode" "$npm_prefix"; then
-    printf_green "Installed npm package: $package ($install_mode)"
+  # Show status based on whether tool exists
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name to latest version"
   else
-    printf_red "Failed to install npm package: $package"
+    printf_green "Installing $name (latest version)"
+  fi
+  
+  # Determine if we need sudo for global install
+  local npm_root="$(npm root -g 2>/dev/null)"
+  local needs_sudo=false
+  
+  if [ -n "$npm_root" ] && [ ! -w "$npm_root" ] && __can_i_sudo; then
+    needs_sudo=true
+  fi
+  
+  # Install/update package globally
+  if [ "$needs_sudo" = true ]; then
+    if __sudo npm install -g "$package" >/dev/null 2>&1; then
+      printf_green "Installed npm package: $package (global)"
+    else
+      printf_red "Failed to install npm package: $package"
+    fi
+  else
+    # Either we have write access or we'll use user prefix
+    if [ -n "$npm_root" ] && [ -w "$npm_root" ]; then
+      # Global install with write access
+      if npm install -g "$package" >/dev/null 2>&1; then
+        printf_green "Installed npm package: $package (global)"
+      else
+        printf_red "Failed to install npm package: $package"
+      fi
+    else
+      # User prefix install
+      export npm_config_prefix="$HOME/.local"
+      export PATH="$HOME/.local/bin:$PATH"
+      if npm install -g "$package" >/dev/null 2>&1; then
+        printf_green "Installed npm package: $package (user)"
+      else
+        printf_red "Failed to install npm package: $package"
+      fi
+    fi
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2023,45 +2032,73 @@ __install_from_npm() {
   local package="${2:-$name}"   # NPM package name (defaults to binary name)
   
   local exitCode=0
-  local npm_cmd=""
-  local install_flag=""
   
-  # Determine NPM command and installation mode
-  if __cmd_exists npm; then
-    npm_cmd="npm"
-    # Check if we have global npm access (system-wide install)
-    if [ -w "$(npm root -g 2>/dev/null)" ] 2>/dev/null || __can_i_sudo; then
-      install_flag="-g"  # Global install
-    else
-      # User-level install (no global access)
-      install_flag="-g"
-      export npm_config_prefix="$HOME/.local"
-      export PATH="$HOME/.local/bin:$PATH"
-    fi
-  else
+  # Check if npm is installed
+  if ! __cmd_exists npm; then
     printf_red "npm is not installed"
     return 1
   fi
   
-  # Show status
+  # Show status based on whether tool exists
   if __cmd_exists "$name"; then
-    printf_green "Updating $name"
+    printf_green "Updating $name to latest version"
   else
-    printf_green "Installing $name"
+    printf_green "Installing $name (latest version)"
   fi
   
-  # Install/update package
-  if $npm_cmd install $install_flag "$package" >/dev/null 2>&1; then
-    # Try to get version (gracefully fails if not supported)
-    local version="$(__get_version "$name")"
-    if [ -n "$version" ]; then
-      printf_green "$name installed: $version"
+  # Determine if we need sudo for global install
+  # Check if destination is writable or if we can sudo
+  local npm_root="$(npm root -g 2>/dev/null)"
+  local needs_sudo=false
+  
+  if [ -n "$npm_root" ] && [ ! -w "$npm_root" ] && __can_i_sudo; then
+    needs_sudo=true
+  fi
+  
+  # Install/update package globally
+  if [ "$needs_sudo" = true ]; then
+    if __sudo npm install -g "$package" >/dev/null 2>&1; then
+      local version="$(__get_version "$name")"
+      if [ -n "$version" ]; then
+        printf_green "$name installed: $version"
+      else
+        printf_green "$name installed"
+      fi
     else
-      printf_green "$name installed"
+      exitCode=1
+      printf_red "Failed to install $name"
     fi
   else
-    exitCode=1
-    printf_red "Failed to install $name"
+    # Either we have write access or we'll use user prefix
+    if [ -n "$npm_root" ] && [ -w "$npm_root" ]; then
+      # Global install with write access
+      if npm install -g "$package" >/dev/null 2>&1; then
+        local version="$(__get_version "$name")"
+        if [ -n "$version" ]; then
+          printf_green "$name installed: $version"
+        else
+          printf_green "$name installed"
+        fi
+      else
+        exitCode=1
+        printf_red "Failed to install $name"
+      fi
+    else
+      # User prefix install
+      export npm_config_prefix="$HOME/.local"
+      export PATH="$HOME/.local/bin:$PATH"
+      if npm install -g "$package" >/dev/null 2>&1; then
+        local version="$(__get_version "$name")"
+        if [ -n "$version" ]; then
+          printf_green "$name installed: $version"
+        else
+          printf_green "$name installed"
+        fi
+      else
+        exitCode=1
+        printf_red "Failed to install $name"
+      fi
+    fi
   fi
   
   return $exitCode

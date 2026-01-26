@@ -529,6 +529,7 @@ __curl() { curl -q -LSsf "$@" 2>/dev/null || return 1; }
 __get_releases() { __curl "$1" | jq -r '.[].name' | grep -vE 'beta|dev' | sort -rV | head -n1 || return 1; }
 __get_release_info() { __curl "$1" | grep "$2" 2>/dev/null | cut -d '"' -f 4 2>/dev/null | grep "${3:-^}" 2>/dev/null; }
 __is_dir_empty() { if [ "$(find "$1" -maxdepth 1 -type f 2>/dev/null | grep -v '^$' | wc -l)" != 0 ]; then return 1; fi; }
+__dir_has_content() { [ "$(ls -A "$1" 2>/dev/null | head -1)" ] && return 0 || return 1; }
 __dir_has_one_folder() { if [ "$(find "$1" -maxdepth 1 -type d 2>/dev/null | grep -v '^$' | wc -l)" != 1 ]; then return 1; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __rm() { [ -n "$1" ] && [ -e "$1" ] && \rm -Rf "$@"; }
@@ -1258,12 +1259,12 @@ __download_extract_all() {
 __download_extract_move() {
   local exitCode=0
   local url="$1" name="$(__basename "$1")" && shift 1
-  local extract_cmd=""
+  local extract_cmd_arg=""
   SETUPMGR_TEMP_EXTRACT_FILE=$SETUPMGR_TEMP_DIR/$name
 
   # Check if first arg is do_not_strip_components flag
   if [ "$1" = "do_not_strip_components" ]; then
-    extract_cmd="do_not_strip_components"
+    extract_cmd_arg="do_not_strip_components"
     shift 1
   fi
 
@@ -1278,7 +1279,8 @@ __download_extract_move() {
   [ -n "$SETUPMGR_TEMP_EXTRACT_FILE" ] && { __rm "$SETUPMGR_TEMP_EXTRACT_FILE" || true; } || return
   if __curl "$url" -o "$SETUPMGR_TEMP_EXTRACT_FILE"; then
     tmpFile="$SETUPMGR_TEMP_EXTRACT_FILE"
-    __extract "$SETUPMGR_TEMP_EXTRACT_FILE" "--files" "$@" || exitCode=1
+    # Pass extract_cmd as environment variable for __extract to use
+    extract_cmd="$extract_cmd_arg" __extract "$SETUPMGR_TEMP_EXTRACT_FILE" "--files" "$@" || exitCode=1
   else
     exitCode=1
   fi
@@ -1407,14 +1409,15 @@ _tar_extract() {
     case "$tmpFile" in
     *.tar) tar xf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
     *.tgz) tar xzf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
-    *.tbz2) tar xjf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *.tbz | *.tbz2) tar xjf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
     *.tar.gz) tar xzf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
     *.tar.xz) tar xJf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
     *.tar.bz2) tar xjf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
     *) return ;;
     esac
   fi
-  __is_dir_empty "$PACKAGE_TMP_DIR" && exitEXCode=1
+  # Check if directory has any contents (files or directories)
+  [ "$(ls -A "$PACKAGE_TMP_DIR" 2>/dev/null | head -1)" ] || exitEXCode=1
   return $exitEXCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1434,12 +1437,12 @@ __extract() {
       case "$tmpFile" in
       *.Z) uncompress "$tmpFile" >/dev/null 2>&1 || exitEXCode=1 ;;
       *.zip) [ "$extract_cmd" = "do_not_strip_components" ] && unzip -j "$tmpFile" -d "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || unzip "$tmpFile" -d "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
-      *.tar) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && ! __is_dir_empty "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
-      *.tgz) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && ! __is_dir_empty "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
-      *.tbz2) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && ! __is_dir_empty "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
-      *.tar.gz) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && ! __is_dir_empty "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
-      *.tar.xz) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xJf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && ! __is_dir_empty "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
-      *.tar.bz2) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && ! __is_dir_empty "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+      *.tar) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+      *.tgz) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+      *.tbz | *.tbz2) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+      *.tar.gz) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+      *.tar.xz) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xJf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+      *.tar.bz2) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
       *) printf_red "$tmpFile is not a valid archive file" && exitEXCode=1 ;;
       esac
       if [ $exitEXCode = 0 ]; then
@@ -1477,7 +1480,9 @@ __extract() {
           else
             find_extracted="$(find "$PACKAGE_TMP_DIR" -name "$1" -type f 2>/dev/null | grep -E "^$1$|/$1$" | head -n1)"
           fi
-          if [ -x "$find_extracted" ]; then
+          # Ensure file is executable before moving
+          [ -f "$find_extracted" ] && chmod +x "$find_extracted" 2>/dev/null
+          if [ -f "$find_extracted" ]; then
             __move_extracted_file "$find_extracted" "$2" || exitCode=1
           elif [ -d "$1" ]; then
             binDir="$1" && shift 1
@@ -3052,7 +3057,48 @@ __setup_nix() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_helm() {
-  __install_from_archive "helm" "helm/helm" "$SETUPMGR_DEFAULT_BIN_DIR"
+  local exitCode=0
+  local name="helm"
+  local arch="$(uname -m)"
+  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/helm/helm/releases/latest"
+  local version=""
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+
+  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
+
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+
+  version="$(__get_release_info "$release_url" '"tag_name"')"
+
+  # Helm binaries are hosted on get.helm.sh, not as GitHub release assets
+  case $arch in
+  x86_64) download_url="https://get.helm.sh/helm-${version}-linux-amd64.tar.gz" ;;
+  aarch64 | arm64) download_url="https://get.helm.sh/helm-${version}-linux-arm64.tar.gz" ;;
+  armv7l) download_url="https://get.helm.sh/helm-${version}-linux-arm.tar.gz" ;;
+  *)
+    printf_red "Unsupported architecture: $arch"
+    return 1
+    ;;
+  esac
+
+  if [ -z "$version" ] || [ -z "$download_url" ]; then
+    printf_red "Failed to determine download URL for $name"
+    return 1
+  fi
+
+  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name $version installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_helix() {
@@ -3441,7 +3487,6 @@ __setup_bob() {
   local arch="$(uname -m)"
   local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
   local release_url="https://api.github.com/repos/MordechaiHadad/bob/releases/latest"
-  extract_cmd="do_not_strip_components"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
   x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux-x86_64-openssl.zip\$")" ;;
@@ -3452,7 +3497,7 @@ __setup_bob() {
   else
     printf_green "Installing $name"
   fi
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
+  if __download_extract_move "$download_url" do_not_strip_components "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     mkdir -p "$HOME/.local/share/bob"
 
     if [ ! -f "$HOME/.config/bob/config.json" ]; then
@@ -3475,7 +3520,70 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_broot() {
-  __install_from_archive "broot" "Canop/broot" "$SETUPMGR_DEFAULT_BIN_DIR"
+  local exitCode=0
+  local name="broot"
+  local arch="$(uname -m)"
+  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/Canop/broot/releases/latest"
+  local version=""
+  local extract_path=""
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+
+  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
+
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+
+  version="$(__get_release_info "$release_url" '"tag_name"')"
+
+  # broot uses a single zip with all platform binaries inside platform directories
+  download_url="https://github.com/Canop/broot/releases/download/${version}/broot_${version#v}.zip"
+
+  case $arch in
+  x86_64) extract_path="x86_64-unknown-linux-gnu/broot" ;;
+  aarch64 | arm64) extract_path="aarch64-unknown-linux-gnu/broot" ;;
+  armv7l) extract_path="armv7-unknown-linux-gnueabihf/broot" ;;
+  *)
+    printf_red "Unsupported architecture: $arch"
+    return 1
+    ;;
+  esac
+
+  if [ -z "$version" ] || [ -z "$download_url" ]; then
+    printf_red "Failed to determine download URL for $name"
+    return 1
+  fi
+
+  # Download and extract specific binary from the multi-platform zip
+  [ -d "$PACKAGE_TMP_DIR" ] || mkdir -p "$PACKAGE_TMP_DIR"
+  local tmpFile="$SETUPMGR_TEMP_DIR/broot.zip"
+  __rm "$tmpFile" 2>/dev/null || true
+
+  if __curl "$download_url" -o "$tmpFile"; then
+    unzip -j -o "$tmpFile" "$extract_path" -d "$PACKAGE_TMP_DIR" >/dev/null 2>&1
+    if [ -f "$PACKAGE_TMP_DIR/$name" ]; then
+      mv -f "$PACKAGE_TMP_DIR/$name" "$binFile" && chmod +x "$binFile"
+      if __is_installed "$name" "$binFile"; then
+        __install_to_system_bin "$binFile"
+        printf_green "$name $version installed to $binFile"
+      else
+        exitCode=1
+        printf_red "Failed to install $name"
+      fi
+    else
+      exitCode=1
+      printf_red "Failed to extract $name from archive"
+    fi
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+
+  __rm "$tmpFile" 2>/dev/null || true
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_opentofu() {
@@ -4662,11 +4770,92 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_btop() {
-  __install_from_archive "btop" "aristocratos/btop" "$SETUPMGR_DEFAULT_BIN_DIR"
+  local exitCode=0
+  local name="btop"
+  local arch="$(uname -m)"
+  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/aristocratos/btop/releases/latest"
+  local version=""
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+
+  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
+
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+
+  version="$(__get_release_info "$release_url" '"tag_name"')"
+
+  case $arch in
+  x86_64) download_url="https://github.com/aristocratos/btop/releases/download/${version}/btop-x86_64-unknown-linux-musl.tbz" ;;
+  aarch64 | arm64) download_url="https://github.com/aristocratos/btop/releases/download/${version}/btop-aarch64-unknown-linux-musl.tbz" ;;
+  armv7l) download_url="https://github.com/aristocratos/btop/releases/download/${version}/btop-armv7-unknown-linux-musleabi.tbz" ;;
+  *)
+    printf_red "Unsupported architecture: $arch"
+    return 1
+    ;;
+  esac
+
+  if [ -z "$version" ] || [ -z "$download_url" ]; then
+    printf_red "Failed to determine download URL for $name"
+    return 1
+  fi
+
+  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name $version installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_bottom() {
-  __install_from_archive "btm" "ClementTsang/bottom" "$SETUPMGR_DEFAULT_BIN_DIR"
+  local exitCode=0
+  local name="btm"
+  local arch="$(uname -m)"
+  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/ClementTsang/bottom/releases/latest"
+  local version=""
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+
+  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
+
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+
+  version="$(__get_release_info "$release_url" '"tag_name"')"
+
+  case $arch in
+  x86_64) download_url="https://github.com/ClementTsang/bottom/releases/download/${version}/bottom_x86_64-unknown-linux-musl.tar.gz" ;;
+  aarch64 | arm64) download_url="https://github.com/ClementTsang/bottom/releases/download/${version}/bottom_aarch64-unknown-linux-musl.tar.gz" ;;
+  armv7l) download_url="https://github.com/ClementTsang/bottom/releases/download/${version}/bottom_armv7-unknown-linux-musleabi.tar.gz" ;;
+  *)
+    printf_red "Unsupported architecture: $arch"
+    return 1
+    ;;
+  esac
+
+  if [ -z "$version" ] || [ -z "$download_url" ]; then
+    printf_red "Failed to determine download URL for $name"
+    return 1
+  fi
+
+  # Archive has binary at root level, don't strip components
+  if __download_extract_move "$download_url" do_not_strip_components "$name" "$binFile" && __is_installed "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name $version installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_bandwhich() {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202512191052-git
+##@Version           :  202601261105-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Added git lock file detection with stale lock removal
+# @@Changelog        :  Enhanced AI error detection with rate limit handling
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202512191052-git"
+VERSION="202601261105-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -2269,23 +2269,66 @@ __check_ai_error() {
   if [ -z "$error_output" ]; then
     return 0
   fi
-  if echo "$error_output" | grep -qiE 'rate limit|limit reached|too many requests|quota exceeded|usage limit'; then
-    printf_red "❌ $display_name: Rate limit reached. Please try again later."
+  # Rate limit patterns (various providers)
+  if echo "$error_output" | grep -qiE 'rate.?limit|limit.?reached|too many requests|quota.?exceeded|usage.?limit|spending.?limit|billing|credits?.?(exhausted|exceeded|limit)|usage.?cap|overloaded|server.?busy|capacity|429|rate_limit_error|overloaded_error|resource.?exhausted|throttl'; then
+    printf_red "❌ $display_name: Rate limit or quota exceeded. Please try again later."
+    GITCOMMIT_AI_RATE_LIMITED="true"
+    export GITCOMMIT_AI_RATE_LIMITED
     return 1
-  elif echo "$error_output" | grep -qiE 'unauthorized|authentication|invalid.*token|invalid.*key|api.*key|credentials'; then
+  # Authentication/authorization patterns
+  elif echo "$error_output" | grep -qiE 'unauthorized|authentication|invalid.?(token|key|api)|api.?key|credentials|403|401|permission.?denied|access.?denied|not.?authorized'; then
     printf_red "❌ $display_name: Authentication failed. Check your API credentials."
     return 1
-  elif echo "$error_output" | grep -qiE 'timeout|timed out|connection.*refused|network.*error|unable to connect'; then
+  # Network/connectivity patterns
+  elif echo "$error_output" | grep -qiE 'timeout|timed.?out|connection.?(refused|reset|failed)|network.?error|unable to connect|unreachable|dns|resolve|ECONNREFUSED|ETIMEDOUT|ENOTFOUND'; then
     printf_yellow "⚠️  $display_name: Network error or timeout."
     return 1
-  elif echo "$error_output" | grep -qiE 'not found|command not found|no such file|cannot find'; then
+  # Command/installation patterns
+  elif echo "$error_output" | grep -qiE 'not found|command not found|no such file|cannot find|not.?installed'; then
     printf_yellow "⚠️  $display_name: Command not found or not properly installed."
     return 1
-  elif echo "$error_output" | grep -qiE 'model.*not.*found|no.*model|model.*unavailable'; then
-    printf_yellow "⚠️  $display_name: Model not found or not loaded."
+  # Model availability patterns
+  elif echo "$error_output" | grep -qiE 'model.?(not.?found|unavailable|does.?not.?exist)|no.?model|invalid.?model|unknown.?model'; then
+    printf_yellow "⚠️  $display_name: Model not found or unavailable."
     return 1
-  elif echo "$error_output" | grep -qiE 'error|failed|exception'; then
+  # Service unavailable patterns
+  elif echo "$error_output" | grep -qiE '500|502|503|504|service.?unavailable|internal.?error|server.?error|maintenance|temporarily.?unavailable'; then
+    printf_yellow "⚠️  $display_name: Service temporarily unavailable."
+    return 1
+  # Content policy / safety patterns
+  elif echo "$error_output" | grep -qiE 'content.?policy|safety|blocked|filtered|inappropriate|violation'; then
+    printf_yellow "⚠️  $display_name: Request blocked by content policy."
+    return 1
+  # Generic error patterns
+  elif echo "$error_output" | grep -qiE '^error|failed|exception|fatal'; then
     printf_yellow "⚠️  $display_name: $(echo "$error_output" | head -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    return 1
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if AI result itself contains error indicators
+__check_ai_result_for_errors() {
+  local result="$1"
+  local display_name="${2:-AI}"
+  if [ -z "$result" ]; then
+    return 1  # Empty result is an error
+  fi
+  # Check for rate limit messages in the result
+  if echo "$result" | grep -qiE 'rate.?limit|quota.?exceeded|too many requests|limit.?reached|try again later|overloaded|capacity|throttl'; then
+    printf_red "❌ $display_name: Rate limit detected in response."
+    GITCOMMIT_AI_RATE_LIMITED="true"
+    export GITCOMMIT_AI_RATE_LIMITED
+    return 1
+  fi
+  # Check for error JSON responses
+  if echo "$result" | grep -qE '^\s*\{.*"error".*\}|"type"\s*:\s*"error"|"status"\s*:\s*"error"'; then
+    printf_yellow "⚠️  $display_name: Error response received."
+    return 1
+  fi
+  # Check for HTML error pages
+  if echo "$result" | grep -qiE '^<!DOCTYPE|^<html|<title>.*error.*</title>|<h1>.*error.*</h1>'; then
+    printf_yellow "⚠️  $display_name: Received HTML error page instead of response."
     return 1
   fi
   return 0
@@ -2414,10 +2457,15 @@ $diff_content"
   # Helper function to parse AI result
   __parse_ai_result() {
     local res="$1"
+    local ai_name="${2:-AI}"
     local found_valid=""
     # Check for empty result
     if [ -z "$res" ]; then
       printf_yellow "⚠️  AI returned empty response"
+      return 1
+    fi
+    # Check for rate limits and other errors in result content
+    if ! __check_ai_result_for_errors "$res" "$ai_name"; then
       return 1
     fi
     # Check for obvious error responses in the result itself
@@ -2613,119 +2661,108 @@ $diff_content"
     fi
   fi
 
+  # Reset rate limit flag at start
+  GITCOMMIT_AI_RATE_LIMITED=""
+
   # Try local AI clients first (prefer local over cloud)
 
   # Try ollama
-  if __cmd_exists ollama; then
+  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists ollama; then
     local ollama_model=""
     ollama_model="$(ollama list 2>/dev/null | tail -n +2 | head -n1 | awk '{print $1}')"
     if [ -n "$ollama_model" ]; then
-      result="$(ollama run "$ollama_model" "$prompt" 2>/dev/null | grep -v '^$')"
-      __parse_ai_result "$result" && return 0
+      error_output="$(mktemp)"
+      result="$(ollama run "$ollama_model" "$prompt" 2>"$error_output" | grep -v '^$')"
+      [ -s "$error_output" ] && __check_ai_error "ollama" "$(<"$error_output")" "Ollama"
+      rm -f "$error_output"
+      __parse_ai_result "$result" "Ollama" && return 0
     fi
   fi
 
   # Try llama.cpp (llama-cli or main)
-  if __cmd_exists llama-cli; then
+  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists llama-cli; then
     error_output="$(mktemp)"
     result="$(llama-cli -p "$prompt" --no-display-prompt 2>"$error_output" | grep -v '^$')"
-    if [ -s "$error_output" ]; then
-      __check_ai_error "llama-cli" "$(<"$error_output")" "Llama.cpp CLI"
-    fi
+    [ -s "$error_output" ] && __check_ai_error "llama-cli" "$(<"$error_output")" "Llama.cpp CLI"
     rm -f "$error_output"
-    __parse_ai_result "$result" && return 0
-  elif __cmd_exists llama-cpp; then
+    __parse_ai_result "$result" "Llama.cpp CLI" && return 0
+  elif [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists llama-cpp; then
     error_output="$(mktemp)"
     result="$(llama-cpp -p "$prompt" --no-display-prompt 2>"$error_output" | grep -v '^$')"
-    if [ -s "$error_output" ]; then
-      __check_ai_error "llama-cpp" "$(<"$error_output")" "Llama.cpp"
-    fi
+    [ -s "$error_output" ] && __check_ai_error "llama-cpp" "$(<"$error_output")" "Llama.cpp"
     rm -f "$error_output"
-    __parse_ai_result "$result" && return 0
+    __parse_ai_result "$result" "Llama.cpp" && return 0
   fi
 
   # Try llamafile
-  if __cmd_exists llamafile; then
+  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists llamafile; then
     error_output="$(mktemp)"
     result="$(llamafile -p "$prompt" --no-display-prompt 2>"$error_output" | grep -v '^$')"
-    if [ -s "$error_output" ]; then
-      __check_ai_error "llamafile" "$(<"$error_output")" "Llamafile"
-    fi
+    [ -s "$error_output" ] && __check_ai_error "llamafile" "$(<"$error_output")" "Llamafile"
     rm -f "$error_output"
-    __parse_ai_result "$result" && return 0
+    __parse_ai_result "$result" "Llamafile" && return 0
   fi
 
   # Try gpt4all
-  if __cmd_exists gpt4all-cli; then
+  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists gpt4all-cli; then
     error_output="$(mktemp)"
     result="$(gpt4all-cli "$prompt" 2>"$error_output" | grep -v '^$')"
-    if [ -s "$error_output" ]; then
-      __check_ai_error "gpt4all-cli" "$(<"$error_output")" "GPT4All"
-    fi
+    [ -s "$error_output" ] && __check_ai_error "gpt4all-cli" "$(<"$error_output")" "GPT4All"
     rm -f "$error_output"
-    __parse_ai_result "$result" && return 0
+    __parse_ai_result "$result" "GPT4All" && return 0
   fi
 
   # Try lmstudio CLI
-  if __cmd_exists lms; then
+  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists lms; then
     error_output="$(mktemp)"
     result="$(echo "$prompt" | lms chat 2>"$error_output" | grep -v '^$')"
-    if [ -s "$error_output" ]; then
-      __check_ai_error "lms" "$(<"$error_output")" "LM Studio"
-    fi
+    [ -s "$error_output" ] && __check_ai_error "lms" "$(<"$error_output")" "LM Studio"
     rm -f "$error_output"
-    __parse_ai_result "$result" && return 0
+    __parse_ai_result "$result" "LM Studio" && return 0
   fi
 
-  # Try cloud AI clients
+  # Try cloud AI clients (skip if rate limited from local attempts)
 
   # Try claude CLI
-  if __cmd_exists claude; then
+  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists claude; then
     error_output="$(mktemp)"
     result="$(claude -p "$prompt" --allowedTools "" 2>"$error_output" | grep -v '^$')"
-    if [ -s "$error_output" ]; then
-      if ! __check_ai_error "claude" "$(<"$error_output")" "Claude AI"; then
-        rm -f "$error_output"
-      fi
-    fi
+    [ -s "$error_output" ] && __check_ai_error "claude" "$(<"$error_output")" "Claude AI"
     rm -f "$error_output"
-    __parse_ai_result "$result" && return 0
+    __parse_ai_result "$result" "Claude AI" && return 0
   fi
 
   # Try codex CLI
-  if __cmd_exists codex; then
+  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists codex; then
     error_output="$(mktemp)"
     result="$(codex exec "$prompt" 2>"$error_output" | grep -v '^$')"
-    if [ -s "$error_output" ]; then
-      __check_ai_error "codex" "$(<"$error_output")" "Codex AI"
-    fi
+    [ -s "$error_output" ] && __check_ai_error "codex" "$(<"$error_output")" "Codex AI"
     rm -f "$error_output"
-    __parse_ai_result "$result" && return 0
+    __parse_ai_result "$result" "Codex AI" && return 0
   fi
 
   # Try GitHub Copilot CLI
-  if __cmd_exists copilot; then
+  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists copilot; then
     error_output="$(mktemp)"
     result="$(copilot -p "$prompt" --allow-all-tools 2>"$error_output" | grep -v '^$')"
-    if [ -s "$error_output" ]; then
-      __check_ai_error "copilot" "$(<"$error_output")" "GitHub Copilot"
-    fi
+    [ -s "$error_output" ] && __check_ai_error "copilot" "$(<"$error_output")" "GitHub Copilot"
     rm -f "$error_output"
-    __parse_ai_result "$result" && return 0
+    __parse_ai_result "$result" "GitHub Copilot" && return 0
   fi
 
   # Try GitHub Copilot via gh extension
-  if __cmd_exists gh && gh extension list 2>/dev/null | grep -q 'copilot'; then
+  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists gh && gh extension list 2>/dev/null | grep -q 'copilot'; then
     error_output="$(mktemp)"
     result="$(echo "$prompt" | gh copilot suggest -t shell 2>"$error_output" | grep -v '^$')"
-    if [ -s "$error_output" ]; then
-      __check_ai_error "gh-copilot" "$(<"$error_output")" "GitHub Copilot (via gh)"
-    fi
+    [ -s "$error_output" ] && __check_ai_error "gh-copilot" "$(<"$error_output")" "GitHub Copilot (via gh)"
     rm -f "$error_output"
-    __parse_ai_result "$result" && return 0
+    __parse_ai_result "$result" "GitHub Copilot (via gh)" && return 0
   fi
 
   # Fallback to auto-generated message
+  if [ "$GITCOMMIT_AI_RATE_LIMITED" = "true" ]; then
+    printf_yellow "⚠️  Rate limited - using auto-generated message"
+  fi
   local auto_result="$(__auto_generate_message "$changed_files" "")"
   local auto_message="${auto_result%|*}"
   local auto_emoji="${auto_result#*|}"

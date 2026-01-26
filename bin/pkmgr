@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202601060957-git
+##@Version           :  202601261050-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 19, 2022 16:56 EDT
 # @@File             :  pkmgr
 # @@Description      :  Manage system packages
-# @@Changelog        :  Scripts update now cached every 6 hours instead of every run
+# @@Changelog        :  Added automatic PGP keyring recovery for pacman signature errors
 # @@TODO             :  Add BSD support
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202601060957-git"
+VERSION="202601261050-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -328,6 +328,100 @@ __is_url() { echo "${1:-$url}" | grep -qE '^http://|^https://|^ftp://' || return
 __logging() {
   # Deprecated - kept for compatibility
   cat
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if output contains PGP/signature errors (pacman specific)
+__has_pgp_error() {
+  local output="$1"
+  echo "$output" | grep -qiE 'unknown trust|invalid.*signature|corrupted.*PGP|signature.*invalid|key.*could not be looked up|required key missing'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Detect Arch-based distribution for pacman-key --populate
+__detect_arch_distro() {
+  if grep -qi "cachyos" /etc/os-release 2>/dev/null; then
+    echo "cachyos"
+  elif grep -qi "manjaro" /etc/os-release 2>/dev/null; then
+    echo "manjaro"
+  elif grep -qi "arcolinux" /etc/os-release 2>/dev/null; then
+    echo "arcolinux"
+  elif grep -qi "endeavouros" /etc/os-release 2>/dev/null; then
+    echo "endeavouros"
+  else
+    echo "archlinux"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Core pacman keyring fix logic (used by keys command and auto-recovery)
+__pacman_reinit_keyring() {
+  local distro_keys="${1:-$(__detect_arch_distro)}"
+  local fix_broken="${2:-false}"
+  local exit_code=0
+  # Update mirrorlist
+  __default_mirror_list_archlinux | sudo tee -p /etc/pacman.d/mirrorlist &>/dev/null
+  # Remove existing gnupg directories
+  sudo rm -Rf "/root/.gnupg/" "/etc/pacman.d/gnupg/" &>/dev/null
+  # Handle broken mode - temporarily disable signature checking
+  if [ "$fix_broken" = "true" ] && [ -f "/etc/pacman.conf" ]; then
+    sudo cp -Rf "/etc/pacman.conf" "$PKMGR_TEMP_DIR/pacman.conf"
+    sudo sed -i "s|SigLevel.*=.*|SigLevel = Optional TrustAll|g" "/etc/pacman.conf"
+    __execute "sudo reflector -f 30 -l 30 --number 10 --verbose --save /etc/pacman.d/mirrorlist 2>/dev/null >&1" "${CYAN}Updating the mirrors"
+    printf_cyan "Attempting to fix pacman signatures"
+  fi
+  # Refresh GPG keys
+  sudo gpg --refresh-keys >/dev/null 2>&1
+  # Reinitialize and populate pacman keys
+  __execute "sudo pacman-key --init >/dev/null 2>&1" "Initializing pacman key" || exit_code=$((exit_code + 1))
+  __execute "sudo pacman-key --populate $distro_keys >/dev/null 2>&1" "Populating the keys" || exit_code=$((exit_code + 1))
+  __execute "sudo pacman-key --refresh-keys >/dev/null 2>&1" "Refreshing the keys" || exit_code=$((exit_code + 1))
+  __execute "sudo pacman -Syyu --noconfirm >/dev/null 2>&1" "${YELLOW}Updating packages" || exit_code=$((exit_code + 1))
+  # Restore pacman.conf if we backed it up
+  if [ -f "$PKMGR_TEMP_DIR/pacman.conf" ]; then
+    if [ "$fix_broken" = "true" ]; then
+      sudo cp -Rf "$PKMGR_TEMP_DIR/pacman.conf" "/etc/pacman.broken.conf"
+    else
+      sudo cp -Rf "$PKMGR_TEMP_DIR/pacman.conf" "/etc/pacman.conf"
+    fi
+  fi
+  return $exit_code
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute pacman command with automatic keyring recovery
+__exec_pacman_with_recovery() {
+  local cmd="$*"
+  local temp_output
+  local exit_code=0
+  temp_output=$(mktemp 2>/dev/null || echo "/tmp/pkmgr_output.$$")
+  # First attempt - capture output to check for errors
+  if command -v script >/dev/null 2>&1; then
+    script -qefc "$cmd" /dev/null 2>&1 | tee "$temp_output"
+    exit_code=${PIPESTATUS[0]}
+  elif command -v stdbuf >/dev/null 2>&1; then
+    stdbuf -o0 -e0 bash -c "$cmd" 2>&1 | tee "$temp_output"
+    exit_code=${PIPESTATUS[0]}
+  else
+    bash -c "$cmd" 2>&1 | tee "$temp_output"
+    exit_code=${PIPESTATUS[0]}
+  fi
+  # Check for PGP errors and attempt recovery
+  if [ $exit_code -ne 0 ] && __has_pgp_error "$(cat "$temp_output" 2>/dev/null)"; then
+    printf_yellow "Detected PGP/signature error, attempting automatic recovery..."
+    if __pacman_reinit_keyring "$(__detect_arch_distro)" "false"; then
+      printf_cyan "Retrying package operation..."
+      # Retry the command
+      if command -v script >/dev/null 2>&1; then
+        script -qefc "$cmd" /dev/null 2>&1
+        exit_code=$?
+      elif command -v stdbuf >/dev/null 2>&1; then
+        stdbuf -o0 -e0 bash -c "$cmd" 2>&1
+        exit_code=$?
+      else
+        bash -c "$cmd" 2>&1
+        exit_code=$?
+      fi
+    fi
+  fi
+  rm -f "$temp_output" 2>/dev/null
+  return $exit_code
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute package manager commands with real-time output
@@ -1338,29 +1432,20 @@ __execute_pkmgr() {
     shift 1
     exitCode=0
     if __cmd_exists pacman-key; then
-      [ "$1" = "help" ] && printf_exit 2 0 "Usage: $APPNAME keys [broken] [arch,manjaro,arcolinux] - Manage arch keys"
+      [ "$1" = "help" ] && printf_exit 2 0 "Usage: $APPNAME keys [broken] [arch,manjaro,arcolinux,cachyos,endeavouros] - Manage arch keys"
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "keys" "pacman-key $*"
-      [ "$1" = "broken" ] && PKMGR_FIX_BROKEN="true" && shift 1 && printf_yellow "Updating mirrors file and deleting gpg keys"
-      (
-        __default_mirror_list_archlinux | sudo tee -p /etc/pacman.d/mirrorlist &>/dev/null
-        sudo rm -Rf "/root/.gnupg/" "/etc/pacman.d/gnupg/" &>/dev/null
-        if [ "$PKMGR_FIX_BROKEN" = "true" ]; then
-          if [ -f "/etc/pacman.conf" ]; then
-            sudo cp -Rf "/etc/pacman.conf" "$PKMGR_TEMP_DIR/pacman.conf"
-            sudo sed -i "s|SigLevel.*=.*|SigLevel = Optional TrustAll|g" "/etc/pacman.conf"
-          fi
-          __execute "sudo reflector -f 30 -l 30 --number 10 --verbose --save /etc/pacman.d/mirrorlist 2>/dev/null >&1" "${CYAN}Updating the mirrors"
-          printf_cyan "Attempting to fix pacman signatures"
-        fi
-        sudo gpg --refresh-keys >/dev/null 2>&1
-        __execute "sudo pacman-key --init >/dev/null 2>&1" "Initializing pacman key"
-        __execute "sudo pacman-key --populate ${1:-archlinux} >/dev/null 2>&1" "Populating the keys"
-        __execute "sudo pacman-key --refresh-keys >/dev/null 2>&1" "Refreshing the keys"
-        __execute "sudo pacman -Syyu --noconfirm >/dev/null 2>&1" "${YELLOW}Updating packages"
-        if [ -f "$PKMGR_TEMP_DIR/pacman.conf" ]; then
-          [ "$PKMGR_FIX_BROKEN" = "true" ] && sudo cp -Rf "$PKMGR_TEMP_DIR/pacman.conf" "/etc/pacman.broken.conf" || cp -Rf "$PKMGR_TEMP_DIR/pacman.conf" "/etc/pacman.conf"
-        fi
-      ) || exitCode=$((exitCode + 1))
+      local fix_broken="false"
+      local distro_keys=""
+      # Parse arguments
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          broken) fix_broken="true"; printf_yellow "Updating mirrors file and deleting gpg keys"; shift ;;
+          *) distro_keys="$1"; shift ;;
+        esac
+      done
+      # Use provided distro or auto-detect
+      [ -z "$distro_keys" ] && distro_keys="$(__detect_arch_distro)"
+      __pacman_reinit_keyring "$distro_keys" "$fix_broken" || exitCode=$((exitCode + 1))
     else
       printf_error "This is only supported on Arch based distros"
       exitCode=1
@@ -1466,9 +1551,13 @@ __execute_pkmgr() {
     am_i_online --error || exit 1
     declare -a LISTARRAY=("$@")
     __init_log_status "install" "$pkgmgrbinins ${LISTARRAY[*]}"
-    #for pkg in "${LISTARRAY[@]}"; do
-    __exec_unbuffered "$pkgmgrbinins $*" || exitCode=$((exitCode + 1))
-    [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"
+    # Use recovery-enabled function for pacman-based systems
+    if __cmd_exists pacman-key && echo "$pkgmgrbinins" | grep -q pacman; then
+      __exec_pacman_with_recovery "$pkgmgrbinins $*" || exitCode=$((exitCode + 1))
+    else
+      __exec_unbuffered "$pkgmgrbinins $*" || exitCode=$((exitCode + 1))
+    fi
+    [ $exitCode -eq 0 ] && __write_log_status "install was successful" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
     ;;
 
@@ -1487,7 +1576,12 @@ __execute_pkmgr() {
       fi
     fi
     printf_cyan "Updating system packages"
-    eval $pkgmgrbinupd "$@" || exitCode=$((exitCode + 1))
+    # Use recovery-enabled function for pacman-based systems
+    if __cmd_exists pacman-key && echo "$pkgmgrbinupd" | grep -q pacman; then
+      __exec_pacman_with_recovery "$pkgmgrbinupd $*" || exitCode=$((exitCode + 1))
+    else
+      eval $pkgmgrbinupd "$@" || exitCode=$((exitCode + 1))
+    fi
     [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
     ;;

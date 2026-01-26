@@ -38,8 +38,12 @@ opentofu, packer, pipx, podman, powershell, procs, rbenv, ripgrep, rvm, speedtes
 starship, tokei, traefik, uv, vagrant, vfox, webhookd, yq, zed, zellij, zig,
 claude, copilot, codex, vercel, prettier, eslint, npm-check-updates
 
+## Other Fixes:
+- [x] pkmgr - Added automatic PGP keyring recovery for pacman signature errors on Arch/CachyOS
+
 ## Session Notes:
 - Last tested up to: lazygit (working), just (failing - pattern issue)
 - Pattern issue with just: The regex `(x86_64)[._-](unknown-)?(linux|gnu)` should match
   `x86_64-unknown-linux-musl` but grep -iE doesn't match the full URL for some reason
 - Need to debug why pattern works on filename but not on full GitHub URL
+- pkmgr now auto-detects PGP signature errors and attempts keyring recovery before retrying

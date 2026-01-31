@@ -1439,12 +1439,21 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __parse_dockerfile_labels() {
   local dockerfile="${1:-$Dockerfile}"
-  local -A annotations_map
   local annotation_string=""
   local label_accumulator=""
   local in_label=false
+  declare -A annotations_map
   
   [ ! -f "$dockerfile" ] && return 1
+  
+  # Ensure all variables are set with fallbacks for substitution
+  local _IMAGE_NAME="${IMAGE_NAME:-${image_name:-container}}"
+  local _BUILD_DATE="${BUILD_DATE:-$(date -u +'%Y%m%d%H%M')}"
+  local _BUILD_VERSION="${BUILD_VERSION:-$_BUILD_DATE}"
+  local _LICENSE="${LICENSE:-WTFPL}"
+  local _GIT_COMMIT="${GIT_COMMIT:-$(git -C "${BUILDX_CWD:-.}" rev-parse HEAD 2>/dev/null || echo 'unknown')}"
+  local _TIMEZONE="${TIMEZONE:-${TZ:-America/New_York}}"
+  local _LANGUAGE="${LANGUAGE:-en_US.UTF-8}"
   
   # Parse LABEL instructions from Dockerfile, handling multi-line LABELs with backslash
   while IFS= read -r line; do
@@ -1455,7 +1464,7 @@ __parse_dockerfile_labels() {
     if echo "$line" | grep -q '^LABEL '; then
       # Start of new LABEL, process any accumulated label first
       if [ "$in_label" = true ] && [ -n "$label_accumulator" ]; then
-        __process_label_content "$label_accumulator"
+        eval "$(__process_label_content "$label_accumulator" "$_IMAGE_NAME" "$_BUILD_DATE" "$_BUILD_VERSION" "$_LICENSE" "$_GIT_COMMIT")"
       fi
       # Start accumulating new label
       label_accumulator="$(echo "$line" | sed 's/^LABEL //')"
@@ -1472,7 +1481,7 @@ __parse_dockerfile_labels() {
       continue
     elif [ "$in_label" = true ]; then
       # No backslash, process the complete label
-      __process_label_content "$label_accumulator"
+      eval "$(__process_label_content "$label_accumulator" "$_IMAGE_NAME" "$_BUILD_DATE" "$_BUILD_VERSION" "$_LICENSE" "$_GIT_COMMIT")"
       label_accumulator=""
       in_label=false
     fi
@@ -1480,7 +1489,7 @@ __parse_dockerfile_labels() {
   
   # Process any remaining accumulated label
   if [ "$in_label" = true ] && [ -n "$label_accumulator" ]; then
-    __process_label_content "$label_accumulator"
+    eval "$(__process_label_content "$label_accumulator" "$_IMAGE_NAME" "$_BUILD_DATE" "$_BUILD_VERSION" "$_LICENSE" "$_GIT_COMMIT")"
   fi
   
   # Build annotation string from map
@@ -1494,36 +1503,45 @@ __parse_dockerfile_labels() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __process_label_content() {
   local content="$1"
+  local img_name="$2"
+  local bld_date="$3"
+  local bld_version="$4"
+  local lic="$5"
+  local git_commit="$6"
+  local output=""
   
-  # Split on spaces to handle multi-key LABELs like: LABEL key1=val1 key2=val2
-  # But be careful with quoted values that contain spaces
-  local in_quotes=false
-  local current_pair=""
-  
-  # Simple parser: split by spaces but respect quotes
+  # Use grep to extract key=value pairs, handling quotes
   while IFS= read -r pair; do
     [ -z "$pair" ] && continue
+    local key="$(echo "$pair" | cut -d'=' -f1)"
+    local value="$(echo "$pair" | cut -d'=' -f2-)"
     
-    # Extract key=value
-    local key="$(echo "$pair" | awk -F'=' '{print $1}' | tr -d ' ')"
-    local value="$(echo "$pair" | cut -d'=' -f2- | sed 's/^["'\'']\|["'\'']$//g')"
+    # Remove quotes from value
+    value="${value#\"}"
+    value="${value%\"}"
+    value="${value#\'}"
+    value="${value%\'}"
     
     # Only add if key is an OCI annotation or known metadata
     if [[ "$key" =~ ^org\.opencontainers\.image\. ]] || [[ "$key" =~ ^com\.github\. ]] || [[ "$key" == "maintainer" ]]; then
-      # Substitute common build-time variables with runtime values if available
-      value="${value//\$\{IMAGE_NAME\}/$IMAGE_NAME}"
-      value="${value//\$\{BUILD_DATE\}/$BUILD_DATE}"
-      value="${value//\$\{BUILD_VERSION\}/$BUILD_VERSION}"
-      value="${value//\$\{LICENSE\}/$LICENSE}"
-      value="${value//\$\{GIT_COMMIT\}/$GIT_COMMIT}"
+      # Substitute common build-time variables with runtime values
+      value="${value//\$\{IMAGE_NAME\}/$img_name}"
+      value="${value//\$\{BUILD_DATE\}/$bld_date}"
+      value="${value//\$\{BUILD_VERSION\}/$bld_version}"
+      value="${value//\$\{LICENSE\}/$lic}"
+      value="${value//\$\{GIT_COMMIT\}/$git_commit}"
+      value="${value//\$\{TIMEZONE\}/$TIMEZONE}"
+      value="${value//\$\{LANGUAGE\}/$LANGUAGE}"
       
       # Skip if value still contains unresolved variables
       [[ "$value" =~ \$\{.*\} ]] && continue
       
-      # Store in associative array for deduplication (last wins)
-      annotations_map["$key"]="$value"
+      # Output assignment for eval
+      output+="annotations_map[\"$key\"]=\"$value\"; "
     fi
-  done < <(echo "$content" | tr ' ' '\n' | grep '=')
+  done < <(echo "$content" | grep -oE '[a-zA-Z0-9._-]+=(\"[^\"]*\"|'\''[^'\'']*'\''|[^[:space:]]+)')
+  
+  echo "$output"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_docker_build() {

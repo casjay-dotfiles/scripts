@@ -1332,7 +1332,7 @@ __run_buildx_script() {
     printf_yellow "Using legacy docker build (buildx not available)"
     set_build_command="$BUILDX_DOCKER_CMD build,, $DOCKER_BUILD_ARGS,, --rm --pull,, --no-cache,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile} && $BUILDX_DOCKER_CMD push $tagged_name"
   else
-    set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, $DOCKER_BUILD_ARGS,, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --pull --push,, --no-cache --progress auto --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
+    set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, $DOCKER_BUILD_ARGS,, $DOCKER_ANNOTATIONS,, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --pull --push,, --no-cache --progress auto --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
   fi
   set_build_command="${set_build_command//  / }"
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
@@ -1347,8 +1347,49 @@ __run_buildx_script() {
   fi
   sleep 2
   printf 'Executing: %s\n' "$set_build_command" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
-  eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null || false
-  return $?
+  
+  # Try build with retries for push failures
+  local retry_count=0
+  local max_retries=${BUILDX_PUSH_RETRIES:-3}
+  local retry_delay=60
+  local build_exit_code=1
+  
+  while [ $retry_count -le $max_retries ]; do
+    if eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null; then
+      # Success
+      build_exit_code=0
+      break
+    else
+      build_exit_code=$?
+      retry_count=$((retry_count + 1))
+      
+      # Check if this looks like a push failure (build succeeded but push failed)
+      if tail -100 "$BUILDX_CUSTOM_LOG_FILE" 2>/dev/null | grep -qi "no active session\|context deadline\|failed to push"; then
+        if [ $retry_count -le $max_retries ]; then
+          printf_yellow "Push failed due to session timeout, retrying in ${retry_delay}s (attempt $retry_count of $max_retries)..."
+          printf '%s\n' "# Push failed, retrying in ${retry_delay}s (attempt $retry_count of $max_retries)" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
+          sleep $retry_delay
+          
+          # For retry, use cache to avoid full rebuild - remove --no-cache and --pull for faster retry
+          if [ "$retry_count" -gt 1 ]; then
+            set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, $DOCKER_BUILD_ARGS,, $DOCKER_ANNOTATIONS,, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --push,, --progress auto --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
+            set_build_command="${set_build_command//  / }"
+            set_build_command="${set_build_command//,,/}"
+            printf_cyan "Using cached layers for retry (removed --no-cache --pull)"
+            printf '%s\n' "# Retry command: $set_build_command" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
+          fi
+          
+          retry_delay=$((retry_delay + 30))  # Increase delay each retry
+        fi
+      else
+        # Build failure, not push failure - don't retry
+        printf_red "Build failed (not a push timeout), skipping retries"
+        break
+      fi
+    fi
+  done
+  
+  return $build_exit_code
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_build_script() {
@@ -1396,6 +1437,95 @@ EOF
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__parse_dockerfile_labels() {
+  local dockerfile="${1:-$Dockerfile}"
+  local -A annotations_map
+  local annotation_string=""
+  local label_accumulator=""
+  local in_label=false
+  
+  [ ! -f "$dockerfile" ] && return 1
+  
+  # Parse LABEL instructions from Dockerfile, handling multi-line LABELs with backslash
+  while IFS= read -r line; do
+    # Remove leading/trailing whitespace
+    line="$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    
+    # Check if this is a LABEL line or continuation
+    if echo "$line" | grep -q '^LABEL '; then
+      # Start of new LABEL, process any accumulated label first
+      if [ "$in_label" = true ] && [ -n "$label_accumulator" ]; then
+        __process_label_content "$label_accumulator"
+      fi
+      # Start accumulating new label
+      label_accumulator="$(echo "$line" | sed 's/^LABEL //')"
+      in_label=true
+    elif [ "$in_label" = true ]; then
+      # Continuation line - append to accumulator
+      label_accumulator+=" $line"
+    fi
+    
+    # Check if line ends with backslash (continuation)
+    if echo "$line" | grep -q '\\$'; then
+      # Remove trailing backslash and continue accumulating
+      label_accumulator="${label_accumulator%\\}"
+      continue
+    elif [ "$in_label" = true ]; then
+      # No backslash, process the complete label
+      __process_label_content "$label_accumulator"
+      label_accumulator=""
+      in_label=false
+    fi
+  done < "$dockerfile"
+  
+  # Process any remaining accumulated label
+  if [ "$in_label" = true ] && [ -n "$label_accumulator" ]; then
+    __process_label_content "$label_accumulator"
+  fi
+  
+  # Build annotation string from map
+  for key in "${!annotations_map[@]}"; do
+    local value="${annotations_map[$key]}"
+    annotation_string+=" --annotation \"${key}=${value}\""
+  done
+  
+  echo "$annotation_string"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__process_label_content() {
+  local content="$1"
+  
+  # Split on spaces to handle multi-key LABELs like: LABEL key1=val1 key2=val2
+  # But be careful with quoted values that contain spaces
+  local in_quotes=false
+  local current_pair=""
+  
+  # Simple parser: split by spaces but respect quotes
+  while IFS= read -r pair; do
+    [ -z "$pair" ] && continue
+    
+    # Extract key=value
+    local key="$(echo "$pair" | awk -F'=' '{print $1}' | tr -d ' ')"
+    local value="$(echo "$pair" | cut -d'=' -f2- | sed 's/^["'\'']\|["'\'']$//g')"
+    
+    # Only add if key is an OCI annotation or known metadata
+    if [[ "$key" =~ ^org\.opencontainers\.image\. ]] || [[ "$key" =~ ^com\.github\. ]] || [[ "$key" == "maintainer" ]]; then
+      # Substitute common build-time variables with runtime values if available
+      value="${value//\$\{IMAGE_NAME\}/$IMAGE_NAME}"
+      value="${value//\$\{BUILD_DATE\}/$BUILD_DATE}"
+      value="${value//\$\{BUILD_VERSION\}/$BUILD_VERSION}"
+      value="${value//\$\{LICENSE\}/$LICENSE}"
+      value="${value//\$\{GIT_COMMIT\}/$GIT_COMMIT}"
+      
+      # Skip if value still contains unresolved variables
+      [[ "$value" =~ \$\{.*\} ]] && continue
+      
+      # Store in associative array for deduplication (last wins)
+      annotations_map["$key"]="$value"
+    fi
+  done < <(echo "$content" | tr ' ' '\n' | grep '=')
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_docker_build() {
   set -e -o pipefail
   cd "$BUILDX_CWD" || return 1
@@ -1420,6 +1550,10 @@ __run_docker_build() {
   DOCKER_BUILD_ARGS+=" --build-arg IMAGE_NAME=\"$IMAGE_NAME\""
   DOCKER_BUILD_ARGS+=" --build-arg LICENSE=\"$LICENSE\""
   DOCKER_BUILD_ARGS+=" --build-arg TZ=\"$TZ\""
+  
+  # Parse annotations from Dockerfile LABELs with variable substitution
+  DOCKER_ANNOTATIONS="$(__parse_dockerfile_labels "$Dockerfile")"
+  
   # Process multiple registries - skip duplicates with primary registry
   if [ -n "$BUILDX_ADD_REGISTRY" ]; then
     for host in $registry; do

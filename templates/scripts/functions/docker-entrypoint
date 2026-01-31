@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511301726-git
+##@Version           :  202601310310-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -33,6 +33,19 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__log_debug() {
+  [ "$DEBUGGER" = "on" ] && echo "[DEBUG] $*" >&2
+}
+__log_info() {
+  echo "[INFO] $*"
+}
+__log_warn() {
+  echo "[WARN] $*" >&2
+}
+__log_error() {
+  echo "[ERROR] $*" >&2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __printf_space() {
   local pad=$(printf '%0.1s' " "{1..60})
   local padlength=$1
@@ -47,13 +60,21 @@ __printf_space() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __mkdir() {
   if [ -n "$1" ]; then
-    mkdir -p "$@" 2>/dev/null || true
+    if ! mkdir -p "$@" 2>/dev/null; then
+      [ "$DEBUGGER" = "on" ] && echo "Warning: Failed to create directory: $*" >&2
+      return 1
+    fi
   fi
+  return 0
 }
 __rm() {
   if [ -n "$1" ] && [ -e "$1" ]; then
-    rm -Rf "${1:?}" 2>/dev/null || true
+    if ! rm -Rf "${1:?}" 2>/dev/null; then
+      [ "$DEBUGGER" = "on" ] && echo "Warning: Failed to remove: $1" >&2
+      return 1
+    fi
   fi
+  return 0
 }
 __grep_test() {
   if grep -sh "$1" "$2" 2>/dev/null | grep -qwF "${3:-$1}"; then
@@ -63,9 +84,10 @@ __grep_test() {
   fi
 }
 __netstat() {
-  if [ -f "$(type -P netstat 2>/dev/null)" ]; then
+  if [ -n "$(command -v netstat 2>/dev/null)" ]; then
     netstat "$@" 2>/dev/null
   else
+    [ "$DEBUGGER" = "on" ] && echo "Warning: netstat command not found" >&2
     return 10
   fi
 }
@@ -227,11 +249,16 @@ __is_running() {
 }
 __get_pid() {
   local result=""
+  if [ -z "$1" ]; then
+    [ "$DEBUGGER" = "on" ] && echo "Warning: __get_pid called without process name" >&2
+    return 1
+  fi
   result="$(ps -ax --no-header 2>/dev/null | sed 's/^[[:space:]]*//g;s|;||g;s|:||g' | awk '{print $1,$5}' | sed 's|:||g' | grep "$1$" | grep -v 'grep' | awk -F' ' '{print $1}' | grep '[0-9]' | sort -uV | head -n1 | grep '.' 2>/dev/null || echo '')"
   if [ -n "$result" ]; then
     echo "$result"
     return 0
   else
+    [ "$DEBUGGER" = "on" ] && echo "Debug: No PID found for process: $1" >&2
     return 1
   fi
 }
@@ -777,13 +804,17 @@ __fix_permissions() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_gid() { grep "^$1:" /etc/group 2>/dev/null | awk -F ':' '{print $3}' || return 1; }
 __get_uid() { grep "^$1:" /etc/passwd 2>/dev/null | awk -F ':' '{print $3}' || return 1; }
-__check_for_uid() { cat "/etc/passwd" 2>/dev/null | awk -F ':' '{print $3}' | sort -u | grep -q "^$1$" 2>/dev/null || return 1; }
-__check_for_guid() { cat "/etc/group" 2>/dev/null | awk -F ':' '{print $3}' | sort -u | grep -q "^$1$" 2>/dev/null || return 1; }
-__check_for_user() { cat "/etc/passwd" 2>/dev/null | awk -F ':' '{print $1}' | sort -u | grep -q "^$1$" 2>/dev/null || return 1; }
-__check_for_group() { cat "/etc/group" 2>/dev/null | awk -F ':' '{print $1}' | sort -u | grep -q "^$1$" 2>/dev/null || return 1; }
+__check_for_uid() { awk -F ':' '{print $3}' /etc/passwd 2>/dev/null | sort -u | grep -q "^$1$" || return 1; }
+__check_for_guid() { awk -F ':' '{print $3}' /etc/group 2>/dev/null | sort -u | grep -q "^$1$" || return 1; }
+__check_for_user() { awk -F ':' '{print $1}' /etc/passwd 2>/dev/null | sort -u | grep -q "^$1$" || return 1; }
+__check_for_group() { awk -F ':' '{print $1}' /etc/group 2>/dev/null | sort -u | grep -q "^$1$" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if process is already running
 __proc_check() {
+  # Skip process check for one-shot/configuration services
+  if [ "$SERVICE_USES_PID" = "no" ]; then
+    return 1
+  fi
   local cmd_bin cmd_name check_result
   cmd_bin="$(type -P "${1:-$EXEC_CMD_BIN}" 2>/dev/null || echo "${1:-$EXEC_CMD_BIN}")"
   cmd_name="$(basename "${cmd_bin:-${1:-$EXEC_CMD_NAME}}" 2>/dev/null)"
@@ -1401,49 +1432,83 @@ __initialize_custom_bin_dir() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_default_templates() {
+  local errors=0
   if [ -n "$DEFAULT_TEMPLATE_DIR" ]; then
     if [ "$CONFIG_DIR_INITIALIZED" = "false" ] && [ -d "/config" ]; then
-      echo "Copying default config files $DEFAULT_TEMPLATE_DIR > /config"
+      __log_info "Copying default config files $DEFAULT_TEMPLATE_DIR > /config"
+      if [ ! -d "$DEFAULT_TEMPLATE_DIR" ]; then
+        __log_warn "Template directory not found: $DEFAULT_TEMPLATE_DIR"
+        return 0
+      fi
       for create_config_template in "$DEFAULT_TEMPLATE_DIR"/*; do
-        if [ -n "$create_config_template" ]; then
+        if [ -e "$create_config_template" ]; then
           create_template_name="$(basename "$create_config_template")"
           if [ -d "$create_config_template" ]; then
-            mkdir -p "/config/$create_template_name/"
-            __is_dir_empty "/config/$create_template_name" && cp -Rf "$create_config_template/." "/config/$create_template_name/" 2>/dev/null
-          elif [ -e "$create_config_template" ]; then
-            [ -e "/config/$create_template_name" ] || cp -Rf "$create_config_template" "/config/$create_template_name" 2>/dev/null
+            mkdir -p "/config/$create_template_name/" || errors=$((errors + 1))
+            if __is_dir_empty "/config/$create_template_name"; then
+              if ! cp -Rf "$create_config_template/." "/config/$create_template_name/" 2>/dev/null; then
+                __log_warn "Failed to copy template directory: $create_template_name"
+                errors=$((errors + 1))
+              fi
+            fi
+          elif [ -f "$create_config_template" ]; then
+            if [ ! -e "/config/$create_template_name" ]; then
+              if ! cp -Rf "$create_config_template" "/config/$create_template_name" 2>/dev/null; then
+                __log_warn "Failed to copy template file: $create_template_name"
+                errors=$((errors + 1))
+              fi
+            fi
           fi
         fi
       done
       unset create_config_template create_template_name
+      __log_debug "Template initialization completed with $errors errors"
     fi
   fi
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_config_dir() {
+  local errors=0
   if [ -n "$DEFAULT_CONF_DIR" ]; then
     if [ "$CONFIG_DIR_INITIALIZED" = "false" ] && [ -d "/config" ]; then
-      echo "Copying custom config files: $DEFAULT_CONF_DIR > /config"
+      __log_info "Copying custom config files: $DEFAULT_CONF_DIR > /config"
+      if [ ! -d "$DEFAULT_CONF_DIR" ]; then
+        __log_warn "Config directory not found: $DEFAULT_CONF_DIR"
+        return 0
+      fi
       for create_config_template in "$DEFAULT_CONF_DIR"/*; do
-        create_config_name="$(basename "$create_config_template")"
-        if [ -n "$create_config_template" ]; then
+        if [ -e "$create_config_template" ]; then
+          create_config_name="$(basename "$create_config_template")"
           if [ -d "$create_config_template" ]; then
-            mkdir -p "/config/$create_config_name"
-            __is_dir_empty "/config/$create_config_name" && cp -Rf "$create_config_template/." "/config/$create_config_name/" 2>/dev/null
-          elif [ -e "$create_config_template" ]; then
-            [ -e "/config/$create_config_name" ] || cp -Rf "$create_config_template" "/config/$create_config_name" 2>/dev/null
+            mkdir -p "/config/$create_config_name" || errors=$((errors + 1))
+            if __is_dir_empty "/config/$create_config_name"; then
+              if ! cp -Rf "$create_config_template/." "/config/$create_config_name/" 2>/dev/null; then
+                __log_warn "Failed to copy config directory: $create_config_name"
+                errors=$((errors + 1))
+              fi
+            fi
+          elif [ -f "$create_config_template" ]; then
+            if [ ! -e "/config/$create_config_name" ]; then
+              if ! cp -Rf "$create_config_template" "/config/$create_config_name" 2>/dev/null; then
+                __log_warn "Failed to copy config file: $create_config_name"
+                errors=$((errors + 1))
+              fi
+            fi
           fi
         fi
       done
       unset create_config_template create_config_name
+      __log_debug "Config initialization completed with $errors errors"
     fi
   fi
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_data_dir() {
   if [ -d "/data" ]; then
     if [ "$DATA_DIR_INITIALIZED" = "false" ] && [ -n "$DEFAULT_DATA_DIR" ]; then
-      echo "Copying data files $DEFAULT_DATA_DIR > /data"
+      __log_info "Copying data files $DEFAULT_DATA_DIR > /data"
       for create_data_template in "$DEFAULT_DATA_DIR"/*; do
         create_data_name="$(basename "$create_data_template")"
         if [ -n "$create_data_template" ]; then

@@ -397,6 +397,7 @@ unset exitCodeP
 run_postinst() {
   local exitCodeP=0
   __run_prepost_install || exitCodeP=$((exitCodeP + 1))
+  # dfmgr_run_post handles: etc/, bin/, completions/, applications/
   dfmgr_run_post || exitCodeP=$((exitCodeP + 1))
   __run_post_install || exitCodeP=$((exitCodeP + 1))
   return $exitCodeP

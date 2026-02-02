@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202510072020-git
+##@Version           :  202602021103-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202510072020-git"
+VERSION="202602021103-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -262,9 +262,10 @@ __help() {
   __printf_line "1. Command line flags (--registry, --tag, --platform, etc.)"
   __printf_line "2. ENV_ variables from .env.scripts.\$version"
   __printf_line "3. ENV_ variables from .env.scripts"
-  __printf_line "4. BUILDX_ environment variables"
-  __printf_line "5. Config file (~/.config/myscripts/buildx/settings.conf)"
-  __printf_line "6. Built-in defaults"
+  __printf_line "4. ARG BUILD_PLATFORMS from Dockerfile"
+  __printf_line "5. BUILDX_ environment variables"
+  __printf_line "6. Config file (~/.config/myscripts/buildx/settings.conf)"
+  __printf_line "7. Built-in defaults"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Environment Variables"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -274,8 +275,12 @@ __help() {
   __printf_line "ENV_ADD_TAGS                    - Additional tags (v1.0,stable,USE_DATE)"
   __printf_line "ENV_ORG_NAME                    - Organization/user name"
   __printf_line "ENV_IMAGE_NAME                  - Image/repo name"
+  __printf_line "ENV_PLATFORMS                   - Build platforms from .env.scripts"
   __printf_line "BUILDX_SET_REGISTRY             - Runtime registry override (same formats)"
   __printf_line "BUILDX_DOCKER_PLATFORMS         - Build platforms (linux/amd64,linux/arm64)"
+  __printf_line ""
+  __printf_line "Dockerfile ARG:"
+  __printf_line "ARG BUILD_PLATFORMS             - Build platforms from Dockerfile"
   __printf_line ""
   __printf_line "See 'man buildx' for complete variable documentation"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -514,6 +519,8 @@ __set_variables() {
   fi
   BUILDX_VERSION_TAG="${ENV_ADD_TAGS:-$BUILDX_VERSION_TAG}"
   [ -n "$ENV_IMAGE_TAG" ] && BUILDX_SET_VERSION="$ENV_IMAGE_TAG"
+  # Handle ENV_PLATFORMS from .env.scripts (priority over Dockerfile ARG)
+  [ -n "$ENV_PLATFORMS" ] && BUILDX_DOCKER_PLATFORMS="$ENV_PLATFORMS"
   BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS// /,}"
   # Always use PROJECT_ROOT for org/repo calculations
   BUILDX_DEFAULT_REPO="${BUILDX_SET_REPO:-$(basename "$BUILDX_PROJECT_ROOT")}"
@@ -2032,6 +2039,20 @@ __detect_buildx_and_platforms() {
 }
 __detect_buildx_and_platforms
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Detect platforms from Dockerfile ARG BUILD_PLATFORMS
+__detect_dockerfile_platforms() {
+  local dockerfile="${1:-Dockerfile}"
+  local platforms=""
+  # Check if Dockerfile exists
+  [ -f "$dockerfile" ] || return 1
+  # Extract ARG BUILD_PLATFORMS value from Dockerfile
+  # Supports: ARG BUILD_PLATFORMS="linux/amd64,linux/arm64"
+  # Supports: ARG BUILD_PLATFORMS=linux/amd64,linux/arm64
+  platforms="$(__grep -E '^ARG\s+BUILD_PLATFORMS=' "$dockerfile" 2>/dev/null | head -1 | sed 's|^ARG BUILD_PLATFORMS=||;s|"||g;s|'\''||g' | xargs)"
+  [ -n "$platforms" ] && echo "$platforms" && return 0
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2348,7 +2369,20 @@ BUILDX_DEFAULT_LOG_REPO="$(basename "$(realpath "$BUILDX_PROJECT_ROOT")" | sed '
 [ -f "$BUILDX_CWD/.env.scripts" ] && . "$BUILDX_CWD/.env.scripts"
 [ -n "$BUILDX_SET_DEFAULT_VER" ] && [ -f "$BUILDX_CWD/.env.scripts.$BUILDX_SET_DEFAULT_VER" ] && . "$BUILDX_CWD/.env.scripts.$BUILDX_SET_DEFAULT_VER"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure --platform flag always takes priority over config files and .env.scripts
+# Platform detection priority: CLI > ENV_PLATFORMS > Dockerfile ARG > default
+# 1. Check for Dockerfile BUILD_PLATFORMS (lowest priority, applied first)
+if [ -z "$BUILDX_SET_PLATFORM" ] && [ -z "$ENV_PLATFORMS" ]; then
+  # Determine which Dockerfile to check
+  BUILDX_DOCKERFILE_TO_CHECK="${2:-$1}"
+  [ -z "$BUILDX_DOCKERFILE_TO_CHECK" ] || [ ! -f "$BUILDX_DOCKERFILE_TO_CHECK" ] && BUILDX_DOCKERFILE_TO_CHECK="$BUILDX_CWD/Dockerfile"
+  [ -n "$BUILDX_SET_DEFAULT_VER" ] && [ -f "$BUILDX_CWD/Dockerfile.$BUILDX_SET_DEFAULT_VER" ] && BUILDX_DOCKERFILE_TO_CHECK="$BUILDX_CWD/Dockerfile.$BUILDX_SET_DEFAULT_VER"
+  # Extract BUILD_PLATFORMS from Dockerfile if present
+  BUILDX_DOCKERFILE_PLATFORMS=""
+  BUILDX_DOCKERFILE_PLATFORMS="$(__detect_dockerfile_platforms "$BUILDX_DOCKERFILE_TO_CHECK" 2>/dev/null)"
+  [ -n "$BUILDX_DOCKERFILE_PLATFORMS" ] && BUILDX_DOCKER_PLATFORMS="$BUILDX_DOCKERFILE_PLATFORMS"
+fi
+# 2. ENV_PLATFORMS from .env.scripts handled in __set_variables (medium priority)
+# 3. CLI --platform flag takes absolute priority (applied after __set_variables)
 [ -n "$BUILDX_SET_PLATFORM" ] && export BUILDX_DOCKER_PLATFORMS="$BUILDX_SET_PLATFORM"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides

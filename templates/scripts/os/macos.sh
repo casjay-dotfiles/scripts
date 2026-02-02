@@ -46,6 +46,10 @@ else
   exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 run_post() {
   local e="$1"
   local m="${e//devnull /}"

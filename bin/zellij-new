@@ -410,13 +410,13 @@ __exec_uptime() {
 __init() {
   local name="$1"
   name="${name##*/}"
-  if [ -f "$ZELLIJ_NEW_FILE_CONF/$name" ]; then
+  if [ -f "$ZELLIJ_NEW_FILE_LAYOUTS/$name.kdl" ]; then
     ZELLIJ_NEW_NAME="$name"
-  elif [ -f "$ZELLIJ_NEW_FILE_CONF/$name-$name" ]; then
+  elif [ -f "$ZELLIJ_NEW_FILE_LAYOUTS/$name-$name.kdl" ]; then
     ZELLIJ_NEW_NAME="$name-$name"
-  elif [ -f "$ZELLIJ_NEW_FILE_CONF/$USER-$name" ]; then
+  elif [ -f "$ZELLIJ_NEW_FILE_LAYOUTS/$USER-$name.kdl" ]; then
     ZELLIJ_NEW_NAME="$USER-$name"
-  elif [ -f "$ZELLIJ_NEW_FILE_CONF/$name-$USER" ]; then
+  elif [ -f "$ZELLIJ_NEW_FILE_LAYOUTS/$name-$USER.kdl" ]; then
     ZELLIJ_NEW_NAME="$name-$USER"
   else
     ZELLIJ_NEW_NAME="$name"
@@ -541,7 +541,8 @@ __zellij_get_all_sessions() {
   local all_sessions=""
   all_sessions="$(zellij list-sessions 2>/dev/null | grep -v '^$' || true)"
   if [ -n "$all_sessions" ]; then
-    printf '%s\n' "$all_sessions" | awk '{print $1}'
+    # Strip ANSI color codes before parsing
+    printf '%s\n' "$all_sessions" | sed 's/\x1b\[[0-9;]*m//g' | awk '{print $1}'
   else
     return 1
   fi
@@ -569,7 +570,7 @@ __launch_zellij() {
   [ -f "$ZELLIJ_NEW_FILE_LAYOUTS/$ZELLIJ_NEW_NAME.kdl" ] || printf_exit "No layout file found for $ZELLIJ_NEW_NAME"
   if [ -z "$ZELLIJ" ]; then
     __cd
-    if zellij list-sessions 2>/dev/null | grep -q "^$ZELLIJ_NEW_NAME "; then
+    if __zellij_list 2>/dev/null | grep -q "^${ZELLIJ_NEW_NAME}$"; then
       printf_cyan "Session '$ZELLIJ_NEW_NAME' already exists - attaching..."
       zellij attach "$ZELLIJ_NEW_NAME"
     else
@@ -685,7 +686,7 @@ __zellij_attach() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __zellij_ssh() {
   local ssh_session="$(__zellij_get_all_sessions | grep '^ssh$')"
-  [ -n "$ssh_session" ] && zellij -L ssh a -t ssh || return 1
+  [ -n "$ssh_session" ] && zellij attach ssh || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Session management functions
@@ -696,8 +697,8 @@ __zellij_switch() {
     return 1
   }
 
-  if zellij has-session -t "$session" 2>/dev/null; then
-    [ -n "$ZELLIJ" ] && zellij switch-client -t "$session" || zellij attach -t "$session"
+  if zellij list-sessions 2>/dev/null | grep -q "^$session "; then
+    zellij attach "$session"
     return $?
   else
     printf_red "Session '$session' does not exist"
@@ -713,10 +714,13 @@ __zellij_rename() {
     return 1
   }
 
-  if zellij has-session -t "$old_name" 2>/dev/null; then
-    zellij rename-session -t "$old_name" "$new_name"
-    printf_green "✅ Session '$old_name' renamed to '$new_name'"
-    return $?
+  # Note: zellij can only rename the current session
+  # So we need to attach to it first, rename it, then detach
+  if zellij list-sessions 2>/dev/null | grep -q "^$old_name "; then
+    # Can't rename remotely with zellij - need to be attached
+    printf_yellow "⚠️  Zellij requires you to be attached to rename a session"
+    printf_cyan "Please attach to '$old_name' and run: zellij action rename-session $new_name"
+    return 1
   else
     printf_red "Session '$old_name' does not exist"
     return 1
@@ -727,9 +731,9 @@ __zellij_status() {
   local sessions="$(__zellij_list)"
   if [ -n "$sessions" ]; then
     printf_blue "📊 Active zellij sessions:"
-    for session in $sessions; do
-      local info="$(zellij list-sessions -F '#{session_name}: #{session_windows} windows, #{session_attached} clients' 2>/dev/null | grep "^$session:")"
-      [ -n "$info" ] && printf_green "  $info" || printf_yellow "  $session: (info unavailable)"
+    # zellij list-sessions output format: "name [Created Xs ago]"
+    zellij list-sessions 2>/dev/null | while read -r line; do
+      printf_green "  $line"
     done
   else
     printf_yellow "No active zellij sessions"
@@ -745,20 +749,19 @@ __zellij_clone() {
     return 1
   }
 
-  if ! zellij has-session -t "$source" 2>/dev/null; then
+  if ! zellij list-sessions 2>/dev/null | grep -q "^$source "; then
     printf_red "Source session '$source' does not exist"
     return 1
   fi
 
-  if zellij has-session -t "$target" 2>/dev/null; then
+  if zellij list-sessions 2>/dev/null | grep -q "^$target "; then
     printf_red "Target session '$target' already exists"
     return 1
   fi
 
-  # Copy config files if they exist
-  if [ -f "$ZELLIJ_NEW_FILE_CONF/$source" ] && [ -f "$ZELLIJ_NEW_FILE_WINDOWS/$source" ]; then
-    cp "$ZELLIJ_NEW_FILE_CONF/$source" "$ZELLIJ_NEW_FILE_CONF/$target"
-    cp "$ZELLIJ_NEW_FILE_WINDOWS/$source" "$ZELLIJ_NEW_FILE_WINDOWS/$target"
+  # Copy layout file if it exists
+  if [ -f "$ZELLIJ_NEW_FILE_LAYOUTS/$source.kdl" ]; then
+    cp "$ZELLIJ_NEW_FILE_LAYOUTS/$source.kdl" "$ZELLIJ_NEW_FILE_LAYOUTS/$target.kdl"
     __launch_zellij "$target"
     printf_green "✅ Session '$source' cloned to '$target'"
   else

@@ -190,10 +190,11 @@ __help() {
   __printf_line "Usage: screen-new [command] [args]"
   __printf_line "Manage persistent screen sessions for commands"
   __printf_line "Supports binaries, shell aliases, and functions"
-  __printf_line "Prefix: Ctrl+n (Ctrl+n n sends literal Ctrl+n)"
+  __printf_line "PREFIX: Ctrl+n (default)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Commands"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "(no args) | . | <dir>            - Launch a login shell session"
   __printf_line "<cmd> [args]                    - Create or attach (shorthand)"
   __printf_line "a|attach <cmd> [args]           - Create or attach to a session"
   __printf_line "ls|list                         - List active sessions"
@@ -203,13 +204,16 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Key Bindings (inside session)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Ctrl+n d                        - Detach from session"
-  __printf_line "Ctrl+n k                        - Kill current window"
-  __printf_line "Ctrl+n n                        - Send literal Ctrl+n"
-  __printf_line "Ctrl+n ?                        - Show screen help"
+  __printf_line "PREFIX d                        - Detach from session"
+  __printf_line "PREFIX @                        - Kill current window"
+  __printf_line "PREFIX PREFIX                   - Send literal prefix key"
+  __printf_line "PREFIX ?                        - Show screen help"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Examples"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "screen-new                       - Launch a login shell session"
+  __printf_line "screen-new .                     - Shell session in current dir"
+  __printf_line "screen-new /tmp                  - Shell session in /tmp"
   __printf_line "screen-new htop                 - Launch or attach to htop"
   __printf_line "screen-new htop -d 5            - Launch htop with arguments"
   __printf_line "screen-new ls                   - List all sessions"
@@ -231,6 +235,17 @@ __help() {
   __printf_line "--dir                           - Sets the working directory"
   __printf_line "--silent                        - Suppress informational output"
   __printf_line "--force                         - Force the operation"
+  __printf_line ""
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Key Bindings (tmux-compatible, PREFIX = Ctrl+n)"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "PREFIX t                        - New window (login shell)"
+  __printf_line "PREFIX n / p                    - Next / previous window"
+  __printf_line "PREFIX d                        - Detach from session"
+  __printf_line "PREFIX \\                        - Split vertically"
+  __printf_line "PREFIX /                        - Split horizontally"
+  __printf_line "PREFIX x                        - Remove split region"
+  __printf_line "PREFIX ?                        - Show full keybindings"
   __printf_line ""
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
@@ -393,6 +408,30 @@ __is_shell_construct() {
   alias | function) return 0 ;;
   *) return 1 ;;
   esac
+}
+
+# Launch a login shell in a screen session
+# Session named after directory basename (sn-scripts, sn-tmp, etc.)
+# Usage: __screen_shell [directory]
+__screen_shell() {
+  local dir="${1:-$SCREEN_NEW_CWD}"
+  dir="$(realpath "$dir" 2>/dev/null)"
+  if [ ! -d "$dir" ]; then
+    printf_exit "$dir: not a directory"
+  fi
+  local dir_name
+  dir_name="$(basename -- "$dir")"
+  local session_name="sn-${dir_name}"
+  local user_shell="${SHELL:-bash}"
+  local screenrc="$(__ensure_screenrc "$session_name" "$user_shell" -l)"
+  screen -wipe &>/dev/null
+  if screen -ls 2>/dev/null | grep -q "\.${session_name}[[:space:]]"; then
+    printf_cyan "Attaching to existing session: $session_name"
+    exec screen -x "$session_name"
+  else
+    cd "$dir"
+    exec screen -c "$screenrc" -S "$session_name" "$user_shell" -l
+  fi
 }
 
 # Build screen exec arguments
@@ -650,45 +689,57 @@ SCREEN_NEW_SESSION_DIR="$SCREEN_NEW_CONFIG_DIR/sessions"
 __screen-new_keybindings() {
   [ -n "$1" ] || return 1
   cat <<'KEYBINDINGS' >"$1"
-screen-new keybindings
-======================
-Prefix key: Ctrl+n
+screen-new keybindings (tmux-compatible)
+========================================
+PREFIX = Ctrl+n (default)
+PREFIX PREFIX sends literal prefix key to application
 
 Session Control
-  Ctrl+n d        Detach from session
-  Ctrl+n k        Kill current window
-  Ctrl+n \\        Kill all windows and terminate screen
-  Ctrl+n n        Send literal Ctrl+n to application
+  PREFIX d           Detach from session
+  PREFIX D D         Detach and logout (power detach)
+  PREFIX PREFIX      Send literal prefix key to application
+  PREFIX :           Enter screen command prompt
 
 Window Management
-  Ctrl+n c        Create a new window
-  Ctrl+n "        List all windows
-  Ctrl+n 0-9      Switch to window by number
-  Ctrl+n '        Switch to window by name/number prompt
-  Ctrl+n p        Previous window
-  Ctrl+n <space>  Next window
-  Ctrl+n A        Rename current window
+  PREFIX t           Create a new window (login shell)
+  PREFIX c           Create a new window (login shell)
+  PREFIX n           Next window
+  PREFIX p           Previous window
+  PREFIX ,           Rename current window
+  PREFIX w           Interactive window list
+  PREFIX @           Kill current window
+  PREFIX 0-9         Switch to window by number
+  PREFIX '           Switch to window by name/number prompt
+  Shift+Left         Previous window (no prefix needed)
+  Shift+Right        Next window (no prefix needed)
 
 Split / Layout
-  Ctrl+n S        Split horizontally
-  Ctrl+n |        Split vertically
-  Ctrl+n <tab>    Move between split regions
-  Ctrl+n X        Remove current region
-  Ctrl+n Q        Remove all regions except current
+  PREFIX \           Split vertically (side by side)
+  PREFIX /           Split horizontally (top/bottom)
+  PREFIX <tab>       Move focus between split regions
+  PREFIX x           Remove current region
+  PREFIX Q           Remove all regions except current
+
+Region Resize
+  PREFIX h           Resize region smaller
+  PREFIX j           Resize region larger
+  PREFIX k           Resize region smaller
+  PREFIX l           Resize region larger
 
 Scrollback / Copy
-  Ctrl+n [        Enter copy/scrollback mode (navigate with arrows, PgUp/PgDn)
-  Ctrl+n ]        Paste from copy buffer
+  PREFIX [           Enter copy/scrollback mode
+                     (navigate with arrows, PgUp/PgDn)
+                     (press <space> to start selection, <space> again to copy)
+  PREFIX ]           Paste from copy buffer
 
 Misc
-  Ctrl+n ?        Show this help
-  Ctrl+n i        Show window info
-  Ctrl+n t        Show system time/load
+  PREFIX ?           Show this help
+  PREFIX i           Show window info
 
-Process Exit (zombie mode)
-  When a process exits, the window stays open:
-  k               Kill the window
-  r               Restart the process
+Process Exit (zombie mode - on error only)
+  When a process exits with an error, the window stays open:
+  k                  Kill the window
+  r                  Restart the process
 
 Press q to exit this help.
 KEYBINDINGS
@@ -706,12 +757,12 @@ __screen-new_filerc() {
 # screen-new session config: ${name:-unknown}
 # Command: ${*:-unknown}
 #
-# Prefix key: Ctrl+n
-# Ctrl+n n sends literal Ctrl+n to the application
+# PREFIX = Ctrl+n (tmux-compatible bindings)
+# PREFIX PREFIX sends literal prefix key to the application
 # Process exit: press k to kill window, r to restart
 
-# Escape / prefix key
-escape ^Nn
+# Escape / prefix key (default: Ctrl+n, PREFIX PREFIX sends literal)
+escape ^N^N
 
 # Display
 hardstatus off
@@ -743,7 +794,36 @@ termcapinfo xterm* OL=10000
 defnonblock on
 nonblock on
 
-# Show keybindings with Ctrl+n ?
+# Window management (tmux-compatible)
+bind t screen ${SHELL:-bash} -l
+bind c screen ${SHELL:-bash} -l
+bind n next
+bind p prev
+bind , title
+bind w windowlist -b
+bind @ kill
+
+# Split management (tmux-compatible)
+bind \\\\ split -v
+bind / split
+bind x remove
+bind Q only
+
+# Pane/region resize (tmux-compatible: h/j/k/l)
+bind h resize -5
+bind j resize +5
+bind k resize -5
+bind l resize +5
+
+# Copy mode
+bind [ copy
+bind ] paste .
+
+# Shift+arrow without prefix
+bindkey "\033[1;2D" prev
+bindkey "\033[1;2C" next
+
+# Show keybindings with PREFIX ?
 bind ? exec less $SCREEN_NEW_KEYBINDINGS_FILE
 SCREENRC
 }
@@ -863,17 +943,13 @@ d | detach)
   fi
   ;;
 "")
-  SCREEN_NEW_SESSIONS="$(__list_sessions)"
-  if [ -n "$SCREEN_NEW_SESSIONS" ]; then
-    __printf_head "Active sessions:"
-    printf '%s\n' "$SCREEN_NEW_SESSIONS" | while IFS= read -r line; do
-      __printf_line "  $line"
-    done
-  else
-    __help
-  fi
+  __screen_shell
   ;;
 *)
+  # If argument is a directory, launch a shell there
+  if [ -d "$SCREEN_NEW_SUBCMD" ]; then
+    __screen_shell "$SCREEN_NEW_SUBCMD"
+  fi
   # Default: treat as a command to attach to
   SCREEN_NEW_CMD="$SCREEN_NEW_SUBCMD"
   if ! command -v "$SCREEN_NEW_CMD" &>/dev/null; then

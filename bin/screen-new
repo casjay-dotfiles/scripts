@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602061135-git
+##@Version           :  202602061141-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Feb 06, 2026 09:24 EST
 # @@File             :  screen-new
 # @@Description      :  Manage persistent screen sessions for commands
-# @@Changelog        :  Added working directory support, fixed trap naming
+# @@Changelog        :  Added alias/function support via $SHELL -lic
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202602061135-git"
+VERSION="202602061141-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -189,6 +189,7 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: screen-new [command] [args]"
   __printf_line "Manage persistent screen sessions for commands"
+  __printf_line "Supports binaries, shell aliases, and functions"
   __printf_line "Prefix: Ctrl+n (Ctrl+n n sends literal Ctrl+n)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Commands"
@@ -383,6 +384,32 @@ trap '__trap_exit_screen_new' EXIT
 SCREEN_NEW_START_TIMER="${SCREEN_NEW_START_TIMER:-$(date +%s.%N)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+
+# Check if command is an alias or function (not a binary in PATH)
+__is_shell_construct() {
+  local cmd_type
+  cmd_type="$(type -t "$1" 2>/dev/null)" || return 1
+  case "$cmd_type" in
+  alias | function) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
+# Build screen exec arguments
+# For binaries: exec screen -c rc -S name cmd args
+# For aliases/functions: exec screen -c rc -S name $SHELL -lic 'cmd args'
+__screen_exec() {
+  local rc="$1" name="$2" cmd="$3" && shift 3
+  if __is_shell_construct "$cmd"; then
+    local shell_cmd="$cmd"
+    if [ $# -gt 0 ]; then
+      shell_cmd="$cmd $(printf '%q ' "$@")"
+    fi
+    exec screen -c "$rc" -S "$name" "${SHELL:-bash}" -lic "$shell_cmd"
+  else
+    exec screen -c "$rc" -S "$name" "$cmd" "$@"
+  fi
+}
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default exit code
@@ -697,6 +724,14 @@ zombie kr
 # Use alternate screen buffer (for curses apps like htop, vim)
 altscreen on
 
+# Color and emoji support
+term xterm-256color
+defutf8 on
+utf8 on on
+truecolor on
+defencoding UTF-8
+encoding UTF-8
+
 # SIGWINCH / terminal resize support
 termcapinfo xterm* 'is=\E[r\E[m\E[2J\E[H\E[?7h\E[?1;4;6l'
 termcapinfo xterm* OL=10000
@@ -744,7 +779,7 @@ a | attach)
     printf_cyan "Attaching to existing session: $SCREEN_NEW_SESSION_NAME"
     exec screen -x "$SCREEN_NEW_SESSION_NAME"
   else
-    exec screen -c "$SCREEN_NEW_SCREENRC" -S "$SCREEN_NEW_SESSION_NAME" "$SCREEN_NEW_CMD" "$@"
+    __screen_exec "$SCREEN_NEW_SCREENRC" "$SCREEN_NEW_SESSION_NAME" "$SCREEN_NEW_CMD" "$@"
   fi
   ;;
 edit)
@@ -846,7 +881,7 @@ d | detach)
     printf_cyan "Attaching to existing session: $SCREEN_NEW_SESSION_NAME"
     exec screen -x "$SCREEN_NEW_SESSION_NAME"
   else
-    exec screen -c "$SCREEN_NEW_SCREENRC" -S "$SCREEN_NEW_SESSION_NAME" "$SCREEN_NEW_CMD" "$@"
+    __screen_exec "$SCREEN_NEW_SCREENRC" "$SCREEN_NEW_SESSION_NAME" "$SCREEN_NEW_CMD" "$@"
   fi
   ;;
 esac

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202602061249-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  Synchronized documentation versions and fixed __help title
+# @@Changelog        :  Replaced claude npm install with native binary installer
 # @@TODO             :  Implement __setup_ functions for Priority 2-9 tools (63 tools pending implementation)
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202602020740-git"
+VERSION="202602061249-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -596,31 +596,26 @@ __execute_npm() {
   fi
   
   # Install/update package globally
+  local install_dir=""
+  local install_ok=false
   if [ "$needs_sudo" = true ]; then
-    if __sudo npm install -g "$package" >/dev/null 2>&1; then
-      printf_green "Installed npm package: $package (global)"
-    else
-      printf_red "Failed to install npm package: $package"
-    fi
+    install_dir="$npm_root"
+    __sudo npm install -g "$package" >/dev/null 2>&1 && install_ok=true
+  elif [ -n "$npm_root" ] && [ -w "$npm_root" ]; then
+    install_dir="$npm_root"
+    npm install -g "$package" >/dev/null 2>&1 && install_ok=true
   else
-    # Either we have write access or we'll use user prefix
-    if [ -n "$npm_root" ] && [ -w "$npm_root" ]; then
-      # Global install with write access
-      if npm install -g "$package" >/dev/null 2>&1; then
-        printf_green "Installed npm package: $package (global)"
-      else
-        printf_red "Failed to install npm package: $package"
-      fi
-    else
-      # User prefix install
-      export npm_config_prefix="$HOME/.local"
-      export PATH="$HOME/.local/bin:$PATH"
-      if npm install -g "$package" >/dev/null 2>&1; then
-        printf_green "Installed npm package: $package (user)"
-      else
-        printf_red "Failed to install npm package: $package"
-      fi
-    fi
+    # User prefix install
+    export npm_config_prefix="$HOME/.local"
+    export PATH="$HOME/.local/bin:$PATH"
+    install_dir="$HOME/.local"
+    npm install -g "$package" >/dev/null 2>&1 && install_ok=true
+  fi
+
+  if [ "$install_ok" = true ]; then
+    __message_installed_ok "$name" "$install_dir"
+  else
+    __message_installed_failed "$name"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -660,7 +655,6 @@ __install_to_system_bin() {
     local cmd="${prefix:-__sudo}"
     if $cmd cp -Rf "$source_file" "$dest_file"; then
       $cmd chmod 755 "$dest_file"
-      printf_blue "Installed to $dest_file"
       return 0
     else
       return 1
@@ -668,7 +662,6 @@ __install_to_system_bin() {
   else
     if cp -Rf "$source_file" "$dest_file"; then
       chmod 755 "$dest_file"
-      printf_blue "Installed to $dest_file"
       return 0
     else
       return 1
@@ -704,6 +697,26 @@ __is_installed() {
   else
     return 1
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Display success message after installation
+# Usage: __message_installed_ok "name" "/install/dir"
+__message_installed_ok() {
+  local name="$1"
+  local install_dir="${2:-$SETUPMGR_DEFAULT_BIN_DIR}"
+  local version="$(__get_version "$name")"
+  if [ -n "$version" ]; then
+    printf_green "$name has been successfully installed to $install_dir: $version"
+  else
+    printf_green "$name has been successfully installed to $install_dir"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Display failure message after installation
+# Usage: __message_installed_failed "name"
+__message_installed_failed() {
+  local name="$1"
+  printf_red "$name failed to install"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __compare_versions() {
@@ -1598,7 +1611,6 @@ __move_extracted_file() {
   else
     return 1
   fi
-  printf_cyan "Installing ${installFrom//$HOME/\~} to $directory"
   $prefix mv -f "$installFrom" "$directory/$binFile" && $prefix chmod +x "$directory/$binFile" || exitEXCode=2
   [ -x "$directory/$binFile" ] || return $exitEXCode
 }
@@ -1952,17 +1964,10 @@ __install_from_binary() {
     fi
 
     __install_to_system_bin "$binFile"
-
-    # Try to get version (gracefully fails if not supported)
-    local version="$(__get_version "$name")"
-    if [ -n "$version" ]; then
-      printf_green "$name installed: $version"
-    else
-      printf_green "$name installed"
-    fi
+    __message_installed_ok "$name" "$bin_dir"
   else
     exitCode=1
-    printf_red "Failed to install $name"
+    __message_installed_failed "$name"
   fi
 
   return $exitCode
@@ -2024,17 +2029,10 @@ __install_from_archive() {
     fi
 
     __install_to_system_bin "$binFile"
-
-    # Try to get version (gracefully fails if not supported)
-    local version="$(__get_version "$name")"
-    if [ -n "$version" ]; then
-      printf_green "$name installed to $binFile: $version"
-    else
-      printf_green "$name installed to $binFile"
-    fi
+    __message_installed_ok "$name" "$bin_dir"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
 
   return $exitCode
@@ -2069,51 +2067,29 @@ __install_from_npm() {
   fi
   
   # Install/update package globally
+  local install_dir=""
+  local install_ok=false
   if [ "$needs_sudo" = true ]; then
-    if __sudo npm install -g "$package" >/dev/null 2>&1; then
-      local version="$(__get_version "$name")"
-      if [ -n "$version" ]; then
-        printf_green "$name installed: $version"
-      else
-        printf_green "$name installed"
-      fi
-    else
-      exitCode=1
-      printf_red "Failed to install $name"
-    fi
+    install_dir="$npm_root"
+    __sudo npm install -g "$package" >/dev/null 2>&1 && install_ok=true
+  elif [ -n "$npm_root" ] && [ -w "$npm_root" ]; then
+    install_dir="$npm_root"
+    npm install -g "$package" >/dev/null 2>&1 && install_ok=true
   else
-    # Either we have write access or we'll use user prefix
-    if [ -n "$npm_root" ] && [ -w "$npm_root" ]; then
-      # Global install with write access
-      if npm install -g "$package" >/dev/null 2>&1; then
-        local version="$(__get_version "$name")"
-        if [ -n "$version" ]; then
-          printf_green "$name installed: $version"
-        else
-          printf_green "$name installed"
-        fi
-      else
-        exitCode=1
-        printf_red "Failed to install $name"
-      fi
-    else
-      # User prefix install
-      export npm_config_prefix="$HOME/.local"
-      export PATH="$HOME/.local/bin:$PATH"
-      if npm install -g "$package" >/dev/null 2>&1; then
-        local version="$(__get_version "$name")"
-        if [ -n "$version" ]; then
-          printf_green "$name installed: $version"
-        else
-          printf_green "$name installed"
-        fi
-      else
-        exitCode=1
-        printf_red "Failed to install $name"
-      fi
-    fi
+    # User prefix install
+    export npm_config_prefix="$HOME/.local"
+    export PATH="$HOME/.local/bin:$PATH"
+    install_dir="$HOME/.local"
+    npm install -g "$package" >/dev/null 2>&1 && install_ok=true
   fi
-  
+
+  if [ "$install_ok" = true ]; then
+    __message_installed_ok "$name" "$install_dir"
+  else
+    exitCode=1
+    __message_installed_failed "$name"
+  fi
+
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2238,6 +2214,125 @@ __remove_package() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Install Claude Code native binary from Anthropic's CDN
+# Downloads the binary, verifies SHA256 checksum, and runs claude install
+__setup_claude() {
+  local exitCode=0
+  local name="claude"
+  local target="${1:-stable}"
+  local gcs_bucket="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
+  local download_dir="$HOME/.claude/downloads"
+  local os="" arch="" platform="" version="" manifest_json="" checksum="" actual="" binary_path=""
+
+  # Detect OS
+  case "$(uname -s)" in
+  Darwin) os="darwin" ;;
+  Linux) os="linux" ;;
+  *)
+    printf_red "Unsupported OS: $(uname -s)"
+    return 1
+    ;;
+  esac
+
+  # Detect architecture
+  case "$(uname -m)" in
+  x86_64 | amd64) arch="x64" ;;
+  arm64 | aarch64) arch="arm64" ;;
+  *)
+    printf_red "Unsupported architecture: $(uname -m)"
+    return 1
+    ;;
+  esac
+
+  # Check for musl on Linux
+  if [ "$os" = "linux" ]; then
+    if [ -f /lib/libc.musl-x86_64.so.1 ] || [ -f /lib/libc.musl-aarch64.so.1 ] || ldd /bin/ls 2>&1 | grep -q musl; then
+      platform="linux-${arch}-musl"
+    else
+      platform="linux-${arch}"
+    fi
+  else
+    platform="${os}-${arch}"
+  fi
+
+  # Show status
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name to latest version"
+  else
+    printf_green "Installing $name (native binary)"
+  fi
+
+  mkdir -p "$download_dir"
+
+  # Get latest version
+  version="$(__curl "$gcs_bucket/latest")"
+  if [ -z "$version" ]; then
+    printf_red "Failed to fetch latest version"
+    return 1
+  fi
+
+  # Download manifest and extract checksum
+  manifest_json="$(__curl "$gcs_bucket/$version/manifest.json")"
+  if [ -z "$manifest_json" ]; then
+    printf_red "Failed to fetch manifest"
+    return 1
+  fi
+
+  # Extract checksum using jq if available, otherwise pure bash
+  if __cmd_exists jq; then
+    checksum="$(echo "$manifest_json" | jq -r ".platforms[\"$platform\"].checksum // empty")"
+  else
+    # Normalize JSON and extract checksum with bash regex
+    local json_flat=""
+    json_flat="$(echo "$manifest_json" | tr -d '\n\r\t' | sed 's/ \+/ /g')"
+    if [[ $json_flat =~ \"$platform\"[^}]*\"checksum\"[[:space:]]*:[[:space:]]*\"([a-f0-9]{64})\" ]]; then
+      checksum="${BASH_REMATCH[1]}"
+    fi
+  fi
+
+  # Validate checksum format
+  if [ -z "$checksum" ] || [[ ! "$checksum" =~ ^[a-f0-9]{64}$ ]]; then
+    printf_red "Platform $platform not found in manifest"
+    return 1
+  fi
+
+  # Download binary
+  binary_path="$download_dir/claude-$version-$platform"
+  if ! __curl "$gcs_bucket/$version/$platform/claude" -o "$binary_path"; then
+    printf_red "Download failed"
+    rm -f "$binary_path"
+    return 1
+  fi
+
+  # Verify checksum
+  if [ "$os" = "darwin" ]; then
+    actual="$(shasum -a 256 "$binary_path" | cut -d' ' -f1)"
+  else
+    actual="$(sha256sum "$binary_path" | cut -d' ' -f1)"
+  fi
+
+  if [ "$actual" != "$checksum" ]; then
+    printf_red "Checksum verification failed"
+    rm -f "$binary_path"
+    return 1
+  fi
+
+  chmod +x "$binary_path"
+
+  # Run claude install to set up launcher and shell integration
+  if "$binary_path" install ${target:+"$target"} 2>/dev/null; then
+    __message_installed_ok "$name" "$HOME/.claude/bin"
+  else
+    __message_installed_failed "$name"
+    exitCode=1
+  fi
+
+  # Clean up downloaded binary
+  rm -f "$binary_path"
+
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_ripgrep() {
   __install_from_archive "rg" "BurntSushi/ripgrep" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
@@ -2321,11 +2416,11 @@ __setup_zig() {
   esac
 
   if __download_extract_install "$download_url" "$installDir" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
     printf_cyan "Set ZIG_VERSION environment variable to install a specific version"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -2342,12 +2437,12 @@ __setup_rustup() {
   printf_green "Installing $name and Rust toolchain"
 
   if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y |& __output_status; then
-    printf_green "$name installed"
+    __message_installed_ok "$name"
     printf_cyan "Run 'source \$HOME/.cargo/env' to add Rust to your PATH"
     printf_cyan "Or restart your shell"
   else
     exitCode=1
-    printf_red "Failed to install $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -2497,11 +2592,11 @@ __setup_deno() {
       __rm "$binFile"
       exitCode=1
     else
-      printf_green "$name $version installed"
+      __message_installed_ok "$name"
     fi
   else
     exitCode=1
-    printf_red "Failed to install $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -2542,10 +2637,10 @@ __setup_bun() {
       __rm "$binFile"
       exitCode=1
     else
-      printf_green "$name $version installed"
+      __message_installed_ok "$name"
     fi
   else
-    printf_red "Failed to install $name"
+    __message_installed_failed "$name"
     exitCode=1
   fi
   return $exitCode
@@ -2593,9 +2688,9 @@ __setup_dotnet() {
     [ -f "$DOTNET_ROOT/$name" ] && ln -sf "$DOTNET_ROOT/$name" "$SETUPMGR_DEFAULT_BIN_DIR/$name"
   fi
   if __cmd_exists $name && __is_installed "$name" "$DOTNET_ROOT"; then
-    printf_green "$name installed to $DOTNET_ROOT"
+    __message_installed_ok "$name" "$DOTNET_ROOT"
   else
-    printf_red "Failed to install $name"
+    __message_installed_failed "$name"
     exitCode=1
   fi
   return $exitCode
@@ -2629,14 +2724,14 @@ __setup_gvm() {
         name="$(basename -- "$f")"
         ln -sf "$f" "$binDir/$name"
       done
-      printf_green "$name installed"
+      __message_installed_ok "$name"
       exitCode=0
     else
       exitCode=1
     fi
   else
     exitCode=1
-    printf_red "Failed to install $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -3025,7 +3120,7 @@ __setup_devbox() {
     printf_cyan "$name installed"
   else
     exitCode=1
-    printf_red "Failed to install $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -3093,10 +3188,10 @@ __setup_helm() {
 
   if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
-    printf_green "$name $version installed to $binFile"
+    __message_installed_ok "$name"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -3136,10 +3231,10 @@ __setup_helix() {
   fi
 
   if __download_extract_install "$download_url" "$installDir" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "helix installed to $binFile"
+    __message_installed_ok "helix"
   else
     exitCode=1
-    printf_red "Failed to download helix"
+    __message_installed_failed "helix"
   fi
   return $exitCode
 }
@@ -3170,10 +3265,10 @@ __setup_packer() {
         packer plugins install github.com/hashicorp/$plug >/dev/null 2>&1 && printf_cyan "Installed plugin: $plug"
       done
     fi
-    printf_green "$name hase been installed"
+    __message_installed_ok "$name"
   else
     exitCode=1
-    printf_red "Failed to install $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -3195,10 +3290,10 @@ __setup_kubectl() {
   fi
   if __download_and_move "$release_url/$file" "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
-    printf_green "$name hase been installed"
+    __message_installed_ok "$name"
   else
     exitCode=1
-    printf_red "Failed to install $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -3212,7 +3307,6 @@ __setup_k9s() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_minikube() {
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/minikube"
   if __install_from_binary "minikube" "kubernetes/minikube" "$SETUPMGR_DEFAULT_BIN_DIR"; then
     printf_cyan "Use 'dockermgr minikube' to configure and start minikube"
   fi
@@ -3271,7 +3365,7 @@ __setup_gohttpserver() {
 
   if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
 
     # Setup systemd service (create but don't enable)
     local service_file=""
@@ -3339,7 +3433,7 @@ EOF
     printf_cyan "Status:         $systemd_cmd status gohttpserver"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -3402,7 +3496,7 @@ __setup_traefik() {
   fi
 
   if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
 
     # Setup systemd service (create but don't enable)
     local service_file=""
@@ -3476,7 +3570,7 @@ EOF
     printf_cyan "Status:         $systemd_cmd status traefik"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -3511,10 +3605,10 @@ __setup_bob() {
 EOF
     fi
     __install_to_system_bin "$binFile"
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -3568,10 +3662,10 @@ __setup_broot() {
       mv -f "$PACKAGE_TMP_DIR/$name" "$binFile" && chmod +x "$binFile"
       if __is_installed "$name" "$binFile"; then
         __install_to_system_bin "$binFile"
-        printf_green "$name $version installed to $binFile"
+        __message_installed_ok "$name"
       else
         exitCode=1
-        printf_red "Failed to install $name"
+        __message_installed_failed "$name"
       fi
     else
       exitCode=1
@@ -3579,7 +3673,7 @@ __setup_broot() {
     fi
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
 
   __rm "$tmpFile" 2>/dev/null || true
@@ -3624,7 +3718,7 @@ __setup_webhookd() {
   fi
 
   if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
 
     # Setup systemd service (create but don't enable)
     local service_file=""
@@ -3692,7 +3786,7 @@ EOF
     printf_cyan "Status:         $systemd_cmd status webhookd"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -3722,10 +3816,10 @@ __setup_lima() {
   fi
 
   if __download_extract_install "$download_url" "$installDir" "$tempBin" "$binFile" && __is_installed "$name" "$installDir"; then
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 
@@ -3765,7 +3859,7 @@ __setup_localai() {
   fi
 
   if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
 
     # Setup systemd service
     local service_file=""
@@ -3835,7 +3929,7 @@ EOF
     printf_cyan "API endpoint:  http://localhost:8080"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -3868,10 +3962,10 @@ __setup_zed() {
     cp -Rf "$installDir/share/applications/zed.desktop" "$HOME/.local/share/applications/Zed-Editor.desktop"
     sed -i "s|Icon=zed|Icon=$installDir/share/icons/hicolor/512x512/apps/zed.png|g" "$HOME/.local/share/applications/Zed-Editor.desktop"
     sed -i "s|Exec=zed|Exec=$installDir/libexec/zed-editor|g" "$HOME/.local/share/applications/Zed-Editor.desktop"
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -3898,10 +3992,10 @@ __setup_golang() {
   fi
 
   if __download_extract_install "$download_url" "$installDir" "$tempBin" "$binFile" && __is_installed "$name" "$installDir"; then
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3925,7 +4019,7 @@ __setup_ollama() {
   fi
 
   if __download_extract_install "$download_url" "$installDir" "$tempBin" "$binFile" && __is_installed "$name" "$installDir/bin"; then
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
 
     # Setup systemd service
     local service_file=""
@@ -3990,7 +4084,7 @@ EOF
     printf_cyan "Status:        $systemd_cmd status ollama"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4021,11 +4115,11 @@ __setup_podman() {
       printf_green "Installing $name"
     fi
     if __download_extract_install "$release_url" "$installDir" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-      printf_green "$name installed to $binFile"
+      __message_installed_ok "$name"
       __gen_desktopfile "$name" "$binFile"
     else
       exitCode=1
-      printf_red "Failed to download $name"
+      __message_installed_failed "$name"
     fi
   else
     exitCode=0
@@ -4052,11 +4146,11 @@ __setup_lapce() {
   fi
   if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
     __gen_desktopfile "$name" "$binFile"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -4153,7 +4247,7 @@ EOF
       sudo chown -f $name:$name /etc/default/$name >/dev/null 2>&1
       sudo chown -Rf $name:$name "/var/lib/$name" >/dev/null 2>&1
       sudo chown -Rf $name:$name "/etc/minio/minio.conf" >/dev/null 2>&1
-      printf_green "$name installed to $binFile"
+      __message_installed_ok "$name"
       printf_yellow "MinIO service created but NOT enabled"
       [ -z "$MINIO_ROOT_USER" ] || printf_cyan "Username: $MINIO_ROOT_USER"
       [ -z "$MINIO_ROOT_PASSWORD" ] || printf_cyan "Password: $MINIO_ROOT_PASSWORD"
@@ -4162,12 +4256,12 @@ EOF
       printf_cyan "Start service:  sudo systemctl start $name"
       printf_cyan "Status:         sudo systemctl status $name"
     else
-      printf_green "$name installed to $binFile"
+      __message_installed_ok "$name"
       printf_yellow "MINIO_ROOT_USER=$MINIO_ROOT_USER MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD $binFile --address 0.0.0.0:49000 --console-address 0.0.0.0:$console_port \"$HOME/.local/share/minio/data\""
     fi
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -4252,7 +4346,7 @@ EOF
       fi
       sudo systemctl daemon-reload >/dev/null 2>&1
     fi
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
     printf_yellow "Garage service created but NOT enabled"
     [ -z "$admin_password" ] || printf_cyan "Admin password: $admin_password"
     printf_cyan "Enable service: sudo systemctl enable $name"
@@ -4260,7 +4354,7 @@ EOF
     printf_cyan "Status:         sudo systemctl status $name"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -4303,7 +4397,7 @@ __setup_caddy() {
   fi
 
   if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    printf_green "$name installed to $binFile"
+    __message_installed_ok "$name"
     __setup_xcaddy
 
     # Setup systemd service (create but don't enable)
@@ -4380,7 +4474,7 @@ EOF
     printf_cyan "Status:         $systemd_cmd status caddy"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -4456,16 +4550,16 @@ EOF
     fi
 
     if [ -x "$binFile" ]; then
-      printf_green "$name installed to $binFile"
+      __message_installed_ok "$name"
       pipx ensurepath >/dev/null 2>&1 || true
       exitCode=0
     else
       exitCode=1
-      printf_red "Failed to install $name"
+      __message_installed_failed "$name"
     fi
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -4505,7 +4599,7 @@ __setup_speedtest() {
   fi
   if ! __download_extract_move "$download_url" "$name" "$binFile" && ! __is_installed "$name" "$binFile"; then
     exitCode=1
-    printf_red "Failed to install $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -4542,7 +4636,7 @@ __setup_llm() {
     printf_green "Installed $name via pipx"
   else
     exitCode=1
-    printf_red "Failed to install $name via pipx"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -4567,7 +4661,7 @@ __setup_aider() {
     printf_cyan "Docs: https://aider.chat/docs/"
   else
     exitCode=1
-    printf_red "Failed to install $name via pipx"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -4770,47 +4864,8 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_btop() {
-  local exitCode=0
-  local name="btop"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/aristocratos/btop/releases/latest"
-  local version=""
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-
-  if __cmd_exists "$name"; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-
-  case $arch in
-  x86_64) download_url="https://github.com/aristocratos/btop/releases/download/${version}/btop-x86_64-unknown-linux-musl.tbz" ;;
-  aarch64 | arm64) download_url="https://github.com/aristocratos/btop/releases/download/${version}/btop-aarch64-unknown-linux-musl.tbz" ;;
-  armv7l) download_url="https://github.com/aristocratos/btop/releases/download/${version}/btop-armv7-unknown-linux-musleabi.tbz" ;;
-  *)
-    printf_red "Unsupported architecture: $arch"
-    return 1
-    ;;
-  esac
-
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
-    printf_red "Failed to determine download URL for $name"
-    return 1
-  fi
-
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __install_to_system_bin "$binFile"
-    printf_green "$name $version installed to $binFile"
-  else
-    exitCode=1
-    printf_red "Failed to download $name"
-  fi
-  return $exitCode
+  # Uses .tbz archives with musl naming, needs custom pattern
+  __install_from_archive "btop" "aristocratos/btop" "$SETUPMGR_DEFAULT_BIN_DIR" "musl.*\\.tbz"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_bottom() {
@@ -4850,10 +4905,10 @@ __setup_bottom() {
   # Archive has binary at root level, don't strip components
   if __download_extract_move "$download_url" do_not_strip_components "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
-    printf_green "$name $version installed to $binFile"
+    __message_installed_ok "$name" "$SETUPMGR_DEFAULT_BIN_DIR"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -4934,10 +4989,10 @@ __setup_age() {
       __move_extracted_file "$PACKAGE_TMP_DIR/age-keygen" "$binDir/age-keygen"
     fi
     __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binDir"
+    __message_installed_ok "$name"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -5021,9 +5076,9 @@ __setup_tig() {
   fi
   if [ $exitCode -eq 0 ]; then
     __save_version "$name" "${version#v}"
-    printf_green "$name installed via system package manager"
+    __message_installed_ok "$name"
   else
-    printf_red "Failed to install $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -5101,10 +5156,10 @@ __setup_nushell() {
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   if __download_extract_move "$download_url" "nu-${version}-*/nu" "$binFile" && __is_installed "nu" "$binFile"; then
     __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
+    __message_installed_ok "nu" "$SETUPMGR_DEFAULT_BIN_DIR"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -5154,10 +5209,10 @@ __setup_watchexec() {
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   if __download_extract_move "$download_url" "watchexec-${version}-*/watchexec" "$binFile" && __is_installed "$name" "$binFile"; then
     __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
+    __message_installed_ok "$name" "$SETUPMGR_DEFAULT_BIN_DIR"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -5210,9 +5265,9 @@ __setup_entr() {
   fi
   if [ $exitCode -eq 0 ]; then
     __save_version "$name" "${version#v}"
-    printf_green "$name installed via system package manager"
+    __message_installed_ok "$name"
   else
-    printf_red "Failed to install $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -5269,10 +5324,10 @@ __setup_miller() {
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   if __download_extract_move "$download_url" "miller-${version}/mlr" "$binFile" && __is_installed "mlr" "$binFile"; then
     __save_version "$name" "${version#v}"
-    printf_green "$name $version installed to $binFile"
+    __message_installed_ok "mlr" "$SETUPMGR_DEFAULT_BIN_DIR"
   else
     exitCode=1
-    printf_red "Failed to download $name"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -6082,7 +6137,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
   claude)
     shift 1
-    __execute_npm "claude" "@anthropic-ai/claude-code"
+    __setup_claude "$@"
     SETUPMGR_EXIT_STATUS=$?
     ;;
   codex)

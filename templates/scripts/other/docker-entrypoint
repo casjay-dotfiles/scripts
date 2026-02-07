@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202601310310-git
+##@Version           :  202602061352-git
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
 # @@Contact          :  GEN_SCRIPT_REPLACE_EMAIL
 # @@License          :  GEN_SCRIPT_REPLACE_LICENSE
@@ -21,39 +21,11 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # run trap command on exit
-trap '__trap_exit_handler' EXIT
-trap '__trap_signal_handler' INT TERM PWR
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__trap_exit_handler() {
-  local retVal=$?
-  if [ "$SERVICE_IS_RUNNING" != "yes" ] && [ -f "$SERVICE_PID_FILE" ]; then
-    rm -Rf "$SERVICE_PID_FILE" 2>/dev/null || true
-  fi
-  exit $retVal
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__trap_signal_handler() {
-  local retVal=$?
-  echo "Container received shutdown signal"
-  if [ "$SERVICE_IS_RUNNING" != "yes" ] && [ -f "$SERVICE_PID_FILE" ]; then
-    rm -Rf "$SERVICE_PID_FILE" 2>/dev/null || true
-  fi
-  exit $retVal
-}
+trap 'retVal=$?;[ "$SERVICE_IS_RUNNING" != "yes" ] && [ -f "$SERVICE_PID_FILE" ] && rm -Rf "$SERVICE_PID_FILE";exit $retVal' INT TERM PWR
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup debugging - https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
-if [ -f "/config/.debug" ] && [ -z "$DEBUGGER_OPTIONS" ]; then
-  export DEBUGGER_OPTIONS="$(<"/config/.debug")"
-else
-  DEBUGGER_OPTIONS="${DEBUGGER_OPTIONS:-}"
-fi
-if [ "$DEBUGGER" = "on" ] || [ -f "/config/.debug" ]; then
-  echo "Enabling debugging"
-  set -o pipefail -x$DEBUGGER_OPTIONS
-  export DEBUGGER="on"
-else
-  set -o pipefail
-fi
+[ -f "/config/.debug" ] && [ -z "$DEBUGGER_OPTIONS" ] && export DEBUGGER_OPTIONS="$(<"/config/.debug")" || DEBUGGER_OPTIONS="${DEBUGGER_OPTIONS:-}"
+{ [ "$DEBUGGER" = "on" ] || [ -f "/config/.debug" ]; } && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS && export DEBUGGER="on" || set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 PATH="/usr/local/etc/docker/bin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -64,13 +36,7 @@ SCRIPT_NAME="$(basename -- "$SCRIPT_FILE" 2>/dev/null)"
 CONTAINER_NAME="${ENV_CONTAINER_NAME:-$CONTAINER_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # remove whitespaces from beginning argument
-while :; do
-  if [ "$1" = " " ]; then
-    shift 1
-  else
-    break
-  fi
-done
+while :; do [ "$1" = " " ] && shift 1 || break; done
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$1" = "$SCRIPT_FILE" ] && shift 1
 [ "$1" = "$SCRIPT_NAME" ] && shift 1
@@ -473,34 +439,32 @@ if [ "$ENTRYPOINT_FIRST_RUN" != "no" ] || [ "$CONFIG_DIR_INITIALIZED" = "no" ] |
   ENTRYPOINT_FIRST_RUN="no"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Clean all stale PID files from previous run (always do this first)
-if [ ! -f "$ENTRYPOINT_PID_FILE" ]; then
-  __log_info "🧹 Cleaning stale PID files from previous container run"
+# if no pid assume container restart - clean stale files on restart
+if [ -f "$ENTRYPOINT_PID_FILE" ]; then
+  # Check if the PID in the file is still running
+  entrypoint_pid=$(cat "$ENTRYPOINT_PID_FILE" 2>/dev/null || echo "")
+  if [ -n "$entrypoint_pid" ] && kill -0 "$entrypoint_pid" 2>/dev/null; then
+    # Process is still running, don't restart services
+    START_SERVICES="no"
+    touch "$ENTRYPOINT_PID_FILE"
+  else
+    # PID file exists but process is dead - this is a restart
+    START_SERVICES="yes"
+    # Clean any stale PID files on restart
+    rm -f /run/__start_init_scripts.pid /run/init.d/*.pid /run/*.pid 2>/dev/null || true
+  fi
+else
+  START_SERVICES=yes
+  # Clean any stale PID files on first run
   rm -f /run/__start_init_scripts.pid /run/init.d/*.pid /run/*.pid 2>/dev/null || true
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Determine if services should start based on restart detection
-if [ -f "$ENTRYPOINT_PID_FILE" ]; then
-  __log_debug "Container restart detected - services already running"
-  START_SERVICES="no"
-  touch "$ENTRYPOINT_PID_FILE"
-else
-  __log_debug "First container start - services will be initialized"
-  START_SERVICES="yes"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ "$ENTRYPOINT_MESSAGE" = "yes" ]; then
-  __printf_space "40" "The containers ip address is:" "$CONTAINER_IP4_ADDRESS"
-fi
+[ "$ENTRYPOINT_MESSAGE" = "yes" ] && __printf_space "40" "The containers ip address is:" "$CONTAINER_IP4_ADDRESS"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show configured listing processes
 if [ "$ENTRYPOINT_MESSAGE" = "yes" ] && [ -n "$ENV_PORTS" ]; then
   show_port=""
-  for port in $ENV_PORTS; do
-    if [ -n "$port" ]; then
-      show_port+="$(printf '%s ' "${port// /}") "
-    fi
-  done
+  for port in $ENV_PORTS; do [ -n "$port" ] && show_port+="$(printf '%s ' "${port// /}") "; done
   __printf_space "40" "The following ports are open:" "$show_port"
   unset port show_port
 fi
@@ -518,7 +482,7 @@ __set_user_group_id $SERVICE_USER ${SERVICE_UID:-} ${SERVICE_GID:-}
 __run_message
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Just start services
-START_SERVICES="${START_SERVICES:-yes}"
+START_SERVICES="${START_SERVICES:-SYSTEM_INIT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Determine if we should start services based on command
 # Only skip service start for the 'init' command
@@ -535,6 +499,9 @@ if [ "$START_SERVICES" = "yes" ] || [ -z "$1" ]; then
     echo "$$" >"$ENTRYPOINT_PID_FILE"
     __start_init_scripts "/usr/local/etc/docker/init.d"
     CONTAINER_INIT="${CONTAINER_INIT:-no}"
+    # Services started successfully - enter monitoring mode
+    __no_exit
+    exit $?
   fi
   START_SERVICES="no"
 fi
@@ -704,11 +671,7 @@ start)
   export PATH="/usr/local/etc/docker/init.d:$PATH"
   if [ $# -eq 0 ]; then
     scripts="$(ls -A "/usr/local/etc/docker/init.d")"
-    if [ -n "$scripts" ]; then
-      echo "$scripts"
-    else
-      echo "No scripts found in: /usr/local/etc/docker/init.d"
-    fi
+    [ -n "$scripts" ] && echo "$scripts" || echo "No scripts found in: /usr/local/etc/docker/init.d"
     exit
   elif [ "$1" = "all" ]; then
     shift $#
@@ -727,11 +690,7 @@ start)
   if [ $# -eq 0 ]; then
     if [ ! -f "$ENTRYPOINT_PID_FILE" ]; then
       echo "$$" >"$ENTRYPOINT_PID_FILE"
-      if [ "$START_SERVICES" = "no" ] && [ "$CONTAINER_INIT" = "yes" ]; then
-        :
-      else
-        __start_init_scripts "/usr/local/etc/docker/init.d"
-      fi
+      [ "$START_SERVICES" = "no" ] && [ "$CONTAINER_INIT" = "yes" ] || __start_init_scripts "/usr/local/etc/docker/init.d"
     fi
     __no_exit
   else

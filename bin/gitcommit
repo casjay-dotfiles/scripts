@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202602101843-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202602020740-git"
+VERSION="202602101843-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -2505,12 +2505,16 @@ $diff_content"
     echo "$msg" | __grep -qE '\.\.\.$|…$' && return 1
     # check for API-like responses
     echo "$msg" | __grep -qiE "^(Error|API|Response|Code|Message|Status|Result|Data|{|\[)" && return 1
-    # Check for common AI error patterns
-    echo "$msg" | __grep -qiE "^(I |Here|Sure|Okay|Let me|I'll|I can|I would|Sorry|I apologize|As an AI)" && return 1
+    # Check for common AI preamble/error patterns
+    echo "$msg" | __grep -qiE "^(I |Here|Sure|Okay|Let me|I'll|I can|I would|Sorry|I apologize|As an AI|Based on|Looking at|After reviewing|The commit|This commit|For this|Given the)" && return 1
+    # Check for AI meta-language about the message itself
+    echo "$msg" | __grep -qiE "commit message|here's|here is|following|would be|should be|suggest|recommend" && return 1
     # Check for markdown artifacts
-    echo "$msg" | __grep -qE "^\`\`\`|^#+\s" && return 1
+    echo "$msg" | __grep -qE "^\`\`\`|^#+\s|^\*\*" && return 1
     # Check it's not just the prompt echoed back
-    echo "$msg" | __grep -qiE "^Generate a git commit|^First line:|^- First line:|^TITLE LINE|^Rules for" && return 1
+    echo "$msg" | __grep -qiE "^Generate a git commit|^First line:|^- First line:|^TITLE LINE|^Rules for|^Output ONLY" && return 1
+    # Reject if it ends with a colon (incomplete response)
+    echo "$msg" | __grep -qE ':$' && return 1
     return 0
   }
 
@@ -2531,6 +2535,20 @@ $diff_content"
     # Check for obvious error responses in the result itself
     if echo "$res" | head -n1 | __grep -qiE "^(error|failed|exception|cannot|unable|invalid|unauthorized)"; then
       printf_yellow "⚠️  AI returned error response"
+      return 1
+    fi
+    # Strip common AI preamble patterns from the response
+    res="$(echo "$res" | sed -E '
+      s/^[Bb]ased on (the )?[^:]+:[[:space:]]*//
+      s/^[Hh]ere.*(commit message|is|are)[^:]*:[[:space:]]*//
+      s/^[Tt]he commit message[^:]*:[[:space:]]*//
+      s/^[Ss]uggested commit[^:]*:[[:space:]]*//
+      s/^[Cc]ommit message[^:]*:[[:space:]]*//
+      s/^\*\*[^*]+\*\*[[:space:]]*//
+    ' | sed '/^$/d')"
+    # If stripping left us with empty, fail
+    if [ -z "$res" ]; then
+      printf_yellow "⚠️  AI response was only preamble, no actual message"
       return 1
     fi
     short_msg="$(echo "$res" | head -n1)"

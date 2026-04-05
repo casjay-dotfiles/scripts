@@ -644,3 +644,48 @@ __install_from_binary "tool" "owner/repo" "$dir" "pattern\\.${arch_pattern}\$"
 5. Final testing
 6. Documentation sync
 
+
+## Session 2026-04-05: Fix dockermgr manifest command (Docker 25+ breakage)
+
+### Problem
+`dockermgr manifest` was broken — confirmed from logs in `~/.local/log/dockermgr/`:
+- `'docker manifest create' requires at least 2 arguments` (wireguard, almalinux)
+- `'docker buildx build' requires 1 argument` (vault)
+
+### Root Causes & Fixes
+
+1. **Wrong platform names** (`x86_64` → `amd64`)
+   Docker uses GOARCH names (amd64, arm64) not uname names (x86_64, aarch64).
+   This caused all docker builds to fail silently, leaving `$amend` empty.
+
+2. **Empty `$amend` guard** — when builds fail, `docker manifest create $tag` (no images) 
+   fails with "requires at least 2 arguments". Added guard to skip with clear error.
+
+3. **`--amend` flag misused** — was `--amend img1 --amend img2` (per-image) instead of 
+   `docker manifest create --amend TAG img1 img2` (command-level flag).
+
+4. **`$oci_labels` word-splitting bug** — label values with spaces (e.g. `"Docker image for vault"`) 
+   were split when `$oci_labels` string was unquoted in the command, consuming the `-` stdin 
+   context arg. Fixed by converting `oci_labels` from a string to a bash array.
+
+5. **BuildKit stdin compatibility** — `docker build ... -` → `docker build ... -f - .`
+   Docker 25+ with BuildKit requires explicit `-f -` for stdin Dockerfile; the old `-` 
+   alone no longer works as a raw Dockerfile context in BuildKit mode.
+
+### Key Lesson: Bash array for flag accumulation
+When accumulating shell flags that may have values with spaces, ALWAYS use an array:
+```bash
+# WRONG (word-splits on spaces in values):
+local flags=""
+flags+="--label key=\"value with spaces\" "
+docker build $flags -
+
+# CORRECT:
+local flags=()
+flags+=("--label" "key=value with spaces")
+docker build "${flags[@]}" -f - .
+```
+
+### Files Modified
+- `bin/dockermgr` — Fixed `__create_manifest()`: platforms, oci_labels array, --amend flag, guard, BuildKit stdin
+

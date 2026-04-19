@@ -190,7 +190,7 @@ __host_name() { hostname -f 2>/dev/null | grep -F '.' | grep '^' || hostname -f 
 __container_is_running() { docker ps 2>&1 | grep -i "$CONTAINER_NAME" | grep -qi 'ago.* Up.* [0-9].* ' && return 0 || return 1; }
 __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
 __netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED|docker-pro' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu | grep "^${1:-.*}$" || return 1; }
-__retrieve_custom_env() { [ -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.${1:-custom}.conf" ] && cat "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.${1:-custom}.conf" | grep -Ev '^$|^#' | grep '=' | grep '^' || __custom_docker_env | grep -Ev '^$|^#' | grep '=' | grep '^' || return 1; }
+__retrieve_custom_env() { [ -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.${1:-custom}.conf" ] && grep -Ev '^$|^#' "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.${1:-custom}.conf" | grep '=' | grep '^' || __custom_docker_env | grep -Ev '^$|^#' | grep '=' | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_user_id() { grep -s "^$1:" /etc/passwd | awk -F: '{print $3}' | grep '^[0-9]' || echo "$(id -u)"; }
 __get_group_id() { grep -s "^$1:" /etc/group | awk -F: '{print $3}' | grep '^[0-9]' || echo "$(id -g)"; }
@@ -1120,10 +1120,10 @@ if [ -n "$CONTAINER_FULL_HOST" ]; then
   CONTAINER_HOSTNAME="$CONTAINER_FULL_HOST"
   CONTAINER_DOMAINNAME=$(echo "$CONTAINER_FULL_HOST" | sed 's/^[^.:]*[.:]//')
 else
-  CONTAINER_HOSTNAME="$(echo "$CONTAINER_HOSTNAME" | sed 's/[.].*$//')"
+  CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME%%.*}"
   CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
 fi
-echo "$CONTAINER_HOSTNAME" | grep -qF '.' || CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
+[[ "$CONTAINER_HOSTNAME" == *"."* ]] || CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup container mounts
 CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"
@@ -1811,7 +1811,7 @@ unset CONTAINER_DATABASE_TYPE
 # Setup easy port settings
 if [ "$CONTAINER_SERVICE_PUBLIC" = "yes" ] || [ "$CONTAINER_SERVICE_PUBLIC" = "0.0.0.0" ]; then
   CONTAINER_SERVICE_PUBLIC="0.0.0.0"
-elif ! echo "$CONTAINER_SERVICE_PUBLIC" | grep -q '[0-9].*\.[0-9].*\.[0-9].*\.[0-9]'; then
+elif [[ ! "$CONTAINER_SERVICE_PUBLIC" =~ [0-9].*\.[0-9].*\.[0-9].*\.[0-9] ]]; then
   CONTAINER_SERVICE_PUBLIC="127.0.0.1"
 fi
 if [ "$CONTAINER_IS_DNS_SERVER" = "yes" ]; then
@@ -1877,7 +1877,7 @@ if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$CONTAINER_ADD_CUSTOM_SINGLE" ]; then
-  if echo "$CONTAINER_ADD_CUSTOM_SINGLE" | grep -q ":random:"; then
+  if [[ "$CONTAINER_ADD_CUSTOM_SINGLE" == *":random:"* ]]; then
     CONTAINER_ADD_CUSTOM_SINGLE="${CONTAINER_ADD_CUSTOM_SINGLE//:random:/:$(__rport):}"
   fi
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_ADD_CUSTOM_SINGLE")
@@ -1911,7 +1911,7 @@ if [ "$CONTAINER_CUSTOM_DATABASE_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS_ENV+=("--env DATABASE_DIR_CUSTOM=$DATABASE_DIR_CUSTOM")
   DOCKER_SET_OPTIONS_ENV+=("--env DATABASE_ADMIN_WWW_ROOT_CUSTOM=$CONTAINER_CUSTOM_DATABASE_ADMIN_WWW_ROOT")
   CONTAINER_CUSTOM_DATABASE_PROTOCOL="${CONTAINER_CUSTOM_DATABASE_PROTOCOL:-file}"
-  if echo "$CONTAINER_CUSTOM_DATABASE_PORT" | grep -q "^[0-9][0-9]"; then
+  if [[ "$CONTAINER_CUSTOM_DATABASE_PORT" =~ ^[0-9][0-9] ]]; then
     CONTAINER_DATABASE_PROTO="$CONTAINER_CUSTOM_DATABASE_PROTOCOL://$HOST_LISTEN_ADDR:$CONTAINER_CUSTOM_DATABASE_PORT"
   else
     CONTAINER_DATABASE_PROTO="file:///$DATABASE_DIR_CUSTOM/"
@@ -2210,13 +2210,13 @@ if [ -n "$CONTAINER_MOUNTS" ]; then
   CONTAINER_MOUNTS="${CONTAINER_MOUNTS//,/ }"
   for mnt in $CONTAINER_MOUNTS; do
     if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
-      if echo "$mnt" | grep -q '^HOST/'; then
+      if [[ "$mnt" == "HOST/"* ]]; then
         mnt="${mnt//HOST\//}"
         host_mnt="${mnt//:*/}"
         cont_mnt="${mnt//*:/}"
         [ -n "$cont_mnt" ] && mnt="$HOST_ROOTFS_DIR/$host_mnt:$cont_mnt" || mnt="$HOST_ROOTFS_DIR/$host_mnt:$host_mnt"
       fi
-      echo "$mnt" | grep -q ':' || mnt="$mnt:$mnt"
+      [[ "$mnt" == *":"* ]] || mnt="$mnt:$mnt"
       DOCKER_SET_MNT+="--volume $mnt "
     fi
   done
@@ -2228,7 +2228,7 @@ if [ -n "$CONTAINER_OPT_MOUNT_VAR" ]; then
   CONTAINER_OPT_MOUNT_VAR="${CONTAINER_OPT_MOUNT_VAR//,/ }"
   for mnt in $CONTAINER_OPT_MOUNT_VAR; do
     if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
-      echo "$mnt" | grep -q ':' || mnt="$mnt:$mnt"
+      [[ "$mnt" == *":"* ]] || mnt="$mnt:$mnt"
       DOCKER_SET_MNT+="--volume $mnt "
     fi
   done
@@ -2241,7 +2241,7 @@ if [ -n "$CONTAINER_DEVICES" ]; then
   CONTAINER_DEVICES="${CONTAINER_DEVICES//,/ }"
   for dev in $CONTAINER_DEVICES; do
     if [ "$dev" != "" ] && [ "$dev" != " " ]; then
-      echo "$dev" | grep -q ':' || dev="$dev:$dev"
+      [[ "$dev" == *":"* ]] || dev="$dev:$dev"
       DOCKER_SET_DEV+="--device $dev "
     fi
   done
@@ -2325,32 +2325,32 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ] || [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
   for set_port in $CONTAINER_ADD_CUSTOM_PORT $CONTAINER_OPT_PORT_VAR; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
       new_port="${set_port//\/*/}"
-      TYPE="$(echo "$set_port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
-      if echo "$new_port" | grep -q 'random:'; then
+      [[ "$set_port" == *"/"* ]] && TYPE="${set_port##*/}" || TYPE=""
+      if [[ "$new_port" == *"random:"* ]]; then
         random_port="$(__rport)"
         new_port="${new_port//random:/}"
         port="$random_port:${new_port//*:/}"
-      elif echo "$new_port" | grep -q '\.all:[0-9]'; then
+      elif [[ "$new_port" =~ \.all:[0-9] ]]; then
         set_listen_on_all="yes"
         new_port="${new_port//.all:/}"
-        if echo "$new_port" | grep -q '^.*[0-9]:[0-9]'; then
+        if [[ "$new_port" =~ ^.*[0-9]:[0-9] ]]; then
           port="$new_port"
         else
           port="$new_port:$new_port"
         fi
         set_listen_addr="false"
         set_listen_port="$port $set_listen_port"
-      elif echo "$new_port" | grep -q ':.*[0-9]:[0-9]'; then
+      elif [[ "$new_port" =~ :.*[0-9]:[0-9] ]]; then
         new_port="${new_port//.all:/}"
         port=$new_port
         set_listen_addr="false"
-      elif echo "$new_port" | grep -q '^.*[0-9]:[0-9]'; then
+      elif [[ "$new_port" =~ ^.*[0-9]:[0-9] ]]; then
         new_port="${new_port//.all:/}"
         port=$new_port
-      elif echo "$new_port" | grep -q ':.*[0-9]:[0-9]'; then
+      elif [[ "$new_port" =~ :.*[0-9]:[0-9] ]]; then
         port="$new_port"
         set_listen_addr="false"
-      elif echo "$new_port" | grep -q ':'; then
+      elif [[ "$new_port" == *":"* ]]; then
         port="$new_port"
         set_listen_addr="true"
       else
@@ -2819,7 +2819,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
         sed -i "s|REPLACE_NGINX_INCLUDE|$NGINX_INC_CONFIG|g" "$NGINX_VHOSTS_CONF_FILE_TMP"
         __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"
       elif [ -f "$INSTDIR/nginx/conf.d/vhosts/include.conf" ]; then
-        cat "$INSTDIR/nginx/conf.d/vhosts/include.conf" | tee -p "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
+        tee -p "$NGINX_VHOSTS_INC_FILE_TMP" <"$INSTDIR/nginx/conf.d/vhosts/include.conf" &>/dev/null
         sed -i "s|REPLACE_NGINX_INCLUDE|$NGINX_INC_CONFIG|g" "$NGINX_VHOSTS_CONF_FILE_TMP"
         __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"
       fi

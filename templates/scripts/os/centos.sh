@@ -83,17 +83,17 @@ KERNEL="${KERNEL:-kernel-ml}"
 ARCH="$(uname -m | tr '[:upper:]' '[:lower:]')"
 BACKUP_DIR="$HOME/Documents/backups/$(date +'%Y/%m/%d')"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-if echo "$SET_HOSTNAME" | grep -qE '^dns'; then
+if [[ "$SET_HOSTNAME" == dns* ]]; then
   SYSTEM_TYPE="dns"
-elif echo "$SET_HOSTNAME" | grep -qE '^pbx'; then
+elif [[ "$SET_HOSTNAME" == pbx* ]]; then
   SYSTEM_TYPE="pbx"
-elif echo "$SET_HOSTNAME" | grep -qE '^mail'; then
+elif [[ "$SET_HOSTNAME" == mail* ]]; then
   SYSTEM_TYPE="mail"
-elif echo "$SET_HOSTNAME" | grep -qE '^server'; then
+elif [[ "$SET_HOSTNAME" == server* ]]; then
   SYSTEM_TYPE="server"
-elif echo "$SET_HOSTNAME" | grep -qE '^sql|^db'; then
+elif [[ "$SET_HOSTNAME" == sql* ]] || [[ "$SET_HOSTNAME" == db* ]]; then
   SYSTEM_TYPE="sql"
-elif echo "$SET_HOSTNAME" | grep -qE '^devel|^build'; then
+elif [[ "$SET_HOSTNAME" == devel* ]] || [[ "$SET_HOSTNAME" == build* ]]; then
   SYSTEM_TYPE="devel"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -288,7 +288,7 @@ run_grub() {
   grub_cfg="$(find /boot/grub*/* -name 'grub*.cfg' | grep '^' || false)"
   grub_efi="$(find /boot/efi/EFI/* -name 'grub*.cfg' | grep '^' || false)"
   grub_bin="$(builtin type -P grub-mkconfig 2>/dev/null || builtin type -P grub2-mkconfig 2>/dev/null || false)"
-  grub_bin_name="$(basename -- "$grub_bin" 2>/dev/null)"
+  grub_bin_name="${grub_bin##*/}"
   if [ -n "$grub_bin" ]; then
     rm_if_exists /boot/*rescue*
     if [ -n "$grub_cfg" ]; then

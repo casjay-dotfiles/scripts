@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename -- "$0" 2>/dev/null)"
+APPNAME="${0##*/}"
 VERSION="202602020740-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
@@ -289,7 +289,7 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
-__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+__is_an_option() { if [[ "$ARRAY" == *"${1:-^}"* ]]; then return 1; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
@@ -315,7 +315,7 @@ __curl() { \curl -q -LSsf --fail-early --connect-timeout "${LATEST_ISO_CONNECT_T
 __test_arch() {
   local test_arch="" exclude_arch="" a="" output=""
   local arch="${LATEST_ISO_SYSTEM_ARCH:-$(uname -m)}"
-  arch="$(echo "$arch" | tr '[:upper:]' '[:lower:]')"
+  arch="${arch,,}"
   local -a input=()
   # Read from arguments or stdin
   if [ $# -gt 0 ]; then
@@ -350,26 +350,33 @@ __unarchive() {
   local archive="${archive_file:-$1}"
   local extract_dir="$(dirname "$archive")"
   local extracted_file=""
-  if echo "$archive" | __grep -qE '\.tar$|\.tar\.gz$|\.tar\.bz2$|\.tar\.xz$'; then
+  case "$archive" in
+  *.tar | *.tar.gz | *.tar.bz2 | *.tar.xz)
     tar xfv "$archive" -C "$extract_dir" && rm -f "$archive"
     return $?
-  elif echo "$archive" | __grep -q '\.xz$'; then
+    ;;
+  *.xz)
     # For .xz files (like .img.xz), decompress in place and remove archive
     xz -fd "$archive"
     return $?
-  elif echo "$archive" | __grep -q '\.gz$'; then
+    ;;
+  *.gz)
     gzip -fd "$archive"
     return $?
-  elif echo "$archive" | __grep -q '\.bz2$'; then
+    ;;
+  *.bz2)
     bzip2 -fd "$archive"
     return $?
-  elif echo "$archive" | __grep -q '\.zip$'; then
+    ;;
+  *.zip)
     unzip -o "$archive" -d "$extract_dir" && rm -f "$archive"
     return $?
-  elif echo "$archive" | __grep -q '\.7z$'; then
+    ;;
+  *.7z)
     7z x "$archive" -o"$extract_dir" && rm -f "$archive"
     return $?
-  fi
+    ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __ex() {
@@ -390,7 +397,12 @@ __ex() {
       iso_dirname="$(dirname "$download_file")"
       [ -d "$iso_dirname" ] || mkdir -p "$iso_dirname"
       # Ensure output has .iso extension
-      download_file="$(echo "$download_file" | __sed 's|\.zip$|.iso|g;s|\.xz$|.iso|g;s|\.gz$|.iso|g')"
+      # Replace archive extension with .iso
+      case "$download_file" in
+      *.zip) download_file="${download_file%.zip}.iso" ;;
+      *.xz) download_file="${download_file%.xz}.iso" ;;
+      *.gz) download_file="${download_file%.gz}.iso" ;;
+      esac
       if [ "$extracted_file" != "$download_file" ]; then
         printf_cyan "Moving $extracted_file to $download_file"
         if mv -f "$extracted_file" "$download_file"; then
@@ -414,15 +426,23 @@ __strip_url() { __grep -v '^$' | head -n1 | __grep '^'; }
 __set_filename() {
   local file="$1" arch="$2"
   # Handle various archive/image extensions: .iso, .img.xz, .tar.gz, etc.
-  if echo "$file" | __grep -qE '\.(img|tar)\.(xz|gz|bz2)$'; then
+  # Insert arch before extension
+  case "$file" in
+  *.img.xz | *.img.gz | *.img.bz2 | *.tar.xz | *.tar.gz | *.tar.bz2)
     echo "$file" | sed -E "s#\.(img|tar)\.(xz|gz|bz2)\$#.${arch}.\1.\2#g" | __grep '^' || echo "$file"
-  elif echo "$file" | __grep -qE '\.iso$'; then
-    echo "$file" | sed "s#\.iso\$#.${arch}.iso#g" | __grep '^' || echo "$file"
-  elif echo "$file" | __grep -qE '\.(xz|gz|bz2|7z|zip)$'; then
-    echo "$file" | sed -E "s#\.(xz|gz|bz2|7z|zip)\$#.${arch}.\1#g" | __grep '^' || echo "$file"
-  else
+    ;;
+  *.iso)
+    echo "${file%.iso}.${arch}.iso"
+    ;;
+  *.xz) echo "${file%.xz}.${arch}.xz" ;;
+  *.gz) echo "${file%.gz}.${arch}.gz" ;;
+  *.bz2) echo "${file%.bz2}.${arch}.bz2" ;;
+  *.7z) echo "${file%.7z}.${arch}.7z" ;;
+  *.zip) echo "${file%.zip}.${arch}.zip" ;;
+  *)
     echo "$file"
-  fi
+    ;;
+  esac
 }
 __get_filename() { __grep -E '\.iso$|\.dmg$|\.tar$|\.gz$|\.xz$|\.bz2$|\.7z$|\.zip$' | __grep $1 '^' || return 2; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -453,7 +473,7 @@ __gui() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_all() {
   local statusCode=0
-  isos="$(echo "${ARRAY//,/ }" | tr ' ' '\n' | sort -u | __grep -Ev 'iso|gui|all' | tr '\n' ' ')"
+  isos="$(tr ' ' '\n' <<< "${ARRAY//,/ }" | sort -u | __grep -Ev 'iso|gui|all' | tr '\n' ' ')"
   for iso in $isos; do
     export LATEST_ISO_FORCE_INST="$LATEST_ISO_FORCE_INST"
     export LATEST_ISO_SYSTEM_ARCH="$LATEST_ISO_SYSTEM_ARCH"
@@ -467,12 +487,17 @@ __test_iso() {
   local verify=""
   local get_status=""
   # Handle rsync URLs - if URL ends with bootable/archive extension, assume valid
-  if echo "$1" | __grep -qE '^rsync://.*\.(iso|xz|gz|bz2|7z)$'; then
+  # Handle rsync URLs - if URL ends with bootable/archive extension, assume valid
+  if [[ "$1" == rsync://*.iso ]] || [[ "$1" == rsync://*.xz ]] || [[ "$1" == rsync://*.gz ]] || [[ "$1" == rsync://*.bz2 ]] || [[ "$1" == rsync://*.7z ]]; then
     return 0
   fi
   [ -n "$1" ] && test="$(echo "$1" | __grep -E 'https://|http://|ftp://' | __get_filename | __grep '^' || echo '')"
   [ -n "$test" ] && get_status="$(__curl -I "$test" || return 1)"
-  verify="$(echo "$get_status" | __grep -q 'HTTP/.* 200' && echo 'valid' || echo '')"
+  if [[ "$get_status" == *"HTTP/"*" 200"* ]]; then
+    verify="valid"
+  else
+    verify=""
+  fi
   if [ "$verify" = "valid" ]; then
     return 0
   else
@@ -517,20 +542,21 @@ __strip_tags() {
 __verify_arch() {
   # Returns standardized arch for filename: amd64, arm64, arm, i386
   latest="${1:-$latest}"
-  if echo "$latest" | __grep -wiq 'x86_64'; then
+  local latest_lower="${latest,,}"
+  if [[ "$latest_lower" == *x86_64* ]]; then
     verify_arch="amd64"
-  elif echo "$latest" | __grep -wiq 'amd64'; then
+  elif [[ "$latest_lower" == *amd64* ]]; then
     verify_arch="amd64"
-  elif echo "$latest" | __grep -wiq 'aarch64'; then
+  elif [[ "$latest_lower" == *aarch64* ]]; then
     verify_arch="arm64"
-  elif echo "$latest" | __grep -wiq 'arm64'; then
+  elif [[ "$latest_lower" == *arm64* ]]; then
     verify_arch="arm64"
-  elif echo "$latest" | __grep -iq '\-ARM\-'; then
+  elif [[ "$latest_lower" == *-arm-* ]]; then
     # Handle patterns like "Manjaro-ARM-"
     verify_arch="arm64"
-  elif echo "$latest" | __grep -wiq 'arm'; then
+  elif [[ "$latest_lower" == *arm* ]]; then
     verify_arch="arm"
-  elif echo "$latest" | __grep -wiqE 'i[1-9]86|x86'; then
+  elif [[ "$latest_lower" =~ i[1-9]86|x86 ]]; then
     verify_arch="i386"
   else
     verify_arch="amd64"
@@ -601,7 +627,8 @@ __github() {
   local api_url="" result=""
   [ -n "$repo" ] || return 1
   # Clean repo format (remove URL parts if full URL given)
-  repo="$(echo "$repo" | __sed 's|.*github\.com/||g;s|/*$||g' | __grep '^' || echo "$repo")"
+  repo="${repo##*github.com/}"
+  repo="${repo%%/}"
   api_url="https://api.github.com/repos/$repo/releases/latest"
   result="$(__curl -H "Accept: application/vnd.github+json" "$api_url" | jq -r '.assets[].browser_download_url' 2>/dev/null | __grep -E "$include" | __grep -vE "$exclude" | __filter_stable | sort -rV | __test_arch | head -n1)"
   [ -n "$result" ] && echo "$result"
@@ -617,7 +644,7 @@ __gitlab() {
   local api_url="" result=""
   [ -n "$project" ] || return 1
   # URL encode project path if it contains /
-  project="$(echo "$project" | __sed 's|/|%2F|g')"
+  project="${project//\//%2F}"
   api_url="https://$instance/api/v4/projects/$project/releases"
   result="$(__curl "$api_url" | jq -r '.[0].assets.links[].url' 2>/dev/null | __grep -E "$include" | __grep -vE "$exclude" | __filter_stable | sort -rV | __test_arch | head -n1)"
   [ -n "$result" ] && echo "$result"
@@ -744,7 +771,7 @@ __latest_iso() {
     file="${2:-$file}"
     archive_iso_name="${3:-$archive_iso_name}"
     latest=$(__find_iso "$url")
-    localname=$(basename -- "$latest" 2>/dev/null)
+    localname=${latest##*/}
     download_dir=$(dirname "${2:-$LATEST_ISO_DOWNLOAD_DIR/$localname}" 2>/dev/null)
     download_file="$download_dir/${file//$download_dir\//}"
     [ -d "$download_file" ] && rm -Rf "$download_file"
@@ -775,10 +802,10 @@ __setup_download_paths() {
   GRAB_LATEST_FILE="${file_arg:-$GRAB_DOWNLOAD_FILE}"
   GRAB_ARCHIVE_NAME="${archive_arg:-$GRAB_ARCHIVE_NAME}"
   GRAB_SYSTEM_ARCH="$(__get_arch)"
-  GRAB_REMOTE_ISO_NAME="$(basename -- "$GRAB_LATEST")"
+  GRAB_REMOTE_ISO_NAME="${GRAB_LATEST##*/}"
   GRAB_ISO_ARCH="$(__verify_arch "$GRAB_LATEST")"
   GRAB_DOWNLOAD_FILE="$(__set_filename "${GRAB_LATEST_FILE:-$GRAB_DOWNLOAD_FILE}" "$GRAB_ISO_ARCH")"
-  GRAB_LOCAL_ISO_NAME="$(basename -- "$GRAB_DOWNLOAD_FILE")"
+  GRAB_LOCAL_ISO_NAME="${GRAB_DOWNLOAD_FILE##*/}"
   GRAB_LATEST_FILE_DIR="$(dirname "$GRAB_LATEST_FILE")"
   GRAB_LOG_FILE="$LATEST_ISO_LOG_DIR/$GRAB_LOCAL_ISO_NAME"
 
@@ -792,17 +819,21 @@ __setup_download_paths() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Helper: Determine download type and set messages
 __determine_download_type() {
-  if echo "$GRAB_LATEST" | __iso_is_archive &>/dev/null; then
+  case "$GRAB_LATEST" in
+  *.tar | *.xz | *.gz | *.zip | *.bz2 | *.7z)
     [ -z "$GRAB_ARCHIVE_NAME" ] && GRAB_ARCHIVE_NAME="$LATEST_ISO_TEMP_DIR/$GRAB_REMOTE_ISO_NAME"
     GRAB_CURL_FILE="$GRAB_ARCHIVE_NAME"
     GRAB_SAVE_MESSAGE="Attempting to download the compressed ISO from: $(dirname "$GRAB_LATEST")"
-  elif echo "$GRAB_LATEST" | __grep -qE '\.iso$' &>/dev/null; then
+    ;;
+  *.iso)
     GRAB_CURL_FILE="$GRAB_DOWNLOAD_FILE"
     GRAB_SAVE_MESSAGE="Attempting to download the ISO from: $(dirname "$GRAB_LATEST")"
-  else
+    ;;
+  *)
     GRAB_CURL_FILE="$GRAB_DOWNLOAD_FILE"
     GRAB_SAVE_MESSAGE="Attempting to download the file from: $(dirname "$GRAB_LATEST")"
-  fi
+    ;;
+  esac
   GRAB_DOWNLOAD_MESSAGE="Size of $GRAB_REMOTE_ISO_NAME is $remote_filesize and saving it to: $GRAB_DOWNLOAD_FILE"
   mkdir -p "$(dirname "$GRAB_CURL_FILE")"
 }
@@ -817,7 +848,7 @@ __execute_download() {
       printf_yellow "Download failed, resuming in ${retry_delay}s (attempt $((attempt + 1)) of $((max_retries + 1)))..."
       sleep "$retry_delay"
     fi
-    if echo "$GRAB_LATEST" | __grep -q '^rsync://'; then
+    if [[ "$GRAB_LATEST" == rsync://* ]]; then
       __rsync_download "$GRAB_LATEST" "$GRAB_CURL_FILE" && success="true" || success=""
     else
       __download_with_progress "$GRAB_LATEST" "$GRAB_CURL_FILE" "$remote_file_size_raw" && success="true" || success=""
@@ -836,11 +867,17 @@ __execute_download() {
 __verify_download() {
   local exitCode=0
 
-  if echo "$GRAB_LATEST" | __iso_is_archive &>/dev/null; then
+  case "$GRAB_LATEST" in
+  *.tar | *.xz | *.gz | *.zip | *.bz2 | *.7z)
     __ex "$GRAB_DOWNLOAD_FILE" "$GRAB_CURL_FILE"
     # Update GRAB_DOWNLOAD_FILE to the extracted .iso path
-    GRAB_DOWNLOAD_FILE="$(echo "$GRAB_DOWNLOAD_FILE" | __sed 's|\.zip$|.iso|g;s|\.xz$|.iso|g;s|\.gz$|.iso|g')"
-  fi
+    case "$GRAB_DOWNLOAD_FILE" in
+    *.zip) GRAB_DOWNLOAD_FILE="${GRAB_DOWNLOAD_FILE%.zip}.iso" ;;
+    *.xz) GRAB_DOWNLOAD_FILE="${GRAB_DOWNLOAD_FILE%.xz}.iso" ;;
+    *.gz) GRAB_DOWNLOAD_FILE="${GRAB_DOWNLOAD_FILE%.gz}.iso" ;;
+    esac
+    ;;
+  esac
 
   # Check if downloaded file exists (could be the archive or extracted file)
   local verify_file=""
@@ -858,7 +895,7 @@ __verify_download() {
 
   if [ -f "$GRAB_DOWNLOAD_FILE" ]; then
     # For compressed files (like .img.xz), extracted size is always larger - skip size check
-    if echo "$GRAB_LATEST" | __iso_is_archive &>/dev/null; then
+    if [[ "$GRAB_LATEST" == *.tar || "$GRAB_LATEST" == *.xz || "$GRAB_LATEST" == *.gz || "$GRAB_LATEST" == *.zip || "$GRAB_LATEST" == *.bz2 || "$GRAB_LATEST" == *.7z ]]; then
       # For archives: just verify file exists and has reasonable size (> 10MB)
       if [ "$local_file_size_raw" -gt 10000000 ]; then
         printf_green "Downloading and extraction of $GRAB_LOCAL_ISO_NAME was successful"
@@ -867,7 +904,7 @@ __verify_download() {
         printf_red "Extraction of $GRAB_LOCAL_ISO_NAME has failed: extracted file too small"
         exitCode=1
       fi
-    elif echo "$GRAB_LATEST" | __grep -q '\.dmg$' && [ "$remote_file_size_raw" = "0" ]; then
+    elif [[ "$GRAB_LATEST" == *.dmg ]] && [ "$remote_file_size_raw" = "0" ]; then
       # For DMG files where Apple CDN doesn't return Content-Length, just verify reasonable size (> 400MB)
       if [ "$local_file_size_raw" -gt 400000000 ]; then
         printf_green "Downloading of $GRAB_LOCAL_ISO_NAME was successful"
@@ -934,7 +971,7 @@ __grab_iso() {
 
   # Check if URL is valid (skip for DMG files - Apple CDN doesn't return Content-Length)
   if [ "$remote_filesize" = "0" ] || [ "$remote_filesize" = "0B" ]; then
-    if ! echo "$GRAB_LATEST" | __grep -q '\.dmg$'; then
+    if [[ "$GRAB_LATEST" != *.dmg ]]; then
       printf_error "$GRAB_LATEST doesn't seem to be a valid ISO image"
       printf_newline
       __notify_download_result 4
@@ -944,11 +981,18 @@ __grab_iso() {
 
   # Check if file already exists (also check for extracted ISO from archives)
   local check_file="$GRAB_DOWNLOAD_FILE"
-  if echo "$GRAB_LATEST" | __iso_is_archive &>/dev/null; then
+  case "$GRAB_LATEST" in
+  *.tar | *.xz | *.gz | *.zip | *.bz2 | *.7z)
     # For archives, also check if the extracted .iso exists
-    local extracted_iso="$(echo "$GRAB_DOWNLOAD_FILE" | __sed 's|\.zip$|.iso|g;s|\.xz$|.iso|g;s|\.gz$|.iso|g')"
+    local extracted_iso="$GRAB_DOWNLOAD_FILE"
+    case "$extracted_iso" in
+    *.zip) extracted_iso="${extracted_iso%.zip}.iso" ;;
+    *.xz) extracted_iso="${extracted_iso%.xz}.iso" ;;
+    *.gz) extracted_iso="${extracted_iso%.gz}.iso" ;;
+    esac
     [ -f "$extracted_iso" ] && check_file="$extracted_iso"
-  fi
+    ;;
+  esac
   if [ -f "$check_file" ] && [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
     __filesize_local "$check_file" "silent" &>/dev/null
     printf_cyan "File already exists in: ${PURPLE}$check_file : $local_file_size"
@@ -1017,19 +1061,19 @@ __remote_filesize() {
   local url="$1"
 
   # Handle rsync URLs differently
-  if echo "$url" | __grep -q '^rsync://'; then
+  if [[ "$url" == rsync://* ]]; then
     local rsync_dir="" rsync_file=""
     rsync_dir="$(dirname "$url")/"
-    rsync_file="$(basename "$url")"
+    rsync_file="${url##*/}"
     content_length="$(__rsync_get_filesize "$rsync_dir" "$rsync_file")"
     [ -z "$content_length" ] && content_length=0
   else
     head="$(__curl -I "$url" 2>/dev/null)"
-    content_length_count="$(echo "$head" | __grep -ic 'content-length' || echo 1)"
+    content_length_count="$(__grep -ic 'content-length' <<< "$head" || echo 1)"
     if [ $content_length_count = 1 ]; then
-      content_length="$(echo "$head" | __grep -ai 'content-length' | head -n1 | awk -v IGNORECASE=1 'BEGIN{RS="\r\n"} /^content-length/ { print $2 }')"
+      content_length="$(__grep -ai 'content-length' <<< "$head" | head -n1 | awk -v IGNORECASE=1 'BEGIN{RS="\r\n"} /^content-length/ { print $2 }')"
     elif [ "$content_length_count" != 1 ]; then
-      content_length="$(echo "$head" | __grep -ai 'content-length' | tail -n1 | awk -v IGNORECASE=1 'BEGIN{RS="\r\n"} /^content-length/ { print $2 }')"
+      content_length="$(__grep -ai 'content-length' <<< "$head" | tail -n1 | awk -v IGNORECASE=1 'BEGIN{RS="\r\n"} /^content-length/ { print $2 }')"
     fi
   fi
   if [ "$content_length" = 0B ]; then
@@ -1269,15 +1313,18 @@ __get_torrent() {
   local torrent_name=""
   LATEST_ISO_IS_TORRENT="no"
 
-  if echo "$torrent_url" | __grep -qE 'magnet:|\.torrent$'; then
+  if [[ "$torrent_url" == magnet:* ]] || [[ "$torrent_url" == *.torrent ]]; then
     LATEST_ISO_IS_TORRENT="yes"
     printf_yellow "This appears to be a torrent"
 
     # Get torrent name for display
-    if echo "$torrent_url" | __grep -q 'magnet:'; then
-      torrent_name="$(echo "$torrent_url" | __sed 's|.*dn=||;s|&.*||' | __sed 's|%20| |g')"
+    if [[ "$torrent_url" == magnet:* ]]; then
+      # Extract display name from magnet link
+      torrent_name="${torrent_url##*dn=}"
+      torrent_name="${torrent_name%%&*}"
+      torrent_name="${torrent_name//%20/ }"
     else
-      torrent_name="$(basename "$torrent_url")"
+      torrent_name="${torrent_url##*/}"
     fi
     [ -z "$torrent_name" ] && torrent_name="torrent"
 
@@ -1350,18 +1397,19 @@ __monitor_transmission() {
       return 1
     fi
 
-    status="$(echo "$info" | __grep 'State:' | __sed 's|.*State: ||')"
-    percent="$(echo "$info" | __grep 'Percent Done:' | __sed 's|.*Percent Done: ||')"
+    status="$(__grep 'State:' <<< "$info" | __sed 's|.*State: ||')"
+    percent="$(__grep 'Percent Done:' <<< "$info" | __sed 's|.*Percent Done: ||')"
 
     # Check if done
-    if [ "$percent" = "100%" ] || echo "$status" | __grep -qi 'seeding\|finished'; then
+    local status_lower="${status,,}"
+    if [ "$percent" = "100%" ] || [[ "$status_lower" == *seeding* ]] || [[ "$status_lower" == *finished* ]]; then
       printf '\n'
       printf_green "Downloading of $torrent_name was successful"
       return 0
     fi
 
     # Check if stopped/error
-    if echo "$status" | __grep -qi 'stopped\|error'; then
+    if [[ "$status_lower" == *stopped* ]] || [[ "$status_lower" == *error* ]]; then
       printf '\n'
       printf_red "Downloading of $torrent_name has failed: $status"
       return 1
@@ -2522,11 +2570,11 @@ iso)
   if [ $# -eq 0 ]; then
     printf_exit "Usage: $APPNAME iso <url> <filename>"
   elif [ $# -eq 1 ]; then
-    LATEST_ISO_FILENAME="${LATEST_ISO_FILENAME:-$(basename -- "$1")}"
+    LATEST_ISO_FILENAME="${LATEST_ISO_FILENAME:-${1##*/}}"
     __grab_iso "$1" "$LATEST_ISO_DOWNLOAD_DIR/$LATEST_ISO_FILENAME"
     exitCode=$?
   elif [ $# -eq 2 ]; then
-    LATEST_ISO_FILENAME="${LATEST_ISO_FILENAME:-$(basename -- "$2")}"
+    LATEST_ISO_FILENAME="${LATEST_ISO_FILENAME:-${2##*/}}"
     __grab_iso "$1" "$LATEST_ISO_DOWNLOAD_DIR/$LATEST_ISO_FILENAME"
     exitCode=$?
   fi

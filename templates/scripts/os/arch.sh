@@ -46,7 +46,7 @@ SCRIPT_OS="arch"
 SCRIPT_DESCRIBE="GEN_SCRIPT_REPLACE_FILENAME"
 GITHUB_USER="${GITHUB_USER:-casjay}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-SCRIPT_NAME="$(basename -- "$0" 2>/dev/null)"
+SCRIPT_NAME="${0##*/}"
 SCRIPT_NAME="${SCRIPT_NAME%.*}"
 RELEASE_VER="$(grep --no-filename -s 'VERSION_ID=' /etc/*-release | awk -F '=' '{print $2}' | sed 's#"##g' | awk -F '.' '{print $1}' | grep '^')"
 RELEASE_NAME="$(grep --no-filename -s '^NAME=' /etc/*-release | awk -F'=' '{print $2}' | sed 's|"||g;s| .*||g' | tr '[:upper:]' '[:lower:]' | grep '^')"
@@ -99,7 +99,7 @@ run_grub() {
   grub_cfg="$(find /boot/grub*/* -name 'grub*.cfg' | grep '^' || false)"
   grub_efi="$(find /boot/efi/EFI/* -name 'grub*.cfg' | grep '^' || false)"
   grub_bin="$(builtin type -P grub-mkconfig 2>/dev/null || builtin type -P grub2-mkconfig 2>/dev/null || false)"
-  grub_bin_name="$(basename -- "$grub_bin" 2>/dev/null)"
+  grub_bin_name="${grub_bin##*/}"
   printf_green "Setting up ${grub_bin_name//-mkconfig/}"
   if [ -n "$grub_bin" ]; then
     rm_if_exists /boot/*rescue*

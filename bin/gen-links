@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename -- "$0" 2>/dev/null)"
+APPNAME="${0##*/}"
 VERSION="202602020740-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
@@ -218,7 +218,7 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
-__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+__is_an_option() { if [[ "$ARRAY" == *"${1:-^}"* ]]; then return 1; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
@@ -276,7 +276,7 @@ __sudo() {
   CMD="${1:-echo}" && shift 1
   CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  [ "${SUDO##*/}" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
     export PATH="$PATH"
     $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
@@ -421,8 +421,8 @@ __make_html() {
   local from="" to=""
   FILE="${1:-$FILE}"
   LINKS="${2:-${FILE%.*}.html}"
-  from="$(basename -- "$FILE" 2>/dev/null)"
-  to="$(basename -- "$LINKS" 2>/dev/null)"
+  from="${FILE##*/}"
+  to="${LINKS##*/}"
   GEN_LINKS_FORCE="${GEN_LINKS_FORCE:-false}"
   [ -f "$FILE" ] || { printf_red "$FILE doesn't exist" && return 1; }
   if [ "$GEN_LINKS_FORCE" != "true" ] && [ -f "$LINKS" ]; then
@@ -559,7 +559,7 @@ $GEN_LINKS_HEADER
 <div class="links align-items-center">
 <br />
 <!-- $GEN_LINKS_SEPARATOR -->
-$([ -f "$GEN_LINKS_TEMP_FILE" ] && cat "$GEN_LINKS_TEMP_FILE" | sed '/^$/N;/^\n$/D' | __sed_separator)
+$([ -f "$GEN_LINKS_TEMP_FILE" ] && sed '/^$/N;/^\n$/D' "$GEN_LINKS_TEMP_FILE" | __sed_separator)
 <!-- $GEN_LINKS_SEPARATOR -->
 </div>
 <br />
@@ -595,7 +595,7 @@ __make_links() {
   FILE="${1:-$FILE}"
   rm -Rf "$GEN_LINKS_TEMP_FILE"
   echo '<div class="row text-center align-items-center justify-content-center">' >>"$GEN_LINKS_TEMP_FILE" 2>/dev/null
-  cat "$FILE" | __grep_text | while IFS= read -r line; do
+  __grep_text <"$FILE" | while IFS= read -r line; do
     if { [ "$line" = " " ] || [ "$line" = "" ]; } && [ "$number_init" != 0 ]; then
       number=0
       echo "" | __sed_separator >>"$GEN_LINKS_TEMP_FILE" 2>/dev/null
@@ -637,14 +637,14 @@ __watch() {
   GEN_LINKS_SILENT="true"
   dir=$(realpath "$filein" 2>/dev/null)
   date_time="$(date +'%Y-%m-%d at %H:%M:%S')"
-  line_count="$(cat "$filein" | wc -l 2>/dev/null)"
-  [ -f "$filein" ] && file="$(basename -- "$filein")" || exit 1
+  line_count="$(wc -l <"$filein" 2>/dev/null)"
+  [ -f "$filein" ] && file="${filein##*/}" || exit 1
   [ -f "$filein" ] && dir=$(dirname $(realpath "$filein") 2>/dev/null)
   printf_blue "watching $file every ${time} secs and regenerating as it changes"
   printf_cyan "Processing $line_count lines. ${YELLOW}Press control+c to exit."
   while :; do
     date_time="$(date +'%Y-%m-%d at %H:%M:%S')"
-    line_count="$(cat "$filein" | wc -l 2>/dev/null)"
+    line_count="$(wc -l <"$filein" 2>/dev/null)"
     if [ "$files" = "" ]; then
       __printf_return "Nothing changed with ${files:-$filein} on $date_time - processed $line_count lines " "$GREEN"
     else
@@ -698,15 +698,17 @@ __get_page_title() {
       exitCode=2
     fi
   else
-    # Without lookup, strip protocol for display
+    # Without lookup, strip protocol prefix for display
     # Keep essential query params (like YouTube v=) but strip tracking params
-    link_title="$(echo "$link_url" | sed 's|^https*://||g;s|^ftp://||g')"
+    link_title="${link_url#http*://}"
+    link_title="${link_title#ftp://}"
 
     # For YouTube, keep only the v= parameter
-    if echo "$link_url" | grep -q 'youtube.com/watch'; then
+    if [[ "$link_url" == *"youtube.com/watch"* ]]; then
       local video_id="$(echo "$link_url" | sed 's|.*[?&]v=||g;s|&.*||g')"
       link_title="$(echo "$link_title" | sed 's|?.*||g')?v=$video_id"
     # For other common sites with tracking params, strip everything after ? except essential params
+    # Keep regex grep for multi-pattern matching
     elif echo "$link_url" | grep -qE 'utm_|ad_sub|fbclid|gclid'; then
       # Remove common tracking parameters
       link_title="$(echo "$link_title" | sed 's|[?&]utm_[^&]*||g;s|[?&]ad_sub=[^&]*||g;s|[?&]fbclid=[^&]*||g;s|[?&]gclid=[^&]*||g;s|[?&]*$||g;s|?&|?|g')"
@@ -723,42 +725,46 @@ __extract_smart_title() {
   local path_part=""
 
   # Remove protocol and extract path before query parameters
-  local clean_url="$(echo "$url" | sed 's|^https*://||g;s|^ftp://||g')"
-  local url_path="$(echo "$url" | sed 's|^https*://[^/]*||g;s|?.*||g;s|#.*||g')"
+  local clean_url="${url#http*://}"
+  clean_url="${clean_url#ftp://}"
+  local url_path="${url#http*://}"
+  url_path="/${url_path#*/}"
+  url_path="${url_path%%\?*}"
+  url_path="${url_path%%#*}"
 
   # Site-specific title extraction
-  if echo "$url" | grep -q 'youtube.com/watch'; then
+  if [[ "$url" == *"youtube.com/watch"* ]]; then
     local video_id="$(echo "$url" | sed 's|.*[?&]v=||g;s|&.*||g')"
     title="YouTube: $video_id"
-  elif echo "$url" | grep -q 'youtu.be/'; then
+  elif [[ "$url" == *"youtu.be/"* ]]; then
     local video_id="$(echo "$url" | sed 's|.*/||g;s|?.*||g')"
     title="YouTube: $video_id"
-  elif echo "$url" | grep -q 'github.com'; then
+  elif [[ "$url" == *"github.com"* ]]; then
     title="$(echo "$clean_url" | cut -d'/' -f2-3 | sed 's|/| - |g')"
-  elif echo "$url" | grep -q 'stackoverflow.com/questions'; then
+  elif [[ "$url" == *"stackoverflow.com/questions"* ]]; then
     title="$(echo "$clean_url" | cut -d'/' -f4- | sed 's|/| |g' | head -c60)"
-  elif echo "$url" | grep -q 'reddit.com/r/'; then
+  elif [[ "$url" == *"reddit.com/r/"* ]]; then
     local subreddit="$(echo "$clean_url" | cut -d'/' -f3)"
     local post_title="$(echo "$clean_url" | cut -d'/' -f6- | head -c40)"
     title="$subreddit: $post_title"
   elif echo "$url" | grep -qE '/video/|/videos/|/watch/|/v/'; then
     # Generic video sites - extract video slug (everything after /video/, /videos/, etc.)
-    if echo "$url_path" | grep -q '/video/'; then
+    if [[ "$url_path" == *"/video/"* ]]; then
       title="$(echo "$url_path" | sed 's|.*/video/||g' | cut -d'/' -f1)"
-    elif echo "$url_path" | grep -q '/videos/'; then
+    elif [[ "$url_path" == *"/videos/"* ]]; then
       title="$(echo "$url_path" | sed 's|.*/videos/||g' | cut -d'/' -f1)"
-    elif echo "$url_path" | grep -q '/watch/'; then
+    elif [[ "$url_path" == *"/watch/"* ]]; then
       title="$(echo "$url_path" | sed 's|.*/watch/||g' | cut -d'/' -f1)"
-    elif echo "$url_path" | grep -q '/v/'; then
+    elif [[ "$url_path" == *"/v/"* ]]; then
       title="$(echo "$url_path" | sed 's|.*/v/||g' | cut -d'/' -f1)"
     fi
-  elif echo "$url" | grep -q 'docs\|documentation'; then
+  elif [[ "$url" == *"docs"* ]] || [[ "$url" == *"documentation"* ]]; then
     local doc_section="$(echo "$clean_url" | sed 's|.*/docs/||g;s|.*/documentation/||g' | cut -d'/' -f1-2 | sed 's|/| - |g')"
     local site_name="$(echo "$clean_url" | cut -d'/' -f1 | sed 's|^www\.||g;s|\..*||g')"
     title="$site_name: $doc_section"
-  elif echo "$url" | grep -q '/wiki/'; then
+  elif [[ "$url" == *"/wiki/"* ]]; then
     title="$(echo "$clean_url" | sed 's|.*/wiki/||g' | cut -d'/' -f1 | sed 's|_| |g')"
-  elif echo "$url" | grep -q '/package\|/packages'; then
+  elif [[ "$url" == *"/package"* ]] || [[ "$url" == *"/packages"* ]]; then
     local package_name="$(echo "$clean_url" | sed 's|.*/package/||g;s|.*/packages/||g' | cut -d'/' -f1)"
     local site_name="$(echo "$clean_url" | cut -d'/' -f1 | sed 's|^www\.||g;s|\..*||g')"
     title="$site_name: $package_name"
@@ -833,13 +839,13 @@ __add_bookmark() {
 
   url_dir="$(__get_bookmarks_file "$file_name")"
   dir_name="$(__get_bookmarks_dir "$html_file")"
-  temp_file="$GEN_LINKS_TEMP_DIR/$(basename -- "$file_name")"
+  temp_file="$GEN_LINKS_TEMP_DIR/${file_name##*/}"
   final_file_name="$dir_name/$(basename -- "${file_name%.*}.txt")"
   final_html_file="$dir_name/$(basename -- "${html_file%.*}.html")"
 
   printf '%s\n' "$url" >"$temp_file"
-  [ -f "$final_file_name" ] && cat "$final_file_name" | grep -vw "$url" >>"$temp_file"
-  cat "$temp_file" >"$final_file_name"
+  [ -f "$final_file_name" ] && grep -vw "$url" "$final_file_name" >>"$temp_file"
+  cp -- "$temp_file" "$final_file_name"
   rm -Rf "$temp_file"
 
   __make_html "$final_file_name" "$final_html_file"

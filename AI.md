@@ -169,6 +169,107 @@ Detailed description of changes with multiple paragraphs if needed.
   - Update `@@Changelog` with brief description
   - Update other fields as appropriate
 
+### Bash Performance: No UUOC, Minimize Forks
+
+**Rule: Prefer bash built-ins over forked subprocesses. Never use Useless Use of Cat (UUOC).**
+
+Every `$(...)`, pipe, and external command spawns a subprocess. In scripts
+that run frequently or in tight loops, these forks add up. Use bash native
+features wherever possible.
+
+**File reading:**
+```bash
+# BAD
+contents="$(cat file)"
+cat file | grep pattern
+cat file | jq '.key'
+cat file | curl --data-urlencode text@-
+
+# GOOD
+contents="$(< file)"
+grep pattern file
+jq '.key' file
+curl --data-urlencode text@file
+```
+
+**Path manipulation — use parameter expansion, not basename/dirname:**
+```bash
+# BAD
+name="$(basename -- "$path")"
+dir="$(dirname -- "$path")"
+stem="$(basename "$path" .ext)"
+
+# GOOD
+name="${path##*/}"          # basename
+dir="${path%/*}"            # dirname
+stem="${name%.ext}"         # strip extension
+ext="${name##*.}"           # extension only
+```
+
+**String matching — use `[[ ]]`, not `echo | grep`:**
+```bash
+# BAD
+if echo "$var" | grep -q "pattern"; then ...
+if echo "$line" | grep -q '^#'; then ...
+
+# GOOD
+if [[ "$var" == *"pattern"* ]]; then ...
+if [[ "$line" == "#"* ]]; then ...
+```
+
+**Regex — use `=~` and `BASH_REMATCH`, not `echo | grep -E`:**
+```bash
+# BAD
+protocol="$(echo "$url" | grep -oE '^https?')"
+
+# GOOD
+if [[ "$url" =~ ^(https?):// ]]; then
+  protocol="${BASH_REMATCH[1]}"
+fi
+```
+
+**Splitting — use parameter expansion, not `echo | cut`:**
+```bash
+# BAD
+major="$(echo "$version" | cut -d. -f1)"
+user="$(echo "$path" | cut -d/ -f1)"
+
+# GOOD
+major="${version%%.*}"       # everything before first .
+user="${path%%/*}"           # everything before first /
+tail="${path#*/}"            # everything after first /
+```
+
+**Parsing — use `read`, not `awk`/`cut` when bash suffices:**
+```bash
+# BAD
+load1="$(cat /proc/loadavg | awk '{print $1}')"
+load5="$(cat /proc/loadavg | awk '{print $2}')"
+
+# GOOD (single read, zero forks)
+read -r load1 load5 load15 _ _ < /proc/loadavg
+```
+
+**Stdin — let programs read it directly, don't `cat |` into them:**
+```bash
+# BAD
+cat - | yad --text-info
+cat - | sed 's/x/y/'
+
+# GOOD
+yad --text-info      # reads stdin by default
+sed 's/x/y/'         # reads stdin by default
+```
+
+**When forking IS acceptable:**
+- Tool genuinely needs a subshell (`$(...)` capturing output that can't be inlined)
+- Complex text processing where `awk`/`sed` is clearly the right tool
+- External data sources (APIs, databases) — no bash equivalent
+- Readability wins over a micro-optimization in a non-hot-path
+
+**Rule of thumb:** if you're writing `echo "$var" |`, `cat file |`, or
+`$(basename "$x")`, stop — there's almost always a bash built-in.
+
 ### Testing Methodology
 - ✅ **Docker-first** (preferred)
   ```bash
@@ -451,7 +552,7 @@ When starting a new AI session:
 
 ---
 
-**Last Updated:** 2025-01-24
+**Last Updated:** 2026-04-19
 **Status:** ✅ In Sync
 **Next Update:** After next AI session
 
@@ -688,4 +789,156 @@ docker build "${flags[@]}" -f - .
 
 ### Files Modified
 - `bin/dockermgr` — Fixed `__create_manifest()`: platforms, oci_labels array, --amend flag, guard, BuildKit stdin
+
+
+## Session 2026-04-18: UUOC elimination & fork reduction across all 222 scripts
+
+### Objective
+Refactor all 222 scripts in `bin/` to remove Useless Use of Cat (UUOC)
+anti-patterns and replace forked subprocess calls with bash built-ins.
+Add a permanent rule to AI.md so future work follows the same standard.
+
+### Universal Changes (applied across 200+ scripts)
+- `APPNAME="$(basename -- "$0" 2>/dev/null)"` → `APPNAME="${0##*/}"` (220 scripts)
+- `[ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ]` → `[ "${SUDO##*/}" = "sudo" ]` (208 scripts)
+- `__is_an_option()` rewritten to use `[[ "$ARRAY" == *"x"* ]]` instead of `echo | grep -q` (210 scripts)
+
+### Script-Specific Fixes (highlights)
+- `sysusage` — 3 × `cat /proc/loadavg | awk` collapsed into a single `read -r ... < /proc/loadavg` (zero forks)
+- `reqpkgs` — `cat /etc/*release | grep` → `grep /etc/*release` (10 sites)
+- `proxmox-cli` — `cat file | jq` → `jq file`; `echo | cut -d. -f1` → `${ver%%.*}`
+- `pastebin` — `cat "$file" | curl --data-urlencode text@-` → `curl --data-urlencode text@"$file"`
+- `buildx` — nested `basename $(dirname $(realpath))` → pure parameter expansion
+- `shortenurl`, `gitignore` — `echo | grep -q` → `[[ == *"x"* ]]`
+- `gen-nginx` — `echo | grep -qE` → `[[ =~ regex ]]` with `BASH_REMATCH`
+- `calendar` — 6 consecutive `grep` calls fused into single `grep -Ev`
+- `dictionary` — 7 × `cat file.out | jq` → `jq ... file.out`
+- `notifications` — one-time file read instead of triple `cat`
+- `urbandict`, `wikipedia`, `earthquakes`, `duckdns` — dropped `cat -|` before stdin-capable tools
+
+### Verification
+- All 222 scripts pass `bash -n` (0 syntax errors)
+- `git diff --stat`: 222 files changed, 1091 insertions(+), 1012 deletions(-)
+- Single remaining `cat | cmd` pattern in repo is commented-out code
+
+### Rule Added
+New **"Bash Performance: No UUOC, Minimize Forks"** section under
+Project-Specific Rules → Code Standards. Documents:
+- File reading (`$(< file)`, direct file arg)
+- Parameter expansion (`${var##*/}` not `basename`)
+- Pattern match with `[[ == *"x"* ]]` not `echo | grep`
+- Regex with `=~` + `BASH_REMATCH` not `echo | grep -E`
+- Split with `${var%%.*}` not `echo | cut`
+- Parse with `read` not `cat | awk`
+- Let tools read stdin directly (no `cat -|`)
+
+### Lessons Learned
+1. **Sed delimiter conflict** — when replacement contains `|`, switch delimiter
+   to `X` or `#`: `sed -i 'sXpatternXreplacementXg'`.
+2. **`replace_all` risk** — doing `replace_all` of `cat file | jq` → `jq`
+   dropped the filename; had to re-add `file` as explicit arg to each `jq`.
+   Always preview replace_all on at least one site first.
+3. **Verify with diff, not just grep** — confirmed via `grep -c` and final
+   scan that only commented-out `cat |` remained.
+
+### Files Modified
+- `AI.md` — Added "Bash Performance: No UUOC, Minimize Forks" rule + this session entry
+- `bin/*` — 222 scripts refactored
+- `.git/COMMIT_MESS` — Commit message staged for user
+
+
+## Session 2026-04-19: UUOC elimination in templates/ (shebang-aware)
+
+### Objective
+Apply the same UUOC/fork-reduction refactor to `templates/` — but only to
+files whose shebang indicates bash. Templates drive script generation, so
+fixing them prevents the patterns from re-appearing in newly created scripts.
+
+### Shebang Rule (The "Smart" Part)
+Parameter expansion (`${var##*/}`), `[[ =~ ]]`, and `[[ == *"x"* ]]` are
+**bashisms**. They don't exist in POSIX sh, fish, or zsh. Before touching
+any template:
+1. Check the file with `file <path>` or `head -1 <path>`
+2. Only apply fixes when shebang is `#!/usr/bin/env bash` (or `#!/bin/bash`)
+3. Skip sh/fish/zsh templates entirely — they need different (or no) fixes
+
+### Inventory
+- 37 bash templates (`#!/usr/bin/env bash`) — eligible
+- 15 `.tmpl.sh` heredoc generators — eligible (they produce bash)
+- 3 non-bash (`templates/scripts/shell/{sh,fish,zsh}`) — skipped
+
+### Changes Applied (23 template files modified)
+
+**Core bash templates** (`templates/scripts/bash/*`) — these are the source
+that `gen-script` copies from to produce the scripts in `bin/`:
+- `user`, `system`, `terminal`, `simple`, `mgr-script.user.sh`,
+  `mgr-script.system.sh` — universal APPNAME, SUDO basename, `__is_an_option`
+  fixes; `echo | awk '{print $1}'` → `${VAR%% *}`
+
+**Installers** (`templates/scripts/installers/*.sh`):
+- `dfmgr.sh`, `systemmgr.sh`, `devenvmgr.sh`, `hakmgr.sh`, `desktopmgr.sh` —
+  `basename` fixes
+- `dockermgr.sh` — many `echo | grep -q` → `[[ == *"x"* ]]` / `[[ =~ ]]`,
+  `cat file | grep` → `grep file`, `cat file | tee` → `tee < file`,
+  complex pipeline simplifications (TYPE extraction, CONTAINER_HOSTNAME)
+
+**OS bootstrap** (`templates/scripts/os/*.sh`):
+- `centos.sh` — 6-branch `echo | grep -qE '^pattern'` chain → `[[ == pat* ]]`
+- `arch.sh` — basename fix
+
+**Shared scripts** (`templates/scripts/other/`, `templates/scripts/functions/`,
+`templates/scripts/shell/`):
+- `other/build`, `other/docker-entrypoint`, `other/start-service`,
+  `functions/docker-entrypoint`, `shell/bash` — basename/grep/sed fixes;
+  `cat /dev/urandom | tr` → `tr < /dev/urandom`; `$(basename "$x")` →
+  `"${x##*/}"` (8 sites in functions/docker-entrypoint)
+
+**gen-script heredoc generators** (`templates/gen-script/`):
+- `script/user.tmpl.sh`, `script/system.tmpl.sh`, `header/raw.tmpl.sh` —
+  escaped `\$(basename -- "\$0")` → `\${0##*/}`. This ensures every NEW
+  script generated via `gen-script` starts with the correct pattern.
+
+### Pre-existing Bug Left Alone
+`templates/scripts/installers/dockermgr.sh:1009-1011` has a pre-existing
+bug where `DOCKER_HUB_IMAGE_URL` is stripped of its tag first, then field 2
+is extracted from the (now tag-less) URL — so `DOCKER_HUB_IMAGE_TAG` is
+always empty. Did NOT fix this — behavior preservation was the contract.
+Flagged in commit message only so the user can see it on the next pass.
+
+### Dirname Pattern Not Converted
+`"$(dirname "$path")"` → `"${path%/*}"` has divergent behavior when the path
+has no `/`: `dirname` returns `.`, parameter expansion returns the string
+unchanged. Left these 5–6 sites alone — not worth a subtle behavior change.
+
+### Verification
+- 37 bash templates: `bash -n` passes (0 failures)
+- 15 tmpl.sh generators: `bash -n` passes (they're heredocs, so syntax
+  check is partial but confirms no quoting regressions)
+- 23 files changed, 86 insertions, 86 deletions
+
+### Lessons Learned
+1. **Templates drive generated code** — fixing templates is how you stop a
+   pattern from coming back. The 200+ `APPNAME=$(basename...)` in `bin/`
+   existed because `gen-script/script/*.tmpl.sh` emitted them. Fixed the
+   tmpl.sh files too so future generations start clean.
+2. **Shebang is the contract** — checked shebang before every fix. 3 shell
+   templates (sh/fish/zsh) untouched. This is a permanent rule: always
+   scope bash-only rewrites to files with a bash shebang.
+3. **`dirname` has subtle semantics** — don't blindly convert to `${x%/*}`;
+   they diverge when the path has no `/`.
+4. **Sed delimiter with `/`** — when the replacement text contains `/`
+   (like `${0##*/}`), use a different delimiter (`X`, `#`) or escape. The
+   `for-file-with-sed` one-liner approach broke on the first `/` in
+   `EXEC_CMD_BIN`.
+
+### Files Modified
+- `AI.md` — This session entry
+- `templates/scripts/bash/*` — 6 core templates
+- `templates/scripts/installers/*.sh` — 6 installers
+- `templates/scripts/os/{arch,centos}.sh` — 2 OS bootstraps
+- `templates/scripts/other/{build,docker-entrypoint,start-service}` — 3 scripts
+- `templates/scripts/functions/docker-entrypoint` — shared functions
+- `templates/scripts/shell/bash` — shell template
+- `templates/gen-script/{script,header}/*.tmpl.sh` — 3 heredoc generators
+- `.git/COMMIT_MESS` — Amended with template fixes
 

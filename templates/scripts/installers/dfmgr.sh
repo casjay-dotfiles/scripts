@@ -373,7 +373,7 @@ if __am_i_online; then
   if [ "$PLUGIN_REPOS" != "" ]; then
     [ -d "$PLUGIN_DIR" ] || mkdir -p "$PLUGIN_DIR"
     for plugin in $PLUGIN_REPOS; do
-      plugin_name="$(basename -- "$plugin")"
+      plugin_name="${plugin##*/}"
       plugin_dir="$PLUGIN_DIR/$plugin_name"
       if [ -d "$plugin_dir/.git" ]; then
         execute "git_update $plugin_dir" "Updating plugin $plugin_name"

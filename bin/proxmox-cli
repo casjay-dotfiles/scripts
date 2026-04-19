@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename -- "$0" 2>/dev/null)"
+APPNAME="${0##*/}"
 VERSION="202602020740-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
@@ -253,7 +253,7 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
-__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+__is_an_option() { if [[ "$ARRAY" == *"${1:-^}"* ]]; then return 1; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
@@ -311,7 +311,7 @@ __sudo() {
   CMD="${1:-echo}" && shift 1
   CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  [ "${SUDO##*/}" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
     export PATH="$PATH"
     $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
@@ -498,7 +498,7 @@ __check_proxmox_api() {
     local auth_response
     auth_response="$(__query_server 2>/dev/null)"
 
-    if [ -n "$auth_response" ] && (echo "$auth_response" | jq -e '.data.ticket' &>/dev/null || echo "$auth_response" | grep -q '"ticket"'); then
+    if [ -n "$auth_response" ] && (echo "$auth_response" | jq -e '.data.ticket' &>/dev/null || [[ "$auth_response" == *'"ticket"'* ]]); then
       printf_green "✅ Proxmox API accessible (requires authentication)"
       # Get version from authentication response if available
       local version=$(echo "$auth_response" | jq -r '.data.version // "unknown"' 2>/dev/null)
@@ -630,7 +630,7 @@ __detect_proxmox_version() {
   if [ -n "$response" ]; then
     PROXMOX_VERSION=$(echo "$response" | jq -r '.data.version // .version // "unknown"' 2>/dev/null)
     PROXMOX_RELEASE=$(echo "$response" | jq -r '.data.release // .release // "unknown"' 2>/dev/null)
-    PROXMOX_MAJOR_VERSION=$(echo "$PROXMOX_VERSION" | cut -d'.' -f1)
+    PROXMOX_MAJOR_VERSION="${PROXMOX_VERSION%%.*}"
 
     printf_green "📋 Detected: Proxmox VE $PROXMOX_VERSION (Release: $PROXMOX_RELEASE)"
     export PROXMOX_VERSION PROXMOX_RELEASE PROXMOX_MAJOR_VERSION
@@ -846,7 +846,7 @@ __download_iso() {
     return 1
   fi
 
-  [ -n "$filename" ] || filename="$(basename "$iso_url")"
+  [ -n "$filename" ] || filename="${iso_url##*/}"
 
   printf_blue "📥 Downloading ISO: $filename"
   printf_cyan "Source: $iso_url"
@@ -1021,7 +1021,7 @@ __delete_iso() {
 
   printf_blue "🗑️ Deleting ISO: $iso_volid"
 
-  local storage=$(echo "$iso_volid" | cut -d: -f1)
+  local storage="${iso_volid%%:*}"
   local delete_response
   delete_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/storage/$storage/content/$iso_volid" -X DELETE 2>/dev/null)"
 
@@ -1045,7 +1045,7 @@ __iso_info() {
 
   printf_blue "📋 ISO Information: $iso_volid"
 
-  local storage=$(echo "$iso_volid" | cut -d: -f1)
+  local storage="${iso_volid%%:*}"
   local info_response
   info_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/storage/$storage/content/$iso_volid" 2>/dev/null)"
 
@@ -1508,9 +1508,9 @@ __save_spice_file() {
 
   # Determine VM type from API URL and create appropriate filenames
   local vm_type=""
-  if echo "$api_url" | grep -q "/qemu"; then
+  if [[ "$api_url" == *"/qemu"* ]]; then
     vm_type="qemu"
-  elif echo "$api_url" | grep -q "/lxc"; then
+  elif [[ "$api_url" == *"/lxc"* ]]; then
     vm_type="lxc"
   else
     vm_type="unknown"
@@ -1548,7 +1548,7 @@ __save_spice_file() {
 
   if [ $curl_exit -eq 0 ] && [ -n "$spice_response" ]; then
     # Check if response contains SPICE data
-    if echo "$spice_response" | grep -q '\[virt-viewer\]'; then
+    if [[ "$spice_response" == *"[virt-viewer]"* ]]; then
       # Already in correct virt-viewer format
       echo "$spice_response" >"$FILENAME"
       return 0
@@ -1723,21 +1723,21 @@ __get_nodes() {
   for NODE in $(echo "$NODES"); do
     curl -s -k "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$NODE/lxc" -b "PVEAuthCookie=$TOKEN" >"$logdir/proxvm-lxc.json"
     curl -s -k "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$NODE/qemu" -b "PVEAuthCookie=$TOKEN" >"$logdir/proxvm-qemu.json"
-    for VMID in $(cat "$logdir/proxvm-lxc.json" | jq -r '.data[].vmid'); do
+    for VMID in $(jq -r '.data[].vmid' "$logdir/proxvm-lxc.json"); do
       curl -s -k "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$NODE/lxc/$VMID/config" -b "PVEAuthCookie=$TOKEN" >"$logdir/proxvm-$VMID.json"
-      JSON=$(cat "$logdir/proxvm-lxc.json" | jq -r ".data[] | select(.vmid | tonumber | contains($VMID))")
+      JSON=$(jq -r ".data[] | select(.vmid | tonumber | contains($VMID))" "$logdir/proxvm-lxc.json")
       NAME=$(echo "$JSON" | jq -r .name)
-      NET=$(cat "$logdir/proxvm-$VMID.json" | jq -r .data.net0)
+      NET=$(jq -r .data.net0 "$logdir/proxvm-$VMID.json")
       HWADDR=$(echo "$NET" | sed -re "s/.*hwaddr=([a-zA-Z0-9:]+),[a-zA-Z0-9]+=.*/\1/g")
       IP=$(arp -a | grep "$HWADDR" | sed -re "s/.*\(([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).*/\1/g")
       "__nodes_$FORMAT" lxc "$POS"
       POS=$((POS + 1))
     done
-    for VMID in $(cat "$logdir/proxvm-qemu.json" | jq -r '.data[].vmid'); do
+    for VMID in $(jq -r '.data[].vmid' "$logdir/proxvm-qemu.json"); do
       curl -s -k "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$NODE/qemu/$VMID/config" -b "PVEAuthCookie=$TOKEN" >"$logdir/proxvm-$VMID.json"
-      JSON=$(cat "$logdir/proxvm-qemu.json" | jq -r ".data[] | select(.vmid | tonumber | contains($VMID))")
+      JSON=$(jq -r ".data[] | select(.vmid | tonumber | contains($VMID))" "$logdir/proxvm-qemu.json")
       NAME=$(echo "$JSON" | jq -r .name)
-      NET=$(cat "$logdir/proxvm-$VMID.json" | jq -r .data.net0)
+      NET=$(jq -r .data.net0 "$logdir/proxvm-$VMID.json")
       HWADDR=$(echo "$NET" | sed -re "s/[a-zA-Z0-9]+=([a-zA-Z0-9:]+),.*/\1/g")
       IP=$(arp -a | grep "$HWADDR" | sed -re "s/.*\(([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).*/\1/g")
       "__nodes_$FORMAT" qemu "$POS"
@@ -1768,7 +1768,10 @@ __run_curl() {
     vm_exists="$(__get_status | grep '^' || false)"
     # Improved status detection logic
     if [ -n "$vm_exists" ]; then
-      vm_raw_status="$(echo "$vm_exists" | grep '^status=' | awk -F '=' '{print $2}')"
+      # Extract status value from key=value format
+      local status_line
+      status_line="$(echo "$vm_exists" | grep '^status=')"
+      vm_raw_status="${status_line#status=}"
       case "$vm_raw_status" in
       "running")
         vm_status="on"
@@ -1791,7 +1794,11 @@ __run_curl() {
       vm_status="off"
       vm_status_detail="not found"
     fi
-    vm_name="$(echo "$vm_exists" | grep '^name=' | awk -F '=' '{print $2}' | grep '^' || echo "$PROXMOX_CLI_DEFAULT_MACHINE")"
+    # Extract name value from key=value format
+    local name_line
+    name_line="$(echo "$vm_exists" | grep '^name=')"
+    vm_name="${name_line#name=}"
+    vm_name="${vm_name:-$PROXMOX_CLI_DEFAULT_MACHINE}"
     printf_cyan "🚀 Initializing the connection to $vm_name ($PROXMOX_CLI_DEFAULT_MACHINE) - Status: $vm_status_detail"
     if [ -n "$PROXMOX_CLI_GET_CONFIG" ]; then
       __get_config || printf_exit "Failed to get the configuration for $PROXMOX_CLI_DEFAULT_MACHINE"
@@ -2216,7 +2223,7 @@ __get_vm_ip() {
     agent_test="$(__pve_agent "$PROXMOX_CLI_DEFAULT_NODE_ID" "qemu" "$PROXMOX_CLI_DEFAULT_MACHINE" ping 2>/dev/null)"
     local agent_available=true
 
-    if [ -z "$agent_test" ] || echo "$agent_test" | grep -q "error\|not running"; then
+    if [ -z "$agent_test" ] || [[ "$agent_test" == *"error"* ]] || [[ "$agent_test" == *"not running"* ]]; then
       agent_available=false
     fi
 
@@ -2242,10 +2249,13 @@ __get_vm_ip() {
 
     # Validate IP if found
     if [ -n "$vm_ip" ]; then
-      vm_ip="$(echo "$vm_ip" | tr -d '\n\r\t ' | grep -oE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' || echo '')"
+      # Strip whitespace/control characters before validation
+      vm_ip="${vm_ip//[$'\n\r\t ']/}"
+      vm_ip="$(echo "$vm_ip" | grep -oE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' || echo '')"
 
       if [ -n "$vm_ip" ]; then
-        local octets=($(echo "$vm_ip" | tr '.' ' '))
+        # Split IP into octets using parameter expansion
+        local octets=(${vm_ip//./ })
         if [ ${#octets[@]} -eq 4 ]; then
           local valid=true
           for octet in "${octets[@]}"; do
@@ -2275,7 +2285,9 @@ __open_ssh() {
   fi
 
   # Clean and validate the URL (remove any control characters)
-  url="$(echo "$url" | tr -d '\n\r\t\0' | sed 's/[^a-zA-Z0-9.-]//g')"
+  # Strip control characters then remove invalid hostname chars
+  url="${url//[$'\n\r\t\0']/}"
+  url="$(echo "$url" | sed 's/[^a-zA-Z0-9.-]//g')"
 
   # Validate IP address format if it looks like an IP
   if echo "$url" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -2284,14 +2296,15 @@ __open_ssh() {
       return 1
     fi
     # Validate octets
-    local octets=($(echo "$url" | tr '.' ' '))
+    # Split IP into octets using parameter expansion
+    local octets=(${url//./ })
     for octet in "${octets[@]}"; do
       if [ "$octet" -lt 0 ] || [ "$octet" -gt 255 ]; then
         printf_red "❌ Error: Invalid IP address octets: $url"
         return 1
       fi
     done
-  elif echo "$url" | grep -qE '^[a-zA-Z0-9.-]+$'; then
+  elif [[ "$url" =~ ^[a-zA-Z0-9.-]+$ ]]; then
     # Validate hostname format
     if [ ${#url} -gt 253 ] || echo "$url" | grep -qE '^-|--|-$|\.\.|^\.|\.$'; then
       printf_red "❌ Error: Invalid hostname format: $url"

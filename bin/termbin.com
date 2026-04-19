@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename -- "$0" 2>/dev/null)"
+APPNAME="${0##*/}"
 VERSION="202602020740-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
@@ -210,7 +210,7 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
-__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+__is_an_option() { if [[ "$ARRAY" == *"${1:-^}"* ]]; then return 1; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
@@ -268,7 +268,7 @@ __sudo() {
   CMD="${1:-echo}" && shift 1
   CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  [ "${SUDO##*/}" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
     export PATH="$PATH"
     $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
@@ -300,9 +300,9 @@ __execute_termbin() {
   local message="${1:-$message}"
   [ -n "$message" ] || printf_exit "Sorry but you seemed to have sent no data"
   printf '%s\n' "$message" >"${TERMBIN_COM_TEMP_FILE}.send"
-  cat "${TERMBIN_COM_TEMP_FILE}.send" | $TERMBIN_COM_NETCAT_CMD -w 10 $TERMBIN_COM_URL_HOST $TERMBIN_COM_URL_HOST_PORT 2>"${TERMBIN_COM_TEMP_FILE}.err" >"$TERMBIN_COM_TEMP_FILE"
+  $TERMBIN_COM_NETCAT_CMD -w 10 $TERMBIN_COM_URL_HOST $TERMBIN_COM_URL_HOST_PORT 2>"${TERMBIN_COM_TEMP_FILE}.err" >"$TERMBIN_COM_TEMP_FILE" < "${TERMBIN_COM_TEMP_FILE}.send"
   if [ -s "$TERMBIN_COM_TEMP_FILE" ]; then
-    results="$(cat "$TERMBIN_COM_TEMP_FILE" | tr -d '\0' | grep '^' || cat "$TERMBIN_COM_TEMP_FILE")"
+    results="$(tr -d '\0' < "$TERMBIN_COM_TEMP_FILE" | grep '^' || cat "$TERMBIN_COM_TEMP_FILE")"
     [ -n "$results" ] || printf_exit "Unfortunately something went wrong"
     __notifications "$APPNAME" "$results"
     printf '%s\n' "$results" | printf_readline $TERMBIN_COM_OUTPUT_COLOR_2
@@ -311,7 +311,7 @@ __execute_termbin() {
     exitCode=0
   else
     printf_red "Well, Something seems to have gone wrong"
-    [ -f "${TERMBIN_COM_TEMP_FILE}.err" ] && cat "${TERMBIN_COM_TEMP_FILE}.err" | printf_readline $TERMBIN_COM_OUTPUT_COLOR_ERROR
+    [ -f "${TERMBIN_COM_TEMP_FILE}.err" ] && printf_readline $TERMBIN_COM_OUTPUT_COLOR_ERROR < "${TERMBIN_COM_TEMP_FILE}.err"
     exitCode=1
   fi
   return ${exitCode:-0}

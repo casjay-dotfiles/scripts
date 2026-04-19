@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename -- "$0" 2>/dev/null)"
+APPNAME="${0##*/}"
 VERSION="202602020740-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
@@ -216,7 +216,7 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
-__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+__is_an_option() { if [[ "$ARRAY" == *"${1:-^}"* ]]; then return 1; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
@@ -274,7 +274,7 @@ __sudo() {
   CMD="${1:-echo}" && shift 1
   CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  [ "${SUDO##*/}" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
     export PATH="$PATH"
     $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
@@ -347,7 +347,7 @@ __curl_put() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __upload_status() {
   if [[ "${exitCode:-0}" = 0 ]] && [[ -f "$TRANSFER_SH_STATUS_FILE" ]] && [[ -s "$TRANSFER_SH_STATUS_FILE" ]]; then
-    MESSAGE="$(cat "$TRANSFER_SH_STATUS_FILE" | grep -v '^$')"
+    MESSAGE="$(grep -v '^$' "$TRANSFER_SH_STATUS_FILE")"
     TRANSFER_SH_GOOD_MESSAGE="$(printf '%s: %s\n' "${1:-Link is}" "$MESSAGE")"
     printf_blue "$TRANSFER_SH_GOOD_MESSAGE"
     __notifications "$TRANSFER_SH_GOOD_MESSAGE"

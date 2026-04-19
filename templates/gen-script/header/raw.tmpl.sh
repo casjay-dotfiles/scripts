@@ -25,7 +25,7 @@ cat <<EOF | tee
 # shellcheck disable=SC2155
 # shellcheck disable=SC2199
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="\$(basename -- "\$0")"
+APPNAME="\${0##*/}"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
 HOME="\${USER_HOME:-\$HOME}"
 USER="\${SUDO_USER:-\$USER}"

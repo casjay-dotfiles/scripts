@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename "$0" 2>/dev/null)"
+APPNAME="${0##*/}"
 VERSION="202602021103-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
@@ -305,7 +305,7 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
-__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+__is_an_option() { if [[ "$ARRAY" == *"${1:-^}"* ]]; then return 1; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
@@ -363,7 +363,7 @@ __sudo() {
   CMD="${1:-echo}" && shift 1
   CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  [ "${SUDO##*/}" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
     export PATH="$PATH"
     $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
@@ -416,7 +416,7 @@ __complete_url() {
   local input_url="$1"
   local registry="" namespace="" image="" tag=""
   local default_namespace="${BUILDX_DEFAULT_ORG:-$BUILDX_DEFAULT_REPO}"
-  local default_image="${name:-$(basename "$BUILDX_CWD")}"
+  local default_image="${name:-${BUILDX_CWD##*/}}"
   local default_tag="${BUILDX_DEFAULT_VERSION:-latest}"
 
   # Parse the input URL into components
@@ -495,7 +495,7 @@ __set_variables() {
   export DOCKER_BUILDKIT=1
   export BUILDX_PID_NUMBER="$$"
   # Use PROJECT_ROOT for consistent naming (not CWD which might change)
-  export name="$(basename "$BUILDX_PROJECT_ROOT")"
+  export name="${BUILDX_PROJECT_ROOT##*/}"
   export org_name="$(basename $(dirname "$BUILDX_PROJECT_ROOT"))"
   export DOCKER_PLATFORMS="$BUILDX_DOCKER_PLATFORMS"
   export BUILDX_EXPERIMENTAL="$BUILDX_DOCKER_BUILD_EXPERIMENTAL"
@@ -505,16 +505,17 @@ __set_variables() {
   [ -n "$ENV_IMAGE_NAME" ] && BUILDX_SET_IMAGE="$ENV_IMAGE_NAME"
   # ENV_IMAGE_PUSH is the complete push destination: {registry}/{user}/{repo} or {user}/{repo}
   if [ -n "$ENV_IMAGE_PUSH" ]; then
-    if echo "$ENV_IMAGE_PUSH" | grep -q '/.*/.'; then
+    if [[ "$ENV_IMAGE_PUSH" == *"/"*"/"* ]]; then
       # Format: registry/user/repo
-      BUILDX_SET_REGISTRY="$(echo "$ENV_IMAGE_PUSH" | cut -d'/' -f1)"
-      BUILDX_SET_ORG="$(echo "$ENV_IMAGE_PUSH" | cut -d'/' -f2)"
-      BUILDX_SET_IMAGE="$(echo "$ENV_IMAGE_PUSH" | cut -d'/' -f3)"
+      BUILDX_SET_REGISTRY="${ENV_IMAGE_PUSH%%/*}"
+      local _remainder="${ENV_IMAGE_PUSH#*/}"
+      BUILDX_SET_ORG="${_remainder%%/*}"
+      BUILDX_SET_IMAGE="${_remainder#*/}"
     else
       # Format: user/repo (Docker Hub)
       BUILDX_SET_REGISTRY="docker.io"
-      BUILDX_SET_ORG="$(echo "$ENV_IMAGE_PUSH" | cut -d'/' -f1)"
-      BUILDX_SET_IMAGE="$(echo "$ENV_IMAGE_PUSH" | cut -d'/' -f2)"
+      BUILDX_SET_ORG="${ENV_IMAGE_PUSH%%/*}"
+      BUILDX_SET_IMAGE="${ENV_IMAGE_PUSH#*/}"
     fi
   fi
   BUILDX_VERSION_TAG="${ENV_ADD_TAGS:-$BUILDX_VERSION_TAG}"
@@ -523,12 +524,13 @@ __set_variables() {
   [ -n "$ENV_PLATFORMS" ] && BUILDX_DOCKER_PLATFORMS="$ENV_PLATFORMS"
   BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS// /,}"
   # Always use PROJECT_ROOT for org/repo calculations
-  BUILDX_DEFAULT_REPO="${BUILDX_SET_REPO:-$(basename "$BUILDX_PROJECT_ROOT")}"
-  BUILDX_DEFAULT_ORG="${BUILDX_SET_ORG:-$(basename "$(dirname "$BUILDX_PROJECT_ROOT")")}"
+  BUILDX_DEFAULT_REPO="${BUILDX_SET_REPO:-${BUILDX_PROJECT_ROOT##*/}}"
+  BUILDX_DEFAULT_ORG="${BUILDX_SET_ORG:-$(dirname "$BUILDX_PROJECT_ROOT")}"
+  BUILDX_DEFAULT_ORG="${BUILDX_DEFAULT_ORG##*/}"
   # Handle multiple registries: first becomes primary, all stored for processing
   if [ -n "$BUILDX_SET_REGISTRY" ]; then
     # Get the first registry entry for parsing
-    local first_registry="$(echo "$BUILDX_SET_REGISTRY" | cut -d',' -f1)"
+    local first_registry="${BUILDX_SET_REGISTRY%%,*}"
 
     # Parse the first registry entry to extract components
     # Supports four formats (same smart logic as ENV_IMAGE_PUSH):
@@ -605,8 +607,8 @@ __create_log_files() {
   local dir_name="" file_name=""
   local project_dir="${ENV_BUILDX_PROJECT_DIR:-$BUILDX_PROJECT_DIR}"
   for directory in $project_dir; do
-    dir_name="$(basename $directory)"
-    file_name="$(basename "$dir_name").log"
+    dir_name="${directory##*/}"
+    file_name="${dir_name}.log"
     if [ -n "$directory" ] && [ ! -d "$BUILDX_LOG_DIR/$dir_name" ]; then
       mkdir -p "$BUILDX_LOG_DIR/$dir_name"
     fi
@@ -786,7 +788,7 @@ __get_dockerfile_ver() {
   #
   new_tag="${set_newtag:-$new_tag}"
   new_tag="${new_tag:-latest}"
-  iver="$(basename "$fileloc" 2>/dev/null | sed 's/^[^\.]*\./rel:/' | awk -F ':' '{print $2}' | sed 's| ||g' | __grep_exclude_version || echo '')"
+  iver="$(echo "${fileloc##*/}" | sed 's/^[^\.]*\./rel:/' | awk -F ':' '{print $2}' | sed 's| ||g' | __grep_exclude_version || echo '')"
   cver="$(grep -sh 'ARG.*CONTAINER_VERSION=' "$fileloc" | __get_version | __grep_exclude_version || grep -sh 'ARG.*IMAGE_VERSION=' "$fileloc" | __get_version | __grep_exclude_version || echo '')"
   #
   date_tag="$(grep -sh 'ARG.*CONTAINER_VERSION=' "$fileloc" | __get_version | grep 'USE_DATE' || grep -sh '^ARG.*IMAGE_VERSION=' "$fileloc" | __get_version | grep 'USE_DATE' || echo '')"
@@ -1314,8 +1316,10 @@ __run_docker_script() {
 __run_dockermgr_script() {
   local dir="/tmp/builder"
   local build_tags="-t $tagged_name $ADDITIONAL_TAGS"
-  local build_name="$(basename "${tagged_name//:*/}")"
-  local buildfile="$(basename "${Dockerfile:-Dockerfile}")"
+  local build_name="${tagged_name//:*/}"
+  build_name="${build_name##*/}"
+  local buildfile="${Dockerfile:-Dockerfile}"
+  buildfile="${buildfile##*/}"
   set_build_command='dockermgr --name '$build_name',, -- builder buildx_script "'$BUILDX_DOCKER_PLATFORMS'",, "'$build_tags'",, "'$dir'",, "'$dir/$buildfile'"'
   set_build_command="${set_build_command//  / }"
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
@@ -1684,54 +1688,54 @@ __execute_buildx() {
   if [ -f "$1" ]; then
     Dockerfile="$(realpath "$1")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
-    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
+    SET_DIR_NAME="${FULL_DIR_PATH##*/}"
     shift 1
   elif [ -d "$1" ]; then
     Dockerfile="$(realpath "${1//$PWD\//}/Dockerfile")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
-    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
+    SET_DIR_NAME="${FULL_DIR_PATH##*/}"
     shift 1
   elif [ -f "$PWD/$1" ]; then
     Dockerfile="$(realpath "${1//$PWD\//}")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
-    SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
+    SET_DIR_NAME="${FULL_DIR_PATH##*/}"
     shift 1
   elif [ -n "$BUILDX_DOCKERFILE_DIR" ] && [ -f "$BUILDX_CWD/$dockerfile_subdir/Dockerfile.latest" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/$dockerfile_subdir/Dockerfile.latest")"
     FULL_DIR_PATH="$(dirname "$(dirname "$Dockerfile")")"
-    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
+    SET_DIR_NAME="${FULL_DIR_PATH##*/}"
   elif [ -f "$BUILDX_CWD/containers/Dockerfile.latest" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/containers/Dockerfile.latest")"
     FULL_DIR_PATH="$(dirname "$(dirname "$Dockerfile")")"
-    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
+    SET_DIR_NAME="${FULL_DIR_PATH##*/}"
   elif [ -f "$BUILDX_CWD/Dockerfile.latest" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile.latest")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
-    SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
+    SET_DIR_NAME="${FULL_DIR_PATH##*/}"
   elif [ -n "$BUILDX_DOCKERFILE_DIR" ] && [ -f "$BUILDX_CWD/$dockerfile_subdir/Dockerfile.next" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/$dockerfile_subdir/Dockerfile.next")"
     FULL_DIR_PATH="$(dirname "$(dirname "$Dockerfile")")"
-    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
+    SET_DIR_NAME="${FULL_DIR_PATH##*/}"
   elif [ -f "$BUILDX_CWD/containers/Dockerfile.next" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/containers/Dockerfile.next")"
     FULL_DIR_PATH="$(dirname "$(dirname "$Dockerfile")")"
-    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
+    SET_DIR_NAME="${FULL_DIR_PATH##*/}"
   elif [ -f "$BUILDX_CWD/Dockerfile.next" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile.next")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
-    SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
+    SET_DIR_NAME="${FULL_DIR_PATH##*/}"
   elif [ -n "$BUILDX_DOCKERFILE_DIR" ] && [ -f "$BUILDX_CWD/$dockerfile_subdir/Dockerfile" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/$dockerfile_subdir/Dockerfile")"
     FULL_DIR_PATH="$(dirname "$(dirname "$Dockerfile")")"
-    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
+    SET_DIR_NAME="${FULL_DIR_PATH##*/}"
   elif [ -f "$BUILDX_CWD/containers/Dockerfile" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/containers/Dockerfile")"
     FULL_DIR_PATH="$(dirname "$(dirname "$Dockerfile")")"
-    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
+    SET_DIR_NAME="${FULL_DIR_PATH##*/}"
   elif [ -f "$BUILDX_CWD/Dockerfile" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
-    SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
+    SET_DIR_NAME="${FULL_DIR_PATH##*/}"
   fi
   if [ -n "$FULL_DIR_PATH" ] && [ -f "$Dockerfile" ]; then
     builtin cd "$FULL_DIR_PATH" || exit 15
@@ -1740,7 +1744,7 @@ __execute_buildx() {
     echo "" && exit 1
   fi
   [ -e "$1" ] && shift
-  default_name="${BUILDX_DEFAULT_REPO:-$(basename "$FULL_DIR_PATH")}"
+  default_name="${BUILDX_DEFAULT_REPO:-${FULL_DIR_PATH##*/}}"
   DockerfileName="$(basename "$Dockerfile")"
   # Keep BUILDX_CWD as project root - don't change it to Dockerfile directory
   FULL_DIR_PATH="${FULL_DIR_PATH:-$(dirname "$(realpath "$Dockerfile")")}"
@@ -2357,7 +2361,7 @@ if [ -f "${2:-$1}" ]; then
   BUILDX_SET_DEFAULT_VER="$(basename ${2:-$1} | sed 's|Dockerfile.||g' | grep '^' || echo '')"
 fi
 # Calculate org/repo from PROJECT_ROOT (not from CWD which might change)
-BUILDX_BUILDER_NAME_CUSTOM="$(basename "$BUILDX_PROJECT_ROOT")"
+BUILDX_BUILDER_NAME_CUSTOM="${BUILDX_PROJECT_ROOT##*/}"
 BUILDX_DEFAULT_LOG_ORG="${BUILDX_SET_ORG:-$(basename "$(dirname "$(realpath "$BUILDX_PROJECT_ROOT")")")}"
 BUILDX_DEFAULT_LOG_REPO="$(basename "$(realpath "$BUILDX_PROJECT_ROOT")" | sed 's|^docker-||g')"
 # - - - - - - - - - - - - - - - - - - - - - - - - -

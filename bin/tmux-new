@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202604200000-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  Added --exec option with caching functions for weather and uptime
+# @@Changelog        :  Fix broken resurrect plugin path, __tmux_ssh socket mismatch, and resurrect cleanup path; reduce forks
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202602020740-git"
+VERSION="202604200000-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -159,7 +159,10 @@ __version() { printf_cyan "$VERSION"; }
 # list options
 __list_options() {
   printf_color "$1: " "$5"
-  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  local _opt="${2//:}"
+  _opt="${_opt//$3/ $4}"
+  _opt="${_opt//$'\n'/ }"
+  printf '%s' "$_opt"
   printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -379,7 +382,7 @@ __exec_weather() {
   local weather_server="${TMUX_WEATHER_SERVER:-https://wthr.top}"
   local weather_location="${MYLOCATION_NAME:-${TMUX_WEATHER_LOCATION:-New York, NY}}"
   local weather_url
-  weather_url=$(echo "${weather_location}" | sed 's/ /%20/g')
+  weather_url="${weather_location// /%20}"
   [ -d "$cache_dir" ] || mkdir -p "$cache_dir" 2>/dev/null
   if __cache_valid "$cache_file" "$cache_ttl"; then
     # Display cached weather data
@@ -401,8 +404,10 @@ __exec_uptime() {
   if __cache_valid "$cache_file" "$cache_ttl"; then
     cat "$cache_file" 2>/dev/null
   else
-    local uptime_info
-    uptime_info=$(uptime | cut -f 4-5 -d ' ' | cut -f 1 -d ',' 2>/dev/null)
+    local uptime_info raw_uptime
+    raw_uptime="$(uptime 2>/dev/null)"
+    uptime_info="${raw_uptime#* * * }"
+    uptime_info="${uptime_info%%,*}"
     echo "$uptime_info" >"$cache_file" 2>/dev/null
     echo "$uptime_info"
   fi
@@ -448,7 +453,7 @@ __tmux_kill_all() {
       tmux kill-session -t "$session_name" &>/dev/null
 
       # Clean up resurrect data
-      local resurrect_dir="${HOME}/.local/share/tmux/resurrect/${session_name}"
+      local resurrect_dir="${TMUX_NEW_CONFIG_DIR}/resurrect/${session_name}"
       if [ -d "$resurrect_dir" ]; then
         rm -rf "$resurrect_dir"
       fi
@@ -521,14 +526,13 @@ __tmux_kill() {
     [ $# -ne 0 ] || printf_cyan "Usage: $APPNAME kill session [name]"
     for arg in "$@"; do
       local retVal=0
-      exists="$(echo "$session" | grep ^"$arg:" || echo '')"
-      if [ -n "$exists" ]; then
+      if tmux has-session -t "=$arg" 2>/dev/null; then
         printf_cyan "Killing session $arg"
         tmux kill-session -t "$arg" &>/dev/null
         retval=$?
         exitCode=$((exitCode + retval))
         if [ $retval -eq 0 ]; then
-          local resurrect_dir="${HOME}/.local/share/tmux/resurrect/${arg}"
+          local resurrect_dir="${TMUX_NEW_CONFIG_DIR}/resurrect/${arg}"
           if [ -d "$resurrect_dir" ]; then
             printf_cyan "Cleaning up resurrect data for $arg"
             rm -rf "$resurrect_dir"
@@ -571,21 +575,26 @@ __cd() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_get_session_sockets() {
   [ -d "$TMUX_NEW_SOCKET_DIR" ] || return 1
-  local socket_sessions=""
+  local socket_sessions="" socket line sess
   for socket in "$TMUX_NEW_SOCKET_DIR"/*; do
     [ -e "$socket" ] || continue
     [ "${socket##*/}" = "default" ] && continue
     socket_sessions+="$(tmux -S "$socket" ls 2>/dev/null)"$'\n'
   done
-  [ -n "$socket_sessions" ] && printf '%s' "$socket_sessions" | awk -F ':' '{print $1}' || return 1
+  [ -n "$socket_sessions" ] || return 1
+  while IFS=: read -r sess _; do
+    [ -n "$sess" ] && printf '%s\n' "$sess"
+  done <<<"$socket_sessions"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_get_all_sessions() {
-  local all_sessions=""
+  local all_sessions="" socket_sessions="" sess
   all_sessions="$(tmux ls 2>/dev/null || true)"
-  local socket_sessions="$(__tmux_get_session_sockets 2>/dev/null || true)"
+  socket_sessions="$(__tmux_get_session_sockets 2>/dev/null || true)"
   if [ -n "$all_sessions" ]; then
-    printf '%s\n' "$all_sessions" | awk -F ':' '{print $1}'
+    while IFS=: read -r sess _; do
+      [ -n "$sess" ] && printf '%s\n' "$sess"
+    done <<<"$all_sessions"
     [ -n "$socket_sessions" ] && printf '%s\n' "$socket_sessions"
   elif [ -n "$socket_sessions" ]; then
     printf '%s\n' "$socket_sessions"
@@ -623,7 +632,7 @@ __launch_tmux() {
 
     if [ -d "$TMUX_NEW_RESURRECT_DIR" ] && [ -f "$TMUX_NEW_RESURRECT_FILE" ]; then
       printf_green "Found saved session for $TMUX_NEW_NAME - restoring..."
-      tmux -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" new-session -D -A -s $TMUX_NEW_NAME 'tmux run-shell ~/.local/share/tmux/plugins/tmux-new/tmux-resurrect/scripts/restore.sh' &>"$TMUX_NEW_LOG_DIR/$APPNAME.log"
+      tmux -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" new-session -D -A -s $TMUX_NEW_NAME "tmux run-shell $TMUX_NEW_PLUGIN_DIR/tmux-resurrect/scripts/restore.sh" &>"$TMUX_NEW_LOG_DIR/$APPNAME.log"
     else
       printf_cyan "Starting new tmux enviroment for $TMUX_NEW_NAME"
       sleep 3
@@ -663,8 +672,15 @@ __create_windows() {
     if [ $# -ne 0 ]; then
       for window in "$@"; do
         wnum=$(($wnum + 1))
-        wname="$(echo "$window" | grep ':' | awk -F':' '{print $1}' | grep '^' || printf '%s' "${window:-$wnum}")"
-        wcmd="$(echo "$window" | grep ':' | awk -F':' '{print $2}' | grep '^' || printf '%s' "${SHELL:-bash}")"
+        if [[ "$window" == *":"* ]]; then
+          wname="${window%%:*}"
+          wcmd="${window#*:}"
+          [ -n "$wname" ] || wname="${window:-$wnum}"
+          [ -n "$wcmd" ] || wcmd="${SHELL:-bash}"
+        else
+          wname="${window:-$wnum}"
+          wcmd="${SHELL:-bash}"
+        fi
         add_windows="$(printf '%s\nneww -n %s  %s\n' "$add_windows" "$wname" "$wcmd" && echo '')"
       done
     fi
@@ -748,8 +764,8 @@ __tmux_attach() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_ssh() {
-  local ssh_session="$(__tmux_get_all_sessions | grep '^ssh$')"
-  [ -n "$ssh_session" ] && tmux -L ssh a -t ssh || return 1
+  tmux -L ssh has-session -t "=ssh" 2>/dev/null || return 1
+  tmux -L ssh a -t ssh
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Session management functions
@@ -792,7 +808,7 @@ __tmux_status() {
   if [ -n "$sessions" ]; then
     printf_blue "📊 Active tmux sessions:"
     for session in $sessions; do
-      local info="$(tmux list-sessions -F '#{session_name}: #{session_windows} windows, #{session_attached} clients' 2>/dev/null | grep "^$session:")"
+      local info="$(tmux display-message -p -t "$session" '#{session_name}: #{session_windows} windows, #{session_attached} clients' 2>/dev/null)"
       [ -n "$info" ] && printf_green "  $info" || printf_yellow "  $session: (info unavailable)"
     done
   else

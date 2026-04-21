@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202604200030-git
+##@Version           :  202604200045-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  Per-socket resurrect dir at $CONFIG_DIR/sessions/$SOCKET via @resurrect-dir option, isolating state from global tmux-resurrect path
+# @@Changelog        :  Add snapshot retention - cleanup keeps newest TMUX_NEW_SNAPSHOT_KEEP files, runs after every save plus a manual cleanup subcommand
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202604200030-git"
+VERSION="202604200045-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -238,6 +238,7 @@ __help() {
   __printf_line "tmux-new save                   - manual snapshot (tmux-resurrect)"
   __printf_line "tmux-new restore                - restore last snapshot"
   __printf_line "tmux-new boot                   - restore if server is down (login/systemd hook)"
+  __printf_line "tmux-new cleanup                - prune old snapshots (keeps newest TMUX_NEW_SNAPSHOT_KEEP)"
   __printf_line "tmux-new kill [type] [name]     - kill sessions/windows/panes"
   __printf_line "tmux-new kill all               - kill all sessions and recreate"
   __printf_line ""
@@ -678,6 +679,27 @@ __tmux_apply_resurrect_dir() {
   __tmux set-option -g @resurrect-dir "$TMUX_NEW_RESURRECT_DIR" &>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Snapshot retention - keep TMUX_NEW_SNAPSHOT_KEEP newest tmux_resurrect_*.txt files in the
+# current resurrect dir, delete the rest. Pass "quiet" to suppress the user-facing summary
+# (used by the autosave loop). Set TMUX_NEW_SNAPSHOT_KEEP=0 to disable rotation entirely.
+__tmux_cleanup_snapshots() {
+  local quiet="${1:-}"
+  local keep="${TMUX_NEW_SNAPSHOT_KEEP:-30}"
+  local dir="$TMUX_NEW_RESURRECT_DIR"
+  [ "$keep" -gt 0 ] 2>/dev/null || return 0
+  [ -d "$dir" ] || return 0
+  local count=0 removed=0 file
+  while IFS= read -r file; do
+    count=$((count + 1))
+    [ "$count" -le "$keep" ] && continue
+    rm -f "$dir/$file" 2>/dev/null && removed=$((removed + 1))
+  done < <(cd "$dir" 2>/dev/null && ls -1t tmux_resurrect_*.txt 2>/dev/null)
+  if [ "$removed" -gt 0 ] && [ "$quiet" != "quiet" ]; then
+    printf_cyan "Cleaned up $removed old snapshot(s) in $dir (kept newest $keep)"
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Background loop that calls tmux-resurrect save.sh every N seconds while the tmux server is alive.
 # Writes a PID lockfile to avoid stacking multiple loops across invocations.
 __tmux_autosave_start() {
@@ -697,6 +719,7 @@ __tmux_autosave_start() {
       __tmux list-sessions &>/dev/null || break
       __tmux_apply_resurrect_dir
       "$save_script" >/dev/null 2>&1 || true
+      __tmux_cleanup_snapshots quiet
     done
   ) &
   disown 2>/dev/null || true
@@ -711,6 +734,7 @@ __tmux_save() {
   __tmux_apply_resurrect_dir
   if "$save_script" >/dev/null 2>&1; then
     printf_green "Session state saved to $TMUX_NEW_RESURRECT_DIR"
+    __tmux_cleanup_snapshots
     return 0
   fi
   printf_red "Save failed"
@@ -1087,6 +1111,7 @@ RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR="${RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR:-$HOME/Pr
 RUN_OPTIONS_LOGS_BUILDX="${RUN_OPTIONS_LOGS_BUILDX:-$HOME/.local/log/buildx}"
 TMUX_NEW_SOCKET_FILE="${TMUX_NEW_SOCKET_FILE:-default}"
 TMUX_NEW_SAVE_INTERVAL="${TMUX_NEW_SAVE_INTERVAL:-300}"
+TMUX_NEW_SNAPSHOT_KEEP="${TMUX_NEW_SNAPSHOT_KEEP:-30}"
 TMUX_NEW_RESURRECT_DIR="${TMUX_NEW_RESURRECT_DIR:-$TMUX_NEW_CONFIG_DIR/sessions/$TMUX_NEW_SOCKET_FILE}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
@@ -1135,7 +1160,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",kill,name:,socket:,exec:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="liskill,clean,list,attach,single,shell,server,web,docker,dev,rpm,node,bun,deno,build,ssh,productivity,test,default,edit,create,save,restore,boot"
+ARRAY="liskill,clean,list,attach,single,shell,server,web,docker,dev,rpm,node,bun,deno,build,ssh,productivity,test,default,edit,create,save,restore,boot,cleanup"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -1394,6 +1419,11 @@ restore)
 boot)
   shift 1
   __tmux_boot
+  exit $?
+  ;;
+cleanup)
+  shift 1
+  __tmux_cleanup_snapshots
   exit $?
   ;;
 status | info)

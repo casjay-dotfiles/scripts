@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202604200000-git
+##@Version           :  202604200030-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  Fix broken resurrect plugin path, __tmux_ssh socket mismatch, and resurrect cleanup path; reduce forks
+# @@Changelog        :  Per-socket resurrect dir at $CONFIG_DIR/sessions/$SOCKET via @resurrect-dir option, isolating state from global tmux-resurrect path
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202604200000-git"
+VERSION="202604200030-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -235,6 +235,9 @@ __help() {
   __printf_line "tmux-new clone <src> <dest>     - clone session"
   __printf_line "tmux-new status                 - show session status"
   __printf_line "tmux-new nested [name]          - nested tmux with single status bar"
+  __printf_line "tmux-new save                   - manual snapshot (tmux-resurrect)"
+  __printf_line "tmux-new restore                - restore last snapshot"
+  __printf_line "tmux-new boot                   - restore if server is down (login/systemd hook)"
   __printf_line "tmux-new kill [type] [name]     - kill sessions/windows/panes"
   __printf_line "tmux-new kill all               - kill all sessions and recreate"
   __printf_line ""
@@ -272,6 +275,8 @@ __help() {
   __printf_line "--options                       - Shows all available options"
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--raw                           - Removes all formatting on output"
+  __printf_line "--socket <name>                 - use a non-default tmux socket (-L name)"
+  __printf_line "--name <session-name>           - override the auto-derived session name"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -356,7 +361,14 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-__tmux() { \tmux -L "$TMUX_NEW_SOCKET_DIR/$TMUX_NEW_SOCKET_FILE"; }
+# Wrapper that forwards to tmux, prepending -L when a non-default socket was requested
+__tmux() {
+  if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
+    command tmux -L "$TMUX_NEW_SOCKET_FILE" "$@"
+  else
+    command tmux "$@"
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Cache helper function
 __cache_valid() {
@@ -439,7 +451,7 @@ __tmux_kill_all() {
   printf_cyan "Capturing session information..."
 
   # Get all sessions with their paths
-  local sessions="$(tmux list-sessions -F '#{session_name}:#{session_path}' 2>/dev/null)"
+  local sessions="$(__tmux list-sessions -F '#{session_name}:#{session_path}' 2>/dev/null)"
 
   if [ -z "$sessions" ]; then
     printf_yellow "No active sessions to kill"
@@ -450,7 +462,7 @@ __tmux_kill_all() {
   while IFS=: read -r session_name session_path; do
     if [ -n "$session_name" ]; then
       printf_cyan "Killing session: $session_name (path: $session_path)"
-      tmux kill-session -t "$session_name" &>/dev/null
+      __tmux kill-session -t "$session_name" &>/dev/null
 
       # Clean up resurrect data
       local resurrect_dir="${TMUX_NEW_CONFIG_DIR}/resurrect/${session_name}"
@@ -490,7 +502,7 @@ __tmux_kill_all() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_kill() {
   local exitCode=0
-  local session="$(tmux ls 2>/dev/null)"
+  local session="$(__tmux ls 2>/dev/null)"
   case "$1" in
   all)
     shift 1
@@ -503,7 +515,7 @@ __tmux_kill() {
     for arg in "$@"; do
       local retVal=0
       printf_cyan "Killing pane $arg"
-      tmux kill-pane "$arg" &>/dev/null
+      __tmux kill-pane "$arg" &>/dev/null
       retval=$?
       exitCode=$((exitCode + retval))
     done
@@ -515,7 +527,7 @@ __tmux_kill() {
     for arg in "$@"; do
       local retVal=0
       printf_cyan "Killing server $arg"
-      tmux kill-server "$arg" &>/dev/null
+      __tmux kill-server "$arg" &>/dev/null
       retval=$?
       exitCode=$((exitCode + retval))
     done
@@ -526,9 +538,9 @@ __tmux_kill() {
     [ $# -ne 0 ] || printf_cyan "Usage: $APPNAME kill session [name]"
     for arg in "$@"; do
       local retVal=0
-      if tmux has-session -t "=$arg" 2>/dev/null; then
+      if __tmux has-session -t "=$arg" 2>/dev/null; then
         printf_cyan "Killing session $arg"
-        tmux kill-session -t "$arg" &>/dev/null
+        __tmux kill-session -t "$arg" &>/dev/null
         retval=$?
         exitCode=$((exitCode + retval))
         if [ $retval -eq 0 ]; then
@@ -550,7 +562,7 @@ __tmux_kill() {
     for arg in "$@"; do
       local retVal=0
       printf_cyan "Killing window $arg"
-      tmux kill-window -t "$arg" &>/dev/null
+      __tmux kill-window -t "$arg" &>/dev/null
       retval=$?
       exitCode=$((exitCode + retval))
     done
@@ -589,7 +601,7 @@ __tmux_get_session_sockets() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_get_all_sessions() {
   local all_sessions="" socket_sessions="" sess
-  all_sessions="$(tmux ls 2>/dev/null || true)"
+  all_sessions="$(__tmux ls 2>/dev/null || true)"
   socket_sessions="$(__tmux_get_session_sockets 2>/dev/null || true)"
   if [ -n "$all_sessions" ]; then
     while IFS=: read -r sess _; do
@@ -627,21 +639,119 @@ __launch_tmux() {
   # Start tmux
   if [ -z "$TMUX" ]; then
     __cd
-    local TMUX_NEW_RESURRECT_DIR="${TMUX_NEW_CONFIG_DIR}/resurrect/${TMUX_NEW_NAME}"
-    local TMUX_NEW_RESURRECT_FILE="${TMUX_NEW_RESURRECT_DIR}/last"
-
-    if [ -d "$TMUX_NEW_RESURRECT_DIR" ] && [ -f "$TMUX_NEW_RESURRECT_FILE" ]; then
-      printf_green "Found saved session for $TMUX_NEW_NAME - restoring..."
-      tmux -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" new-session -D -A -s $TMUX_NEW_NAME "tmux run-shell $TMUX_NEW_PLUGIN_DIR/tmux-resurrect/scripts/restore.sh" &>"$TMUX_NEW_LOG_DIR/$APPNAME.log"
-    else
-      printf_cyan "Starting new tmux enviroment for $TMUX_NEW_NAME"
-      sleep 3
-      tmux -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" new-session -D -A -s $TMUX_NEW_NAME 'tmux source-file '$TMUX_NEW_FILE_WINDOWS/$TMUX_NEW_NAME'' &>"$TMUX_NEW_LOG_DIR/$APPNAME.log"
+    local restore_script="$TMUX_NEW_PLUGIN_DIR/tmux-resurrect/scripts/restore.sh"
+    local resurrect_last="$TMUX_NEW_RESURRECT_DIR/last"
+    local server_is_up="false"
+    __tmux list-sessions &>/dev/null && server_is_up="true"
+    # If the tmux server is down but a saved snapshot exists, restore it before creating our session
+    if [ "$server_is_up" = "false" ] && [ -L "$resurrect_last" ] && [ -x "$restore_script" ]; then
+      printf_green "Found saved server state for socket '$TMUX_NEW_SOCKET_FILE' - restoring sessions..."
+      __tmux -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" new-session -d -s "_tmux_new_restore" &>"$TMUX_NEW_LOG_DIR/$APPNAME.log"
+      __tmux_apply_resurrect_dir
+      "$restore_script" >/dev/null 2>&1 || true
+      __tmux kill-session -t "_tmux_new_restore" 2>/dev/null || true
+      server_is_up="true"
+      __tmux list-sessions &>/dev/null || server_is_up="false"
     fi
+    if [ "$server_is_up" = "true" ] && __tmux has-session -t "=$TMUX_NEW_NAME" 2>/dev/null; then
+      printf_green "Attaching to existing session $TMUX_NEW_NAME"
+      __tmux_apply_resurrect_dir
+      __tmux attach -t "$TMUX_NEW_NAME" &>"$TMUX_NEW_LOG_DIR/$APPNAME.log"
+    else
+      printf_cyan "Starting new tmux environment for $TMUX_NEW_NAME"
+      [ "$server_is_up" = "true" ] || sleep 3
+      __tmux -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" new-session -D -A -s "$TMUX_NEW_NAME" "tmux source-file $TMUX_NEW_FILE_WINDOWS/$TMUX_NEW_NAME" &>"$TMUX_NEW_LOG_DIR/$APPNAME.log"
+      __tmux_apply_resurrect_dir
+    fi
+    __tmux_autosave_start
     return $?
   else
     printf_exit "You appear to already have tmux running"
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Point the running tmux server at our per-socket resurrect dir so save/restore stay isolated
+# (tmux-resurrect reads the @resurrect-dir global option). Safe to call repeatedly.
+__tmux_apply_resurrect_dir() {
+  __tmux list-sessions &>/dev/null || return 1
+  [ -d "$TMUX_NEW_RESURRECT_DIR" ] || mkdir -p "$TMUX_NEW_RESURRECT_DIR" 2>/dev/null
+  __tmux set-option -g @resurrect-dir "$TMUX_NEW_RESURRECT_DIR" &>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Background loop that calls tmux-resurrect save.sh every N seconds while the tmux server is alive.
+# Writes a PID lockfile to avoid stacking multiple loops across invocations.
+__tmux_autosave_start() {
+  local save_script="$TMUX_NEW_PLUGIN_DIR/tmux-resurrect/scripts/save.sh"
+  local interval="${TMUX_NEW_SAVE_INTERVAL:-300}"
+  local lock_file="$TMUX_NEW_TEMP_DIR/autosave.${TMUX_NEW_SOCKET_FILE:-default}.pid"
+  [ -x "$save_script" ] || return 0
+  if [ -f "$lock_file" ] && kill -0 "$(<"$lock_file")" 2>/dev/null; then
+    return 0
+  fi
+  __tmux_apply_resurrect_dir
+  (
+    echo "$BASHPID" >"$lock_file" 2>/dev/null
+    trap 'rm -f "$lock_file"' EXIT
+    while __tmux list-sessions &>/dev/null; do
+      sleep "$interval"
+      __tmux list-sessions &>/dev/null || break
+      __tmux_apply_resurrect_dir
+      "$save_script" >/dev/null 2>&1 || true
+    done
+  ) &
+  disown 2>/dev/null || true
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Manual save trigger (runs tmux-resurrect save.sh against the current server)
+__tmux_save() {
+  local save_script="$TMUX_NEW_PLUGIN_DIR/tmux-resurrect/scripts/save.sh"
+  [ -x "$save_script" ] || printf_exit "Save script not found: $save_script"
+  __tmux list-sessions &>/dev/null || printf_exit "No tmux server running on socket '${TMUX_NEW_SOCKET_FILE:-default}'"
+  __tmux_apply_resurrect_dir
+  if "$save_script" >/dev/null 2>&1; then
+    printf_green "Session state saved to $TMUX_NEW_RESURRECT_DIR"
+    return 0
+  fi
+  printf_red "Save failed"
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Manual restore trigger. Uses a disposable bootstrap session if the server is not already running.
+__tmux_restore() {
+  local restore_script="$TMUX_NEW_PLUGIN_DIR/tmux-resurrect/scripts/restore.sh"
+  local resurrect_last="$TMUX_NEW_RESURRECT_DIR/last"
+  [ -x "$restore_script" ] || printf_exit "Restore script not found: $restore_script"
+  [ -L "$resurrect_last" ] || printf_exit "No saved state found at $resurrect_last"
+  if ! __tmux list-sessions &>/dev/null; then
+    __tmux new-session -d -s "_tmux_new_restore" 2>/dev/null || printf_exit "Failed to start bootstrap tmux server"
+  fi
+  __tmux_apply_resurrect_dir
+  if "$restore_script" >/dev/null 2>&1; then
+    __tmux kill-session -t "_tmux_new_restore" 2>/dev/null || true
+    printf_green "Session state restored from $TMUX_NEW_RESURRECT_DIR"
+    return 0
+  fi
+  __tmux kill-session -t "_tmux_new_restore" 2>/dev/null || true
+  printf_red "Restore failed"
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Boot-time restore - no-op if server is already running. Safe to call from systemd --user or login hooks.
+__tmux_boot() {
+  if __tmux list-sessions &>/dev/null; then
+    printf_yellow "tmux server already running on socket '${TMUX_NEW_SOCKET_FILE:-default}' - nothing to boot"
+    return 0
+  fi
+  local resurrect_last="$TMUX_NEW_RESURRECT_DIR/last"
+  if [ ! -L "$resurrect_last" ]; then
+    printf_yellow "No saved state found at $resurrect_last - nothing to boot"
+    return 0
+  fi
+  __tmux_restore
+  local rc=$?
+  __tmux_autosave_start
+  return $rc
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_conf() {
@@ -759,7 +869,7 @@ __update_all_configs() {
 __tmux_attach() {
   local name="${1:-$(__tmux_list | tail -n1)}"
   [ -n "$name" ] || return 1
-  tmux attach -t "$name" 2>/dev/null
+  __tmux attach -t "$name" 2>/dev/null
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -776,8 +886,8 @@ __tmux_switch() {
     return 1
   }
 
-  if tmux has-session -t "$session" 2>/dev/null; then
-    [ -n "$TMUX" ] && tmux switch-client -t "$session" || tmux attach -t "$session"
+  if __tmux has-session -t "$session" 2>/dev/null; then
+    [ -n "$TMUX" ] && __tmux switch-client -t "$session" || __tmux attach -t "$session"
     return $?
   else
     printf_red "Session '$session' does not exist"
@@ -793,8 +903,8 @@ __tmux_rename() {
     return 1
   }
 
-  if tmux has-session -t "$old_name" 2>/dev/null; then
-    tmux rename-session -t "$old_name" "$new_name"
+  if __tmux has-session -t "$old_name" 2>/dev/null; then
+    __tmux rename-session -t "$old_name" "$new_name"
     printf_green "✅ Session '$old_name' renamed to '$new_name'"
     return $?
   else
@@ -808,7 +918,7 @@ __tmux_status() {
   if [ -n "$sessions" ]; then
     printf_blue "📊 Active tmux sessions:"
     for session in $sessions; do
-      local info="$(tmux display-message -p -t "$session" '#{session_name}: #{session_windows} windows, #{session_attached} clients' 2>/dev/null)"
+      local info="$(__tmux display-message -p -t "$session" '#{session_name}: #{session_windows} windows, #{session_attached} clients' 2>/dev/null)"
       [ -n "$info" ] && printf_green "  $info" || printf_yellow "  $session: (info unavailable)"
     done
   else
@@ -825,12 +935,12 @@ __tmux_clone() {
     return 1
   }
 
-  if ! tmux has-session -t "$source" 2>/dev/null; then
+  if ! __tmux has-session -t "$source" 2>/dev/null; then
     printf_red "Source session '$source' does not exist"
     return 1
   fi
 
-  if tmux has-session -t "$target" 2>/dev/null; then
+  if __tmux has-session -t "$target" 2>/dev/null; then
     printf_red "Target session '$target' already exists"
     return 1
   fi
@@ -913,18 +1023,18 @@ EOF
     printf_blue "🔗 Creating nested tmux session: $session_name"
 
     # Disable status bar on current (outer) session
-    tmux set -g status off
+    __tmux set -g status off
 
     # Launch nested session with new config
-    tmux new-session -d -s "$session_name" -c "$TMUX_NEW_CWD"
-    tmux send-keys -t "$session_name" "tmux -f '$nested_config' attach" Enter
-    tmux switch-client -t "$session_name"
+    __tmux new-session -d -s "$session_name" -c "$TMUX_NEW_CWD"
+    __tmux send-keys -t "$session_name" "tmux -f '$nested_config' attach" Enter
+    __tmux switch-client -t "$session_name"
 
     printf_green "✅ Nested session created with single status bar"
   else
     # Not in tmux - create normal session that supports nesting
     printf_blue "🚀 Creating tmux session with nested support: $session_name"
-    tmux -f "$nested_config" new-session -D -A -s "$session_name" -c "$TMUX_NEW_CWD"
+    __tmux -f "$nested_config" new-session -D -A -s "$session_name" -c "$TMUX_NEW_CWD"
   fi
 
   return $?
@@ -975,7 +1085,9 @@ RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR="${RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR:-$HOME/Pr
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Programs logging Directories
 RUN_OPTIONS_LOGS_BUILDX="${RUN_OPTIONS_LOGS_BUILDX:-$HOME/.local/log/buildx}"
-TMUX_NEW_SOCKET_FILE="default"
+TMUX_NEW_SOCKET_FILE="${TMUX_NEW_SOCKET_FILE:-default}"
+TMUX_NEW_SAVE_INTERVAL="${TMUX_NEW_SAVE_INTERVAL:-300}"
+TMUX_NEW_RESURRECT_DIR="${TMUX_NEW_RESURRECT_DIR:-$TMUX_NEW_CONFIG_DIR/sessions/$TMUX_NEW_SOCKET_FILE}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -985,7 +1097,7 @@ TMUX_NEW_SOCKET_FILE="default"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 mkdir -p "$TMUX_NEW_LOG_DIR" "$TMUX_NEW_TEMP_DIR" "$TMUX_NEW_CACHE_DIR" \
-  "$TMUX_NEW_SOCKET_DIR" "$RUN_OPTIONS_LOGS_BUILDX" \
+  "$TMUX_NEW_SOCKET_DIR" "$TMUX_NEW_RESURRECT_DIR" "$RUN_OPTIONS_LOGS_BUILDX" \
   "$RUN_OPTIONS_DIRS_PROJECTS" "$RUN_OPTIONS_DIRS_DOCKER_SRC" \
   "$RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR" 2>/dev/null
 [ -f "$RUN_OPTIONS_LOGS_BUILDX/init.log" ] || echo "$APPNAME has started: $(date)" >"$RUN_OPTIONS_LOGS_BUILDX/init.log" 2>/dev/null
@@ -1023,7 +1135,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",kill,name:,socket:,exec:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="liskill,clean,list,attach,single,shell,server,web,docker,dev,rpm,node,bun,deno,build,ssh,productivity,test,default,edit,create"
+ARRAY="liskill,clean,list,attach,single,shell,server,web,docker,dev,rpm,node,bun,deno,build,ssh,productivity,test,default,edit,create,save,restore,boot"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -1267,6 +1379,21 @@ switch | sw)
 rename | mv)
   shift 1
   __tmux_rename "$1" "$2"
+  exit $?
+  ;;
+save)
+  shift 1
+  __tmux_save
+  exit $?
+  ;;
+restore)
+  shift 1
+  __tmux_restore
+  exit $?
+  ;;
+boot)
+  shift 1
+  __tmux_boot
   exit $?
   ;;
 status | info)

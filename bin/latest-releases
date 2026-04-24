@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202604211900-git
+##@Version           :  202604212200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 12, 2022 15:32 EDT
 # @@File             :  latest-releases
 # @@Description      :  Download the latest release of a package
-# @@Changelog        :  Ephemeral download staging; wrapper cd's into share dir; smarter single-vs-multi detection; flat share layout; installed.db; auto-detect root -> /usr/local; fix 3 latent bugs; tput cache + bashify pipelines
+# @@Changelog        :  Unified __fetch_and_install pipeline; gitea/gitlab now use installed.db + wrapper scripts; __dispatch_service helper collapses duplicate service-switch blocks; __github reduced from 312 -> 77 lines; all resolvers now share archive handling, state DB, and cd+exec wrappers
 # @@TODO             :  Refactor this mess
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202604211900-git"
+VERSION="202604212200-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -330,6 +330,200 @@ __mkd() { mkdir -p "$@" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __clean_old_bin() { { [ -n "$1" ] && [ -e "$LATEST_RELEASES_BIN_DIR_USER/$1" ]; } && rm -Rf "${LATEST_RELEASES_BIN_DIR_USER:?}/$1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Extract a downloaded archive into an already-existing destination directory.
+# Dispatches on filename extension the same way __github's case-statement did,
+# so tarballs with .bz2/.tar.bz2/.tar.gz/.tgz/.gz/.xz/.zip/.7z all land correctly.
+# A bare `.gz`/`.xz`/`.bz2` is still handled by tar (for `foo.tar` misnamed as
+# `foo.gz`, etc.) - matches the pre-refactor behavior. Returns 0 on success,
+# 1 on any failure so callers can abort the install flow.
+# Usage: __extract_archive <archive_path> <dest_dir>
+__extract_archive() {
+  local archive="${1:-}" dest="${2:-}"
+  [ -n "$archive" ] && [ -f "$archive" ] && [ -n "$dest" ] || return 1
+  [ -d "$dest" ] || mkdir -p "$dest" || return 1
+  case "$archive" in
+    *.tar.bz2|*.tbz2|*.bz2)
+      tar xjfv "$archive" -C "$dest" &>/dev/null
+      ;;
+    *.tar.gz|*.tgz|*.tar.xz|*.txz|*.tar|*.gz|*.xz)
+      tar xfv "$archive" -C "$dest" &>/dev/null
+      ;;
+    *.zip)
+      unzip -o "$archive" -d "$dest" &>/dev/null
+      ;;
+    *.7z)
+      [ -d "$dest" ] && rm -Rf "${dest:?}"/* 2>/dev/null
+      mkdir -p "$dest"
+      7za x -y "$archive" -o"$dest" &>/dev/null
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Given an extracted directory, sweep obvious metadata/documentation files so
+# the single-vs-multi detector below isn't fooled by README/LICENSE/man-page
+# clutter shipped alongside a single binary. Conservative - only matches names
+# that are unambiguously non-functional. Does nothing if dest doesn't exist.
+# Usage: __cleanup_meta_files <dir>
+__cleanup_meta_files() {
+  local dir="${1:-}" rm_file
+  [ -n "$dir" ] && [ -d "$dir" ] || return 0
+  shopt -s nullglob 2>/dev/null || true
+  for rm_file in \
+    "$dir"/*.md "$dir"/*.txt "$dir"/*.rst \
+    "$dir"/*.html "$dir"/*.adoc "$dir"/*.pdf \
+    "$dir"/README* "$dir"/readme* \
+    "$dir"/LICENSE* "$dir"/license* "$dir"/COPYING* \
+    "$dir"/CHANGELOG* "$dir"/CHANGES* "$dir"/NEWS* \
+    "$dir"/NOTICE* "$dir"/AUTHORS* "$dir"/CONTRIBUTORS* \
+    "$dir"/*.1 "$dir"/*.2 "$dir"/*.3 "$dir"/*.4 \
+    "$dir"/*.5 "$dir"/*.6 "$dir"/*.7 "$dir"/*.8 \
+    "$dir"/.editorconfig "$dir"/.gitattributes \
+    "$dir"/.gitignore "$dir"/.git*; do
+    [ -e "$rm_file" ] && rm -Rf "$rm_file"
+  done
+  shopt -u nullglob 2>/dev/null || true
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Locate the binary inside an extracted tree. Walks through several fallback
+# find strategies in the same order __github used to, so the resolver keeps
+# handling the wide variety of archive layouts seen in the wild (flat binary,
+# versioned subdir `$name-$version/`, arch-suffixed binary, nested bin/ dir).
+# Echoes the absolute path on success, returns 1 if nothing plausible found.
+# Usage: __locate_binary <extract_dir> <hint_name>
+__locate_binary() {
+  local dir="${1:-}" hint="${2:-}" found=""
+  [ -n "$dir" ] && [ -d "$dir" ] && [ -n "$hint" ] || return 1
+  # Layer 1: executable file whose basename matches the hint exactly
+  found="$(find "$dir" -maxdepth 3 -type f -executable -iname "$hint" 2>/dev/null | __grep -i "$hint$" | head -n1)"
+  # Layer 2: same but without -executable (some archives don't set the bit)
+  [ -n "$found" ] || found="$(find "$dir" -maxdepth 3 -type f -iname "$hint" 2>/dev/null | __grep -i "$hint$" | head -n1)"
+  # Layer 3: split the hint on `-` and try each half as a search root
+  if [ -z "$found" ]; then
+    local search
+    search="${hint//-*/}"
+    found="$(find "$dir" -maxdepth 3 -type f -executable -iname "$search" 2>/dev/null | __grep -iE "^$search|$search$" | head -n1)"
+    if [ -z "$found" ]; then
+      search="${hint//*-/}"
+      found="$(find "$dir" -maxdepth 3 -type f -executable -iname "$search" 2>/dev/null | __grep -iE "^$search|$search$" | head -n1)"
+    fi
+  fi
+  # Layer 4: arch-suffixed variants (name-amd64, name-arm64, ...)
+  if [ -z "$found" ]; then
+    local try_arch
+    for try_arch in aarch64 arm64 amd64 x86_64; do
+      found="$(find "$dir" -maxdepth 2 -type f -executable -iname "${hint}*${try_arch}" 2>/dev/null | head -n1)"
+      [ -n "$found" ] && break
+    done
+  fi
+  # Layer 5: give up on matching the hint, take any executable file
+  [ -n "$found" ] || found="$(find "$dir" -type f -executable 2>/dev/null | head -n1)"
+  [ -n "$found" ] || return 1
+  printf '%s\n' "$found"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# The unified download-extract-install pipeline shared by __github, __gitea, and
+# __gitlab. Each service-specific function now just resolves an upstream URL, then
+# hands off here for the download + archive handling + binary install + state
+# recording. Anything that writes to disk lives here - the service functions are
+# pure URL resolvers.
+#
+# Usage:
+#   __fetch_and_install <service> <url> <bin_name> <version> <tracking_entry> [repo_description]
+#
+# - service:         "github" / "gitea" / "gitlab" - used in logs/tracking only
+# - url:             the concrete .iso/.tar.gz/bare-binary URL to fetch
+# - bin_name:        desired name on disk (e.g. "fastfetch", "zed")
+# - version:         version string for installed.db (empty if unknown)
+# - tracking_entry:  the full "service;repo:binname:desc" string for __update_latest_list
+# - repo_description optional - passed through for tracking-list display
+#
+# Returns 0 on success, non-zero on any failure in the pipeline.
+__fetch_and_install() {
+  local service="${1:-unknown}" url="${2:-}" bin_name="${3:-}" version="${4:-}"
+  local tracking_entry="${5:-}" _description="${6:-}"
+  [ -n "$url" ] && [ -n "$bin_name" ] || { printf_red "__fetch_and_install: url and bin_name required"; return 1; }
+  local tempfile="$LATEST_RELEASES_TEMP_FILE"
+  local download_dir="$LATEST_RELEASE_DOWNLOADS"
+  local basename="${url##*/}"
+  local download_file="$download_dir/$basename"
+  # Flat share layout: one dir per installed tool, named by bin_name (not by org).
+  local extract_dir="$LATEST_RELEASE_INSTALL_DIR/$bin_name"
+  local target="$LATEST_RELEASES_BIN_DIR_USER/$bin_name"
+  # Decide whether the URL points at a real archive. A bare binary URL skips
+  # extraction entirely and just copies the download into bin/.
+  local is_archive="false"
+  case "$basename" in
+    *.tar|*.tar.gz|*.tgz|*.tar.bz2|*.tbz2|*.tar.xz|*.txz|*.gz|*.xz|*.bz2|*.zip|*.7z)
+      is_archive="true" ;;
+  esac
+  mkdir -p "$download_dir" "$LATEST_RELEASES_BIN_DIR_USER"
+  printf_green "Attempting to download $basename from $url"
+  __wget "$url" "$tempfile" || { printf_red "Failed to download $url"; return 2; }
+  [ -s "$tempfile" ] || { printf_red "Downloaded file is empty: $url"; return 2; }
+  __cp_rf "$tempfile" "$download_file" || { printf_red "Failed to stage $download_file"; return 2; }
+  local state_extdir="" state_binfiles="$target" binary_path="" exec_count=0
+  if [ "$is_archive" = "true" ]; then
+    [ -d "$extract_dir" ] && __rm_rf "$extract_dir"
+    __extract_archive "$download_file" "$extract_dir" || { printf_red "Failed to extract $basename"; return 3; }
+    # If the archive wrapped its contents in a single top-level dir like
+    # `$name-$version/`, flatten that one level up into extract_dir so find logic
+    # below doesn't have to know about it. Matches pre-refactor behavior.
+    if [ "$(find "$extract_dir" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l)" = "1" ]; then
+      local only_entry
+      only_entry="$(find "$extract_dir" -maxdepth 1 -mindepth 1 2>/dev/null | head -n1)"
+      if [ -d "$only_entry" ]; then
+        rsync -ah "$only_entry/." "$extract_dir/" --delete-after 2>/dev/null
+        rm -Rf "$only_entry"
+      fi
+    fi
+    __cleanup_meta_files "$extract_dir"
+    binary_path="$(__locate_binary "$extract_dir" "$bin_name")"
+    [ -n "$binary_path" ] || { printf_red "Could not locate a binary in $extract_dir"; return 4; }
+    # Count only top-level executables, so a single binary shipped with leftover
+    # non-exec files still counts as "single-file" and lands in bin/ directly.
+    exec_count="$(find "$extract_dir" -maxdepth 1 -type f -executable 2>/dev/null | wc -l)"
+    if [ "$exec_count" = "1" ]; then
+      # Single-file install: copy the binary, nuke the whole share tree.
+      __clean_old_bin "$bin_name"
+      __cp_rf "$binary_path" "$target" || { printf_red "Failed to install $target"; return 5; }
+      chmod 755 "$target" 2>/dev/null
+      __rm_rf "$extract_dir"
+    else
+      # Multi-file install: keep the tree, write a cd+exec wrapper.
+      __write_wrapper "$target" "$extract_dir" "$binary_path" || { printf_red "Failed to write wrapper at $target"; return 5; }
+      state_extdir="$extract_dir"
+    fi
+  else
+    # Bare binary: the downloaded file IS the executable. Just copy + chmod.
+    __clean_old_bin "$bin_name"
+    __cp_rf "$download_file" "$target" || { printf_red "Failed to install $target"; return 5; }
+    chmod 755 "$target" 2>/dev/null
+  fi
+  # Optional secondary install to system bin (--system flag). Only fires when
+  # LATEST_RELEASE_INSTALL_TO_SYSTEM_BIN=yes AND the user is root-or-sudo-capable.
+  if [ "$LATEST_RELEASE_INSTALL_TO_SYSTEM_BIN" = "yes" ]; then
+    if { [ "$(id -u)" = "0" ] || __can_i_sudo; } && [ -x "$target" ] && [ ! -L "$target" ]; then
+      printf_green "Copying $bin_name to $LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_name"
+      __sudo cp -Rf "$target" "$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_name"
+      __sudo chmod 755 "$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_name" 2>/dev/null
+      [ -f "$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_name" ] && state_binfiles+=",$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_name"
+    fi
+  fi
+  # Record in installed.db for safe uninstall, and keep the user-facing tracking
+  # list (repos.conf) in sync.
+  __save_details "$bin_name" "$version" "$state_binfiles" "$state_extdir"
+  [ -n "$tracking_entry" ] && __update_latest_list "$tracking_entry"
+  # Ephemeral staging: delete the archive, rmdir the download dir if empty.
+  [ -f "$download_file" ] && rm -f "$download_file"
+  rmdir "$download_dir" 2>/dev/null || true
+  printf_cyan "Installed $bin_name to $target ($service, v${version:-unknown})"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Write a POSIX shell wrapper at $1 that cd's into the share dir ($2) then execs
 # the binary at $3 (absolute path). Using a relative path after cd means apps like
 # zed / vim / neovim that probe cwd or argv[0] for their own resources find the
@@ -461,12 +655,18 @@ search_gh_api() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea() {
-  local url="" dom="" repo="" download_dir="" tempfile="" api_url="" filename=""
-  local get_repo="$1"
+  # Gitea: resolve release asset URL via the instance API, then hand off to the
+  # unified installer. URL resolution is the ONLY part that differs between the
+  # three forges; everything downstream (extract, wrapper, state DB, tracking)
+  # runs through __fetch_and_install - so gitea now gets archive handling,
+  # wrapper scripts for multi-file tools, and installed.db entries that make
+  # uninstall safe. Prior implementation dropped the archive straight into
+  # bin/ and didn't record any state.
+  local url="" repo="" bin_name="" get_repo="$1" gitea_domain=""
   local arch="${LATEST_RELEASE_OS_ARCH:-$(uname -m)}"
+  # Parse the repo + domain from whichever input form the caller used.
   if [[ "$get_repo" == *"|"* ]]; then
     repo="${get_repo//*|/}"
-    # Strip any leading `service;`, then take the part before the first `|` as the domain.
     local _after_semi="${get_repo//*;/}"
     gitea_domain="${_after_semi%%|*}"
   elif [[ "$get_repo" =~ [a-zA-Z0-9]/[a-zA-Z0-9] ]]; then
@@ -479,54 +679,44 @@ __gitea() {
     printf_exit "Usage: $APPNAME gitea [user/repo]"
   fi
   if [[ "$get_repo" =~ ^(http|https):// ]]; then
-    # Derive domain from "https://host/org/repo" style input: drop leading protocol,
-    # semicolons, trailing path, and pipe chars.
     gitea_domain="${get_repo//;/}"
     gitea_domain="${gitea_domain#*://}"
     gitea_domain="${gitea_domain%%/*}"
     gitea_domain="${gitea_domain//|/}"
-    # org = last path segment, repo = second-to-last. Reconstruct as "org/repo".
-    org="${get_repo##*/}"
-    local _parent="${get_repo%/*}"
+    local _parent="${get_repo%/*}" org="${get_repo##*/}"
     repo="${_parent##*/}"
     repo="$org/$repo"
   fi
   repo="${repo//*;/}"
   repo="${repo//*|/}"
-  filename="${repo##*/}"
-  set_os="$LATEST_RELEASE_OS_NAME"
-  set_arch="$(__get_arch "${1:-$arch}")"
-  tempfile="$LATEST_RELEASES_TEMP_FILE"
-  download_dir="$LATEST_RELEASE_DOWNLOADS"
+  bin_name="${repo##*/}"
   gitea_domain="${gitea_domain:-$LATEST_RELEASE_GITEA_DOMAIN}"
-  repo_description=""
   [ -n "$gitea_domain" ] || printf_exit "ERROR: The variable LATEST_RELEASE_GITEA_DOMAIN is not set"
   __check_if_repo "$repo" || return
+  # Determine the current set of arches to try. __get_arch also exports set_arches.
+  set_arch="$(__get_arch "${1:-$arch}")"
+  set_os="$LATEST_RELEASE_OS_NAME"
   __get_arch &>/dev/null
+  # Hit the Gitea API once per candidate arch until something matches.
+  local releases_json=""
+  releases_json="$(curl -q -LSs -X 'GET' "$gitea_domain/api/v1/repos/$repo/releases" -H 'accept: application/json' 2>/dev/null)"
   for arch in $set_arches; do
-    url="$(curl -q -LSs -X 'GET' "$gitea_domain/api/v1/repos/$repo/releases" -H 'accept: application/json' 2>/dev/null | jq -rc '.[].assets | .[] | {name: .name, link: .browser_download_url}' | jq -c '.' | jq -r '.' | __grep ''$arch'"' | __grep -i "$set_os" | head -n1 | __grep 'link' | awk -F '":' '{print $2}' | sed 's|"||g;s| ||g' | grep '^')"
+    url="$(printf '%s' "$releases_json" | jq -rc '.[].assets | .[] | {name: .name, link: .browser_download_url}' 2>/dev/null | jq -c '.' 2>/dev/null | jq -r '.' 2>/dev/null | __grep "\"$arch\"" | __grep -i "$set_os" | head -n1 | __grep 'link' | awk -F '":' '{print $2}' | sed 's|"||g;s| ||g' | __grep '^')"
     [ -n "$url" ] && break
   done
-  printf_green "Attempting to download $filename from $url"
-  printf_green "and save to $download_dir/$filename"
-  curl -q -LSs "$url" -o "$tempfile" 2>/dev/null || printf_exit "Failed to download the file"
-  if [ -f "$tempfile" ] && [ -s "$tempfile" ]; then
-    mkdir -p "$download_dir"
-    mv -f "$tempfile" "$download_dir/$filename"
-    chmod -Rf 755 "$download_dir/$filename"
-    if [ -d "$LATEST_RELEASES_BIN_DIR_USER" ]; then
-      cp -Rf "$download_dir/$filename" "$LATEST_RELEASES_BIN_DIR_USER/$filename"
-    fi
-    [ -f "$download_dir/$filename" ] && __update_latest_list "gitea;$gitea_domain|$repo:$filename:$repo_description"
-  else
-    printf_exit "Failed to download the file"
-  fi
+  [ -n "$url" ] || printf_exit "No Gitea release asset found matching $set_arch/$set_os for $repo"
+  # Attempt to pull the release tag name for state DB, ignore failure (version is optional).
+  local version=""
+  version="$(printf '%s' "$releases_json" | jq -r '.[0].tag_name' 2>/dev/null | __grep '^' || true)"
+  __fetch_and_install "gitea" "$url" "$bin_name" "$version" "gitea;$gitea_domain|$repo:$bin_name:"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitlab() {
-  [ $# -eq 2 ] || printf_exit "Usage: $APPNAME gitlab [user/repo]"
-  local url="" dom="" repo="" download_dir="" tempfile="" api_url="" filename=""
-  local get_repo="$1"
+  # GitLab: resolve release asset URL via /api/v4/projects/{url-encoded-path}/
+  # releases, then delegate to __fetch_and_install - same deal as __gitea. Prior
+  # implementation was a copy-paste of gitea with a different API path and also
+  # skipped archive extraction / state DB / wrappers.
+  local url="" repo="" bin_name="" get_repo="$1" gitlab_domain="" project_id=""
   local arch="${LATEST_RELEASE_OS_ARCH:-$(uname -m)}"
   if [[ "$get_repo" == *"|"* ]]; then
     repo="${get_repo//*|/}"
@@ -539,58 +729,42 @@ __gitlab() {
     repo="$1/$2"
     shift 2
   else
-    printf_exit "Usage: $APPNAME gitea [user/repo]"
+    printf_exit "Usage: $APPNAME gitlab [user/repo]"
   fi
   if [[ "$get_repo" =~ ^(http|https):// ]]; then
     gitlab_domain="${get_repo//;/}"
     gitlab_domain="${gitlab_domain#*://}"
     gitlab_domain="${gitlab_domain%%/*}"
     gitlab_domain="${gitlab_domain//|/}"
-    org="${get_repo##*/}"
-    local _parent="${get_repo%/*}"
+    local _parent="${get_repo%/*}" org="${get_repo##*/}"
     repo="${_parent##*/}"
     repo="$org/$repo"
   fi
   repo="${repo//*;/}"
   repo="${repo//*|/}"
-  filename="${repo##*/}"
-  set_os="$LATEST_RELEASE_OS_NAME"
-  set_arch="$(__get_arch "${1:-$arch}")"
-  tempfile="$LATEST_RELEASES_TEMP_FILE"
-  download_dir="$LATEST_RELEASE_DOWNLOADS"
+  bin_name="${repo##*/}"
   gitlab_domain="${gitlab_domain:-$LATEST_RELEASE_GITLAB_DOMAIN}"
-  repo_description=""
-  __check_if_repo "$repo" || return
-  __get_arch &>/dev/null
   [ -n "$gitlab_domain" ] || printf_exit "ERROR: The variable LATEST_RELEASE_GITLAB_DOMAIN is not set"
-  # Get GitLab project ID from repo path (URL-encode slashes)
+  __check_if_repo "$repo" || return
+  set_arch="$(__get_arch "${1:-$arch}")"
+  set_os="$LATEST_RELEASE_OS_NAME"
+  __get_arch &>/dev/null
+  # GitLab API uses URL-encoded "org%2Frepo" paths for project IDs.
   project_id="${repo//\//%2F}"
+  local releases_json=""
+  releases_json="$(curl -q -LSs "$gitlab_domain/api/v4/projects/$project_id/releases" 2>/dev/null)"
+  if [ -z "$releases_json" ] || ! echo "$releases_json" | jq -e '.[0]' &>/dev/null; then
+    printf_yellow "Can not find any releases from $gitlab_domain/api/v4/projects/$project_id/releases"
+    return 1
+  fi
   for arch in $set_arches; do
-    # GitLab API v4 uses different structure than GitHub
-    releases_json="$(curl -q -LSs "$gitlab_domain/api/v4/projects/$project_id/releases" 2>/dev/null)"
-    if [ -n "$releases_json" ] && echo "$releases_json" | jq -e '.[0]' &>/dev/null; then
-      url="$(echo "$releases_json" | jq -r '.[0].assets.links[] | select(.name | test("'"$arch"'"; "i")) | select(.name | test("'"$set_os"'"; "i")) | .direct_asset_url' | head -n1)"
-    fi
+    url="$(printf '%s' "$releases_json" | jq -r '.[0].assets.links[] | select(.name | test("'"$arch"'"; "i")) | select(.name | test("'"$set_os"'"; "i")) | .direct_asset_url' 2>/dev/null | head -n1)"
     [ -n "$url" ] && break
   done
-  if [ -z "$url" ]; then
-    printf_yellow "Can not find any releases from $gitlab_domain/api/v4/projects/$project_id/releases"
-    exit 1
-  fi
-  printf_green "Attempting to download $filename from $url"
-  printf_green "and save to $download_dir/$filename"
-  curl -q -LSs "$url" -o "$tempfile" 2>/dev/null || printf_exit "Failed to download the file"
-  if [ -f "$tempfile" ] && [ -s "$tempfile" ]; then
-    mkdir -p "$download_dir"
-    mv -f "$tempfile" "$download_dir/$filename"
-    if [ -d "$LATEST_RELEASES_BIN_DIR_USER" ]; then
-      cp -Rf "$download_dir/$filename" "$LATEST_RELEASES_BIN_DIR_USER/$filename"
-      chmod -Rf 755 "$LATEST_RELEASES_BIN_DIR_USER/$filename"
-      [ -f "$download_dir/$filename" ] && __update_latest_list "gitlab;$repo:$filename:$repo_description"
-    fi
-  else
-    printf_exit "Failed to download the file"
-  fi
+  [ -n "$url" ] || printf_exit "No GitLab release asset found matching $set_arch/$set_os for $repo"
+  local version=""
+  version="$(printf '%s' "$releases_json" | jq -r '.[0].tag_name' 2>/dev/null | __grep '^' || true)"
+  __fetch_and_install "gitlab" "$url" "$bin_name" "$version" "gitlab;$repo:$bin_name:"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __add_to_latest() {
@@ -750,36 +924,36 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __github() {
+  # GitHub: resolve the release asset URL via api.github.com, then delegate to
+  # the unified __fetch_and_install pipeline. The function now focuses purely on
+  # URL resolution (auth, JSON traversal, arch iteration, override vars, search
+  # mode). Everything below "found a URL" lives in __fetch_and_install.
   [ -n "$1" ] || return
-  # Skip lines that start with `#` (commented repo-list entries)
   [[ "$1" == "#"* ]] && return
-  # Skip empty entries unless caller explicitly provided LATEST_RELEASE_FULL_URL.
   [ -z "$1" ] && [ -z "$LATEST_RELEASE_FULL_URL" ] && return
-  local search=""
-  local exitCode=0
-  local find_file=""
-  local extractExitCode=0
+  local repo="$1" search="" api_url="" latest_json=""
+  local latest_download="" latest_version_full="" latest_version=""
+  local bin_name="" repo_description="" tracked_bin_name=""
   local arch="${LATEST_RELEASE_OS_ARCH:-$(uname -m)}"
   local repo_list="$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
-  local repo="$1" && shift 1
+  shift 1
   [ "$repo" = "search" ] && search="true"
-  # If the caller passed a bare name (no slash), treat it as "name/name".
+  # Bare-name input (no "/") -> treat as "name/name". Strip any "service;" or "|domain|"
+  # prefix the repo-list can attach.
   [[ "$repo" == *"/"* ]] || repo="$repo/$repo"
   repo="${repo//*;/}"
   repo="${repo//*|/}"
   set_os="$LATEST_RELEASE_OS_NAME"
   set_arch="$(__get_arch "${1:-$arch}")"
-  tempfile="$LATEST_RELEASES_TEMP_FILE"
-  download_dir="$LATEST_RELEASE_DOWNLOADS"
   api_url="https://api.github.com/repos/$repo/releases/latest"
   __check_if_repo "$repo" || return
   __get_arch &>/dev/null
-  if [ -n "$LATEST_RELEASE_GITHUB_TOKEN" ]; then
-    printf_blue "Github API Auth token is set"
-    printf_green "Getting info from $api_url"
-  else
-    printf_green "Getting info from $api_url"
-  fi
+  [ -n "$LATEST_RELEASE_GITHUB_TOKEN" ] && printf_blue "Github API Auth token is set"
+  printf_green "Getting info from $api_url"
+  # Resolve the download URL - three paths:
+  #   1. Caller forced a URL via LATEST_RELEASE_FULL_URL (totally bypasses API)
+  #   2. Caller forced a filename filter via LATEST_RELEASES_FILENAME
+  #   3. Default: iterate through $set_arches, pick the first matching asset
   if [ -n "$LATEST_RELEASE_FULL_URL" ]; then
     latest_download="$LATEST_RELEASE_FULL_URL"
   elif [ -n "$LATEST_RELEASES_FILENAME" ]; then
@@ -793,273 +967,40 @@ __github() {
       [ -n "$latest_download" ] && get_arch="$arch" && break
     done
   fi
-  if [ -z "$latest_download" ]; then
-    latest_download="$(__browser_download_url "$latest_json" "$LATEST_RELEASE_OS_NAME" | __grep_exclude | __grep_include | grep "$set_arch" || return 1)"
-  fi
-  # $latest_download is a URL; take the last path segment of its parent dir as the version tag.
-  local _parent_url="${latest_download%/*}"
-  latest_version_full="${_parent_url##*/}"
-  latest_version="${latest_version_full//[a-zA-Z]/}"
-  latest_download_url="https://github.com/$repo/releases/latest"
-  basename="${latest_download##*/}"
-  # $repo is "user/name"; base_repo is "user", basenamerepo is "name".
-  local _repo_parent="${repo%/*}"
-  base_repo="${_repo_parent##*/}"
-  basenamerepo="${repo##*/}"
-  filename="$download_dir/$basename"
-  extract_name="${repo##*/}"
-  # Flat share layout: share/{name}/ not share/{user}/{repo}/. Uses repo basename
-  # because $bin_filename isn't known until after extraction (discovered from archive
-  # contents). For `fastfetch-cli/fastfetch` this becomes `share/fastfetch`; for
-  # `gokcehan/lf` -> `share/lf`. Collisions are already prevented by the per-binname
-  # uniqueness rule in __add_to_latest (duplicate adds get a yellow warning).
-  extract_dir="$LATEST_RELEASE_INSTALL_DIR/${repo##*/}"
-  repo_description="$(curl -q -LSsf "https://api.github.com/repos/$repo" | jq -rc '.description' | sed 's|\. .*||g;s|\? .*||g;s|\! .*||g' | grep '^' || echo "$basenamerepo")"
-  repo_description="${repo_description:0:40}"
-  [ -d "$LATEST_RELEASES_BIN_DIR_USER" ] || mkdir -p "$LATEST_RELEASES_BIN_DIR_USER"
+  [ -n "$latest_download" ] || latest_download="$(__browser_download_url "$latest_json" "$LATEST_RELEASE_OS_NAME" | __grep_exclude | __grep_include | grep "$set_arch" || return 1)"
+  # --search mode short-circuits the install: just print the asset URLs the API
+  # returned, one per line, and exit.
   if [ "$search" = "true" ]; then
     echo "$latest_json" | __grep -iE 'browser_download_url' | awk '{print $2}' | sed 's|"||g' | grep '^' | printf_readline '6'
     exit $?
-  elif [ -n "$latest_download" ]; then
-    printf_green "Attempting to download $latest_download "
-    if __wget_latest "$latest_download" "$tempfile"; then
-      [ -f "$tempfile" ] && __cp_rf "$tempfile" "$filename"
-      exitCode=0
-    else
-      [ -f "$tempfile" ] && __rm_rf "$tempfile"
-      printf_exit "failed to find any files from $latest_download_url"
-      exit 1
-    fi
-    [ -f "$filename" ] && [ -d "$extract_dir" ] && __rm_rf "$extract_dir"
-    case "$filename" in
-    *.tar.bz2)
-      printf_blue "Extracting to $extract_dir"
-      file_is_archive="true"
-      mkdir -p "$extract_dir"
-      tar xjfv "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
-      ;;
-    *.bz2)
-      printf_blue "Extracting to $extract_dir"
-      file_is_archive="true"
-      mkdir -p "$extract_dir"
-      tar xjfv "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
-      ;;
-    *.tar.gz)
-      printf_blue "Extracting to $extract_dir"
-      file_is_archive="true"
-      mkdir -p "$extract_dir"
-      tar xfv "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
-      ;;
-    *.tgz)
-      printf_blue "Extracting to $extract_dir"
-      file_is_archive="true"
-      mkdir -p "$extract_dir"
-      tar xfv "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
-      ;;
-    *.gz)
-      printf_blue "Extracting to $extract_dir"
-      file_is_archive="true"
-      mkdir -p "$extract_dir"
-      tar xfv "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
-      ;;
-    *.xz)
-      printf_blue "Extracting to $extract_dir"
-      file_is_archive="true"
-      mkdir -p "$extract_dir"
-      tar xfv "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
-      ;;
-    *.zip)
-      printf_blue "Extracting to $extract_dir"
-      file_is_archive="true"
-      mkdir -p "$extract_dir"
-      unzip "$filename" -d "$extract_dir" &>/dev/null || extractExitCode=1
-      ;;
-    *.7z)
-      printf_blue "Extracting to $extract_dir"
-      file_is_archive="true"
-      [ -d "$extract_dir" ] && rm -Rf "${extract_dir:?}"/* || mkdir -p "$extract_dir"
-      7za x -y "$filename" -o"$extract_dir" my_dir && mv -f my_dir/* "$extract_dir/" &>/dev/null || extractExitCode=1
-      [ -d "my_dir" ] && rm -Rf my_dir
-      ;;
-    *) ;;
-    esac
-    [ $extractExitCode -eq 0 ] || printf_exit "Failed to extract $filename"
-    if [ "$file_is_archive" = "true" ] && [ -n "$latest_version" ]; then
-      if [ "$(find "$extract_dir"/ -maxdepth 1 -type d -iname "$extract_name" 2>/dev/null | wc -l)" = 1 ]; then
-        for versions in $latest_version $latest_version_full; do
-          if [ -d "$extract_dir/$basenamerepo-$versions" ]; then
-            rsync -ah "$extract_dir/$basenamerepo-$versions/." "$extract_dir/" --delete-after
-            rm -Rf "$extract_dir/$basenamerepo-$versions"
-          elif [ -d "$extract_dir/$base_repo-$versions" ]; then
-            rsync -ah "$extract_dir/$base_repo-$versions/." "$extract_dir/" --delete-after
-            rm -Rf "$extract_dir/$base_repo-$versions"
-          fi
-        done
-      fi
-    fi
-    find_file="$filename"
-    set_filename="$(find "$download_dir" -maxdepth 3 -type f -name $basename 2>/dev/null | __grep -i "^$filename$" | head -n1 | __grep '^')"
-    if [ -d "$extract_dir" ]; then
-      find_file="" set_filename=""
-      find_file="$(find "$extract_dir" -maxdepth 3 -type f -executable -iname "$extract_name" 2>/dev/null | __grep -i "$extract_name$" | head -n1 | __grep '^')"
-      [ -n "$find_file" ] || find_file="$(find "$extract_dir" -maxdepth 3 -type f -iname "$extract_name" 2>/dev/null | __grep -i "$extract_name$" | head -n1 | __grep '^')"
-      # If the located binary is literally "agent" (case-insensitive), rename target to
-      # "<base_repo>-<extract_name>" so tools like hashicorp's vault-agent/consul-agent
-      # don't all install as the same generic name.
-      [ -x "$find_file" ] && [[ "${find_file##*/}" =~ ^[Aa][Gg][Ee][Nn][Tt]$ ]] && bin_filename="${base_repo,,}-${extract_name,,}"
-      # Clear out metadata/doc files at the top of the extract tree before the
-      # single-vs-multi decision below. Tools like fd/ripgrep ship the binary
-      # alongside a README, LICENSE(-MIT/-APACHE), CHANGELOG, man page (*.1),
-      # .gitattributes, etc - none of which are part of what the binary needs
-      # at runtime, so they shouldn't promote a standalone binary into the
-      # wrapper-script branch. Keep the list conservative: match only things
-      # that are unambiguously non-functional metadata.
-      shopt -s nullglob 2>/dev/null || true
-      for rm_file in \
-        "$extract_dir"/*.md "$extract_dir"/*.txt "$extract_dir"/*.rst \
-        "$extract_dir"/*.html "$extract_dir"/*.adoc "$extract_dir"/*.pdf \
-        "$extract_dir"/README* "$extract_dir"/readme* \
-        "$extract_dir"/LICENSE* "$extract_dir"/license* "$extract_dir"/COPYING* \
-        "$extract_dir"/CHANGELOG* "$extract_dir"/CHANGES* "$extract_dir"/NEWS* \
-        "$extract_dir"/NOTICE* "$extract_dir"/AUTHORS* "$extract_dir"/CONTRIBUTORS* \
-        "$extract_dir"/*.1 "$extract_dir"/*.2 "$extract_dir"/*.3 "$extract_dir"/*.4 \
-        "$extract_dir"/*.5 "$extract_dir"/*.6 "$extract_dir"/*.7 "$extract_dir"/*.8 \
-        "$extract_dir"/.editorconfig "$extract_dir"/.gitattributes \
-        "$extract_dir"/.gitignore "$extract_dir"/.git*; do
-        [ -e "$rm_file" ] && rm -Rf "$rm_file"
-      done
-      shopt -u nullglob 2>/dev/null || true
-    fi
-    if [ -f "$repo_list" ]; then
-      grep -shq "^.*;$repo" "$repo_list" && bin_filename="$(grep -sh "^.*;$repo" "$repo_list" | grep -v '^#' | sed 's|.*;||g;s|:*||g' | awk -F ' ' '{print $2}' | head -n1 | grep '^' || echo '')"
-    fi
-    [ -n "$LATEST_RELEASES_FILENAME" ] && extract_name="$LATEST_RELEASES_FILENAME"
-    [ -n "$LATEST_RELEASES_BIN_NAME" ] && bin_filename="$LATEST_RELEASES_BIN_NAME" || bin_filename="${bin_filename:-}"
-    # Count only EXECUTABLE files at the top of the extract tree for the single-vs-multi
-    # decision. Non-executable stragglers (stray LICENSE-MIT, man page, etc.) that slipped
-    # past the meta-cleanup above would otherwise flip a standalone binary (fd, ripgrep,
-    # oxker) into the multi-file/wrapper branch by mistake. Apps like zed/vscode/vim
-    # genuinely have multiple executables or are a whole tree, and still land in multi.
-    local_archive_count="$(find "$extract_dir" -maxdepth 1 -type f -executable 2>/dev/null | wc -l)"
-    if [ "$file_is_archive" = "true" ] && [ -z "$find_file" ]; then
-      search_name="${extract_name//-*/}"
-      find_file="$(find "$extract_dir" -maxdepth 3 -type f -executable -iname "$search_name" 2>/dev/null | __grep -iE "^$search_name|$search_name$" | head -n1 | __grep '^')"
-      if [ -z "$find_file" ]; then
-        search_name="${extract_name//*-/}"
-        find_file="$(find "$extract_dir" -maxdepth 3 -type f -executable -iname "$search_name" 2>/dev/null | __grep -iE "^$search_name|$search_name$" | head -n1 | __grep '^')"
-      fi
-      if [ -z "$find_file" ]; then
-        for find_arch in aarch64 arm64 amd64 x86_64; do
-          try_find_file="$(find "$extract_dir" -maxdepth 2 -type f -executable -iname "${extract_name}*${find_arch}" 2>/dev/null | head -n1 | __grep '^')"
-          for try_arch in $set_arch $retry_arch $retry2_arch; do
-            # Match case-insensitive: set find_file to $try_find_file if it contains the arch
-            # token, else leave it empty. The loop overwrites each iteration (same semantics
-            # as the original echo|grep pipeline, where grep outputs the line or nothing).
-            if [ -n "$try_arch" ] && [[ "${try_find_file,,}" == *"${try_arch,,}"* ]]; then
-              find_file="$try_find_file"
-            else
-              find_file=""
-            fi
-          done
-          search_name="$find_file"
-          bin_filename="${search_name%.*}"
-          [ -f "$search_name" ] && break
-        done
-      fi
-      [ -n "$find_file" ] || find_file="$(find "$extract_dir" -type f -executable 2>/dev/null | head -n1 | __grep '^')"
-      extract_name="${find_file:-$extract_name}"
-      from_filename="${extract_name:-$bin_filename}"
-      from_filename="${from_filename##*/}"
-      bin_filename="$(__derive_bin_name "$from_filename")"
-      [ -n "$bin_filename" ] || bin_filename="${base_repo,,}"
-      if [ -n "$find_file" ]; then
-        if [ "$local_archive_count" = 1 ]; then
-          # Single-file install: copy the binary directly into bin and nuke the share
-          # tree - nothing in share/ is needed once the binary is copied.
-          clean_extract_dir="true"
-          __clean_old_bin "$bin_filename"
-          __cp_rf "$extract_name" "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename"
-        else
-          # Multi-file install: keep the whole tree in share/{name}/ and write a POSIX
-          # wrapper at bin/{name} that cd's into the share dir then execs the discovered
-          # binary via a relative path. Wrapper beats a symlink because it (a) survives
-          # archives where the binary inspects argv[0] for its own location, (b) puts the
-          # app's own resources within reach via getcwd(), (c) is inspectable/editable,
-          # and (d) doesn't pollute the bin dir with stale dangling symlinks.
-          __write_wrapper "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" "$extract_dir" "$extract_name"
-        fi &&
-          printf_cyan "Installed $extract_name to $LATEST_RELEASES_BIN_DIR_USER/$bin_filename"
-      fi
-    elif [ -n "$find_file" ] && [ -x "$find_file" ]; then
-      clean_extract_dir="true"
-      extract_name="$find_file"
-      from_filename="${extract_name:-$bin_filename}"
-      from_filename="${from_filename##*/}"
-      bin_filename="$(__derive_bin_name "$from_filename")"
-      [ -n "$bin_filename" ] || bin_filename="${base_repo,,}"
-      __clean_old_bin "$bin_filename"
-      __cp_rf "$extract_name" "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" && printf_cyan "Installed $extract_name to $LATEST_RELEASES_BIN_DIR_USER/$bin_filename"
-    elif [ -f "$set_filename" ]; then
-      extract_name="$set_filename"
-      from_filename="${bin_filename:-$extract_name}"
-      from_filename="${from_filename##*/}"
-      bin_filename="$(__derive_bin_name "$from_filename")"
-      [ -n "$bin_filename" ] || bin_filename="${base_repo,,}"
-      __clean_old_bin "$bin_filename"
-      __cp_rf "$extract_name" "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" && printf_cyan "Installed $extract_name to $LATEST_RELEASES_BIN_DIR_USER/$bin_filename"
-    else
-      printf_yellow "Can not find $filename"
-      printf_exit "Download seems to have failed"
-    fi
-    [ -n "$bin_filename" ] || bin_filename="${base_repo,,}"
-    if [ -f "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" ]; then
-      chmod -Rf 755 "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename"
-    else
-      if [ "$file_is_archive" = "true" ]; then
-        printf_exit "Can not find $extract_name in $extract_dir"
-      else
-        printf_exit "Failed to install $extract_name to $LATEST_RELEASES_BIN_DIR_USER/$bin_filename"
-      fi
-    fi
+  fi
+  if [ -z "$latest_download" ]; then
+    local manual_dl=""
+    manual_dl="$(echo "$latest_json" | jq -r '.html_url' 2>/dev/null)"
+    printf_custom "$LATEST_RELEASES_OUTPUT_COLOR_ERROR" "No releases found from $repo matching $get_arch"
+    [ -n "$manual_dl" ] && echo "Go to $manual_dl for manual download" | printf_readline "$LATEST_RELEASES_OUTPUT_COLOR_1"
+    return 1
+  fi
+  # Derive version from the URL's parent path segment ("/releases/download/vX.Y.Z/").
+  local _parent_url="${latest_download%/*}"
+  latest_version_full="${_parent_url##*/}"
+  latest_version="${latest_version_full//[a-zA-Z]/}"
+  # bin_name precedence: explicit LATEST_RELEASES_BIN_NAME env > tracked entry in
+  # repos.conf (preserves user's chosen rename) > lowercase of repo basename.
+  if [ -n "$LATEST_RELEASES_BIN_NAME" ]; then
+    bin_name="$LATEST_RELEASES_BIN_NAME"
+  elif [ -f "$repo_list" ] && __grep -qs "^.*;$repo " "$repo_list"; then
+    tracked_bin_name="$(__grep "^.*;$repo " "$repo_list" | __grep -v '^#' | sed 's|.*;||g' | awk '{print $2}' | head -n1)"
+    bin_name="${tracked_bin_name:-${repo##*/}}"
   else
-    manual_dl="$(echo "$latest_json" | jq -r '.html_url')"
-    printf_custom $LATEST_RELEASES_OUTPUT_COLOR_ERROR "No releases found from $repo matching $get_arch"
-    [ -n "$manual_dl" ] && echo "Go to $manual_dl for manual download" | printf_readline $LATEST_RELEASES_OUTPUT_COLOR_1
-    exitCode=1
+    bin_name="${repo##*/}"
   fi
-  [ "$clean_extract_dir" = "true" ] && __rm_rf "$extract_dir"
-  if [ "$USER" = "root" ] || [ "$UID" = 0 ] || __can_i_sudo; then
-    if [ "$LATEST_RELEASE_INSTALL_TO_SYSTEM_BIN" = "yes" ]; then
-      if [ -x "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" ] && [ ! -L "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" ]; then
-        printf_green "Copying $bin_filename to $LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename"
-        __sudo cp -Rf "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" "$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename"
-        __sudo chmod -Rf 755 "$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename"
-      fi
-    fi
-  fi
-  [ -n "$latest_download" ] && __update_latest_list "github;$repo:$bin_filename:$repo_description"
-  # Record install metadata for safe uninstall. extracteddir is empty when __github already
-  # cleaned it (single-file tarball case) so uninstall only tries to remove what still exists.
-  # Binfiles is a comma-separated list: always the user path; adds the system path when
-  # --system put a copy there too. Uninstall touches only the paths we wrote.
-  if [ -n "$bin_filename" ] && [ -e "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" ]; then
-    local _state_extdir="" _state_binfiles="$LATEST_RELEASES_BIN_DIR_USER/$bin_filename"
-    [ "$clean_extract_dir" != "true" ] && [ -d "$extract_dir" ] && _state_extdir="$extract_dir"
-    [ "$LATEST_RELEASE_INSTALL_TO_SYSTEM_BIN" = "yes" ] && [ -f "$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename" ] && \
-      _state_binfiles+=",$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename"
-    __save_details "$bin_filename" "${latest_version_full:-}" "$_state_binfiles" "$_state_extdir"
-    # Install succeeded - drop the staged archive from the downloads dir. The
-    # tarball is ephemeral: we have the binary in bin/ (and optionally the tree
-    # in share/), so the download copy just clutters disk. Keeps $DOWNLOADS
-    # effectively empty outside of in-flight/failed runs.
-    [ -f "$filename" ] && rm -f "$filename"
-    # Also sweep the staging dir if it's now empty - tidies /var/tmp on root and
-    # $TEMP_DIR/downloads on user paths without affecting unrelated files.
-    rmdir "$download_dir" 2>/dev/null || true
-  fi
-  [ -s "$tempfile" ] && __mv_f "$tempfile" "$filename"
-  echo
-  return $exitCode
+  bin_name="${bin_name,,}"
+  # Description is optional metadata for the repos.conf tracking list.
+  repo_description="$(curl -q -LSsf "https://api.github.com/repos/$repo" 2>/dev/null | jq -rc '.description' 2>/dev/null | sed 's|\. .*||g;s|\? .*||g;s|\! .*||g' | grep '^' || echo "${repo##*/}")"
+  repo_description="${repo_description:0:40}"
+  # Hand off to the unified installer.
+  __fetch_and_install "github" "$latest_download" "$bin_name" "$latest_version_full" "github;$repo:$bin_name:$repo_description" "$repo_description"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __browser_download_url() {
@@ -1168,53 +1109,46 @@ __show_latest() {
 }
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Parse "service;user/repo" (or bare "user/repo") and dispatch to the right
+# resolver. Collapses the split-and-switch blocks that __update_install used
+# to duplicate and keeps the default case path consistent.
+__dispatch_service() {
+  local _raw="${1:-}" _service="" _target=""
+  [ -z "$_raw" ] && return 0
+  _raw="${_raw%%[[:space:]]*}"
+  if [[ "$_raw" == *";"* ]]; then
+    _service="${_raw%%;*}"
+    _target="${_raw#*;}"
+  else
+    _target="$_raw"
+  fi
+  [ -z "$_target" ] && return 0
+  case "$_service" in
+  gitea) __gitea "$_target" ;;
+  gitlab) __gitlab "$_target" ;;
+  *) __github "$_target" ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_install() {
-  local repo_list="" get_repo_list="" service _first _second _trimmed
+  local get_repo_list="" _first _second _trimmed
   if [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" ] && [ -z "$1" ]; then
     # Iterate the repo-list in-place (no cat|grep|sed|while). Drop "#comment" and skip
     # blank lines. Each line is "service;user/repo   binname   # desc".
     while read -r get_repo_list; do
-      # Strip inline comment
       _trimmed="${get_repo_list%%#*}"
       [ -z "$_trimmed" ] && continue
-      # Skip lines that were comment-only
       [[ "$get_repo_list" == "#"* ]] && continue
-      # First whitespace token is "service;user/repo"; second is binname
       read -r _first _second _ <<<"$_trimmed"
       [ -z "$_first" ] && continue
-      # Extract service prefix (if any), then strip it from repo path
-      service=""
-      if [[ "$_first" == *";"* ]]; then
-        service="${_first%%;*}"
-      fi
-      repo_list="${_first//*;/}"
       LATEST_RELEASES_BIN_NAME="$_second"
-      if [ -n "$repo_list" ]; then
-        if [ -n "$service" ]; then
-          __${service} "$repo_list"
-        else
-          __github "$repo_list"
-        fi
-      fi
+      __dispatch_service "$_first"
     done < <(grep -shv '^#' "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST")
   else
-    # At least one arg must contain a slash
     [[ "$*" == *"/"* ]] || { printf_red "You provided an invalid repo" && printf_exit "Usage: $APPNAME install user/repo"; }
     for get_repo_list in "$@"; do
       read -r _first _ <<<"$get_repo_list"
-      repo_list="$_first"
-      service=""
-      if [[ "$_first" == *";"* ]]; then
-        service="${_first%%;*}"
-      fi
-      if [ -n "$repo_list" ]; then
-        if [ -n "$service" ]; then
-          repo_list="${repo_list//*;/}"
-          __${service} "$repo_list"
-        else
-          __github "$repo_list"
-        fi
-      fi
+      __dispatch_service "$_first"
     done
   fi
 }
@@ -1644,7 +1578,7 @@ search)
 *)
   if [ $# -ne 0 ]; then
     for app in "$@"; do
-      __github "$app" && true || false
+      __dispatch_service "$app"
     done
   else
     __show_latest

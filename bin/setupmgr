@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602061249-git
+##@Version           :  202604241958-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  Replaced claude npm install with native binary installer
+# @@Changelog        :  copilot native, ollama tar.zst, claude/copilot arg-leak fix, install-from-archive output style, openclaw, full remove paths for ripgrep/claude/ollama/openclaw
 # @@TODO             :  Implement __setup_ functions for Priority 2-9 tools (63 tools pending implementation)
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202602061249-git"
+VERSION="202604241958-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -187,7 +187,7 @@ printf_opts() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Utility functions from various sources
 __basename() {
-  basename -- "${1:-.}" 2>/dev/null
+  [ -n "$1" ] && basename -- "$1" 2>/dev/null
 }
 ask_for_password() {
   local opts="$*"
@@ -359,7 +359,7 @@ __help() {
   __printf_line "lazygit,lima,llama-cpp,llm,localai,lua,mc,markdownlint,minikube,minio_server,mods,nix,nodejs,nvm,ollama"
   __printf_line "opentofu,packer,plandex,pipx,podman,powershell,procs,rbenv,ripgrep,ruff,rustup,rvm"
   __printf_line "shellcheck,shfmt,speedtest,starship,tokei,traefik,uv,vagrant,vale,vfox"
-  __printf_line "webhookd,yq,zed,zellij,zig,zoxide,claude,copilot,cortex,codex,vercel,prettier,eslint"
+  __printf_line "webhookd,yq,zed,zellij,zig,zoxide,claude,copilot,cortex,codex,openclaw,vercel,prettier,eslint"
   __printf_line "npm-check-updates"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
@@ -622,6 +622,18 @@ __execute_npm() {
 __is_npm_package() {
   local pkg="$1"
   echo " $NODE_NPM_PACKAGES " | grep -q " $pkg "
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Uninstall a globally-installed npm package by name. Returns 0 on success.
+__remove_npm_global() {
+  local pkg="$1"
+  __cmd_exists npm || return 1
+  local npm_root="$(npm root -g 2>/dev/null)"
+  if [ -n "$npm_root" ] && [ ! -w "$npm_root" ] && __can_i_sudo; then
+    __sudo npm uninstall -g "$pkg" >/dev/null 2>&1
+  else
+    npm uninstall -g "$pkg" >/dev/null 2>&1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_to_system_bin() {
@@ -1233,9 +1245,13 @@ __configure_skaffold() {
 # url options
 __download_and_execute() {
   local exitCode=0
-  local url="$1" name="$(__basename "$1")" && shift 1
+  local url="$1"
+  [ -n "$url" ] || return 1
+  local name="$(__basename "$url")"
+  [ -n "$name" ] || return 1
+  shift 1
   [ "$1" = "sudo" ] && local use_sudo="yes" && shift 1
-  SETUPMGR_TEMP_EXECUTE_FILE=$SETUPMGR_TEMP_DIR/$name
+  SETUPMGR_TEMP_EXECUTE_FILE="$SETUPMGR_TEMP_DIR/$name"
   if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
     __rm "$PACKAGE_TMP_DIR"/*
   fi
@@ -1252,8 +1268,12 @@ __download_and_execute() {
 # url tmpFile installDir files
 __download_extract_all() {
   local exitCode=0
-  local url="$1" name="$(__basename "$1")" && shift 1
-  SETUPMGR_TEMP_EXTRACT_FILE=$SETUPMGR_TEMP_DIR/$name
+  local url="$1"
+  [ -n "$url" ] || return 1
+  local name="$(__basename "$url")"
+  [ -n "$name" ] || return 1
+  shift 1
+  SETUPMGR_TEMP_EXTRACT_FILE="$SETUPMGR_TEMP_DIR/$name"
   if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
     __rm "$PACKAGE_TMP_DIR"/*
   fi
@@ -1271,19 +1291,21 @@ __download_extract_all() {
 # url tmpFile installDir files
 __download_extract_move() {
   local exitCode=0
-  local url="$1" name="$(__basename "$1")" && shift 1
+  local url="$1"
+  if [ -z "$url" ]; then
+    printf_red "The url was not provided"
+    return 1
+  fi
+  local name="$(__basename "$url")"
+  [ -n "$name" ] || return 1
+  shift 1
   local extract_cmd_arg=""
-  SETUPMGR_TEMP_EXTRACT_FILE=$SETUPMGR_TEMP_DIR/$name
+  SETUPMGR_TEMP_EXTRACT_FILE="$SETUPMGR_TEMP_DIR/$name"
 
   # Check if first arg is do_not_strip_components flag
   if [ "$1" = "do_not_strip_components" ]; then
     extract_cmd_arg="do_not_strip_components"
     shift 1
-  fi
-
-  if [ -z "$url" ]; then
-    printf_red "The url was not provided"
-    return 1
   fi
   if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
     __rm "$PACKAGE_TMP_DIR"/*
@@ -1303,9 +1325,12 @@ __download_extract_move() {
 # url installDir name binDir/name
 __download_extract_install() {
   local exitCode=0
-  local url="$1" name="$(__basename "$1")" && shift 1
-  SETUPMGR_TEMP_EXTRACT_FILE=$SETUPMGR_TEMP_DIR/$name
+  local url="$1"
   [ -n "$url" ] || return 1
+  local name="$(__basename "$url")"
+  [ -n "$name" ] || return 1
+  shift 1
+  SETUPMGR_TEMP_EXTRACT_FILE="$SETUPMGR_TEMP_DIR/$name"
   if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
     __rm "$PACKAGE_TMP_DIR"/*
   fi
@@ -1324,12 +1349,16 @@ __download_extract_install() {
 # url tmpFile tmpFile moveTo
 __download_and_move() {
   local exitCode=0
-  local url="$1" name="$(__basename "$1")" && shift 1
+  local url="$1"
+  [ -n "$url" ] || return 1
+  local name="$(__basename "$url")"
+  [ -n "$name" ] || return 1
+  shift 1
   local dest="$1"
   local dest_dir="$(dirname "$dest")"
   local prefix=""
 
-  [ -n "$url" ] && [ -n "$dest" ] || return 1
+  [ -n "$dest" ] || return 1
 
   # Auto-detect if we need sudo for the destination
   case "$dest_dir" in
@@ -1415,6 +1444,24 @@ __download_install_appimage() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+_tar_zst_extract() {
+  local tmpFile="$1"
+  local destDir="$2"
+  local stripOpt="$3"
+  [ -f "$tmpFile" ] || return 1
+  [ -d "$destDir" ] || return 1
+  # tar --zstd shells out to the zstd binary, so zstd must be on PATH either way.
+  if ! __cmd_exists zstd; then
+    printf_red "zstd is required to extract $tmpFile"
+    return 1
+  fi
+  if tar --help 2>&1 | grep -q -- '--zstd'; then
+    tar $stripOpt --zstd -xf "$tmpFile" -C "$destDir" >/dev/null 2>&1
+  else
+    zstd -dc "$tmpFile" 2>/dev/null | tar $stripOpt -xf - -C "$destDir" >/dev/null 2>&1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 _tar_extract() {
   local tmpFile="$1"
   local exitEXCode=0
@@ -1426,6 +1473,7 @@ _tar_extract() {
     *.tar.gz) tar xzf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
     *.tar.xz) tar xJf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
     *.tar.bz2) tar xjf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *.tar.zst | *.tzst) _tar_zst_extract "$tmpFile" "$PACKAGE_TMP_DIR" "" || exitEXCode=1 ;;
     *) return ;;
     esac
   fi
@@ -1456,6 +1504,7 @@ __extract() {
       *.tar.gz) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
       *.tar.xz) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xJf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
       *.tar.bz2) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+      *.tar.zst | *.tzst) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { _tar_zst_extract "$tmpFile" "$PACKAGE_TMP_DIR" "--strip-components=1" && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_zst_extract "$tmpFile" "$PACKAGE_TMP_DIR" "" || exitEXCode=1 ;;
       *) printf_red "$tmpFile is not a valid archive file" && exitEXCode=1 ;;
       esac
       if [ $exitEXCode = 0 ]; then
@@ -2097,12 +2146,40 @@ __is_package_installed() {
   local name="$1"
   local bin_var="$(echo "${name^^}_BIN_DIR" | tr '-' '_')"
   local bin_dir="${!bin_var}"
+  local probe="$name" alt=""
+
+  # Map package name → primary binary name when they differ
+  case "$name" in
+  ripgrep) probe="rg" ;;
+  llama-cpp | llama_cpp) probe="llama-cli" ;;
+  bottom) probe="btm" ;;
+  opentofu) probe="tofu" ;;
+  powershell) probe="pwsh" ;;
+  minio_server) probe="minio" ;;
+  esac
 
   # Check common installation locations
-  [ -n "$bin_dir" ] && [ -f "$bin_dir/$name" ] && return 0
-  [ -f "$SETUPMGR_DEFAULT_BIN_DIR/$name" ] && return 0
-  [ -f "/usr/local/bin/$name" ] && return 0
-  command -v "$name" &>/dev/null && return 0
+  [ -n "$bin_dir" ] && [ -f "$bin_dir/$probe" ] && return 0
+  [ -f "$SETUPMGR_DEFAULT_BIN_DIR/$probe" ] && return 0
+  [ -f "/usr/local/bin/$probe" ] && return 0
+  command -v "$probe" &>/dev/null && return 0
+
+  # Tools with non-standard install dirs
+  case "$name" in
+  claude) [ -x "$HOME/.local/bin/claude" ] || [ -d "$HOME/.claude/bin" ] && return 0 ;;
+  ollama) [ -d "/usr/local/share/ollama" ] || [ -f "/etc/systemd/system/ollama.service" ] && return 0 ;;
+  zed) [ -d "${ZED_INSTALL_DIR:-$SETUPMGR_DEFAULT_SHARE_DIR/zed_editor}" ] && return 0 ;;
+  go) [ -d "${GO_INSTALL_DIR:-$SETUPMGR_DEFAULT_SHARE_DIR/go}" ] && return 0 ;;
+  powershell) [ -d "${POWERSHELL_INSTALL_DIR}" ] && return 0 ;;
+  esac
+
+  # Generic: tool installed to $SETUPMGR_DEFAULT_SHARE_DIR/<name>
+  [ -n "$SETUPMGR_DEFAULT_SHARE_DIR" ] && [ -d "$SETUPMGR_DEFAULT_SHARE_DIR/$name" ] && return 0
+
+  # npm-installed packages
+  if __cmd_exists npm; then
+    npm ls -g --depth=0 --silent 2>/dev/null | grep -qE "[ /]${name}@" && return 0
+  fi
 
   return 1
 }
@@ -2200,6 +2277,82 @@ __remove_package() {
     __remove_file "/usr/local/bin/$name"
     [ -d "$MINIKUBE_HOME" ] && __rm "$MINIKUBE_HOME" && printf_green "Removed minikube data"
     ;;
+  ripgrep)
+    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/rg"
+    __remove_file "/usr/local/bin/rg"
+    ;;
+  bottom)
+    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/btm"
+    __remove_file "/usr/local/bin/btm"
+    ;;
+  opentofu)
+    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/tofu"
+    __remove_file "/usr/local/bin/tofu"
+    ;;
+  llama-cpp | llama_cpp)
+    # llama.cpp ships several binaries (llama-cli, llama-server, ...).
+    for llama_bin in llama-cli llama-server llama-quantize llama-bench llama-imatrix llama-perplexity; do
+      __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/$llama_bin"
+      __remove_file "/usr/local/bin/$llama_bin"
+    done
+    unset llama_bin
+    ;;
+  powershell)
+    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/pwsh"
+    __remove_file "/usr/local/bin/pwsh"
+    if [ -n "$POWERSHELL_INSTALL_DIR" ] && [ -d "$POWERSHELL_INSTALL_DIR" ]; then
+      __sudo rm -rf "$POWERSHELL_INSTALL_DIR" && printf_green "Removed powershell from $POWERSHELL_INSTALL_DIR"
+    fi
+    ;;
+  zed)
+    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/zed"
+    __remove_file "/usr/local/bin/zed"
+    local zed_dir="${ZED_INSTALL_DIR:-$SETUPMGR_DEFAULT_SHARE_DIR/zed_editor}"
+    [ -d "$zed_dir" ] && __sudo rm -rf "$zed_dir" && printf_green "Removed zed from $zed_dir"
+    ;;
+  go)
+    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/go"
+    __remove_file "/usr/local/bin/go"
+    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/gofmt"
+    __remove_file "/usr/local/bin/gofmt"
+    local go_dir="${GO_INSTALL_DIR:-$SETUPMGR_DEFAULT_SHARE_DIR/go}"
+    [ -d "$go_dir" ] && __sudo rm -rf "$go_dir" && printf_green "Removed go from $go_dir"
+    ;;
+  claude)
+    # Run native binary's own uninstall first if available, then clean up
+    if __cmd_exists claude; then
+      claude uninstall --yes &>/dev/null || claude uninstall &>/dev/null
+    fi
+    __remove_file "$HOME/.local/bin/claude"
+    [ -d "$HOME/.claude/bin" ] && __rm "$HOME/.claude/bin" && printf_green "Removed $name from $HOME/.claude/bin"
+    [ -d "$HOME/.claude/downloads" ] && __rm "$HOME/.claude/downloads"
+    ;;
+  ollama)
+    # Stop + disable systemd service, drop unit file, drop bin + share dir
+    if [ -f "/etc/systemd/system/ollama.service" ]; then
+      __sudo systemctl stop ollama &>/dev/null
+      __sudo systemctl disable ollama &>/dev/null
+      __sudo rm -f "/etc/systemd/system/ollama.service" && printf_green "Removed ollama systemd service"
+      __sudo systemctl daemon-reload &>/dev/null
+    fi
+    if [ -f "$HOME/.config/systemd/user/ollama.service" ]; then
+      systemctl --user stop ollama &>/dev/null
+      systemctl --user disable ollama &>/dev/null
+      rm -f "$HOME/.config/systemd/user/ollama.service" && printf_green "Removed user ollama systemd service"
+      systemctl --user daemon-reload &>/dev/null
+    fi
+    __remove_file "/usr/local/bin/ollama"
+    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/ollama"
+    [ -d "/usr/local/share/ollama" ] && __sudo rm -rf "/usr/local/share/ollama" && printf_green "Removed ollama from /usr/local/share/ollama"
+    ;;
+  openclaw | codex | cortex | gemini | vercel | prettier | eslint | npm-check-updates | markdownlint)
+    if __remove_npm_global "$name"; then
+      printf_green "Removed $name (npm global)"
+    else
+      printf_yellow "Failed to remove $name via npm"
+      exitCode=1
+    fi
+    ;;
   *)
     # Generic removal for most packages - try common locations
     local bin_var="$(echo "${name^^}_BIN_DIR" | tr '-' '_')"
@@ -2207,6 +2360,14 @@ __remove_package() {
     [ -n "$bin_dir" ] && __remove_file "$bin_dir/$name"
     __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/$name"
     __remove_file "/usr/local/bin/$name"
+    # Generic share-dir cleanup: tools installed to $SETUPMGR_DEFAULT_SHARE_DIR/<name>
+    if [ -n "$SETUPMGR_DEFAULT_SHARE_DIR" ] && [ -d "$SETUPMGR_DEFAULT_SHARE_DIR/$name" ]; then
+      case "$SETUPMGR_DEFAULT_SHARE_DIR" in
+      /usr/* | /opt/*) __sudo rm -rf "$SETUPMGR_DEFAULT_SHARE_DIR/$name" ;;
+      *) __rm "$SETUPMGR_DEFAULT_SHARE_DIR/$name" ;;
+      esac
+      printf_green "Removed $name from $SETUPMGR_DEFAULT_SHARE_DIR/$name"
+    fi
     ;;
   esac
 
@@ -2230,6 +2391,7 @@ __setup_claude() {
   Linux) os="linux" ;;
   *)
     printf_red "Unsupported OS: $(uname -s)"
+    __message_installed_failed "$name"
     return 1
     ;;
   esac
@@ -2240,6 +2402,7 @@ __setup_claude() {
   arm64 | aarch64) arch="arm64" ;;
   *)
     printf_red "Unsupported architecture: $(uname -m)"
+    __message_installed_failed "$name"
     return 1
     ;;
   esac
@@ -2255,11 +2418,10 @@ __setup_claude() {
     platform="${os}-${arch}"
   fi
 
-  # Show status
   if __cmd_exists "$name"; then
-    printf_green "Updating $name to latest version"
+    printf_green "Updating $name to latest release"
   else
-    printf_green "Installing $name (native binary)"
+    printf_green "Installing $name (latest release)"
   fi
 
   mkdir -p "$download_dir"
@@ -2268,6 +2430,7 @@ __setup_claude() {
   version="$(__curl "$gcs_bucket/latest")"
   if [ -z "$version" ]; then
     printf_red "Failed to fetch latest version"
+    __message_installed_failed "$name"
     return 1
   fi
 
@@ -2275,6 +2438,7 @@ __setup_claude() {
   manifest_json="$(__curl "$gcs_bucket/$version/manifest.json")"
   if [ -z "$manifest_json" ]; then
     printf_red "Failed to fetch manifest"
+    __message_installed_failed "$name"
     return 1
   fi
 
@@ -2293,6 +2457,7 @@ __setup_claude() {
   # Validate checksum format
   if [ -z "$checksum" ] || [[ ! "$checksum" =~ ^[a-f0-9]{64}$ ]]; then
     printf_red "Platform $platform not found in manifest"
+    __message_installed_failed "$name"
     return 1
   fi
 
@@ -2301,6 +2466,7 @@ __setup_claude() {
   if ! __curl "$gcs_bucket/$version/$platform/claude" -o "$binary_path"; then
     printf_red "Download failed"
     rm -f "$binary_path"
+    __message_installed_failed "$name"
     return 1
   fi
 
@@ -2314,6 +2480,7 @@ __setup_claude() {
   if [ "$actual" != "$checksum" ]; then
     printf_red "Checksum verification failed"
     rm -f "$binary_path"
+    __message_installed_failed "$name"
     return 1
   fi
 
@@ -2330,6 +2497,116 @@ __setup_claude() {
   # Clean up downloaded binary
   rm -f "$binary_path"
 
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Install GitHub Copilot CLI native binary
+# Follows https://gh.io/copilot-install: download tarball, verify SHA256,
+# extract binary into user/system bin dir.
+__setup_copilot() {
+  local exitCode=0
+  local name="copilot"
+  local os="" arch="" platform="" version="" release_url=""
+  local tarball_url="" checksums_url="" tarball_path="" checksums_path=""
+  local expected="" actual="" install_dir="" prefix="" tmp_dir=""
+
+  case "$(uname -s)" in
+  Darwin) os="darwin" ;;
+  Linux) os="linux" ;;
+  *)
+    printf_red "Unsupported OS: $(uname -s)"
+    __message_installed_failed "$name"
+    return 1
+    ;;
+  esac
+
+  case "$(uname -m)" in
+  x86_64 | amd64) arch="x64" ;;
+  arm64 | aarch64) arch="arm64" ;;
+  *)
+    printf_red "Unsupported architecture: $(uname -m)"
+    __message_installed_failed "$name"
+    return 1
+    ;;
+  esac
+  platform="${os}-${arch}"
+
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name to latest release"
+  else
+    printf_green "Installing $name (latest release)"
+  fi
+
+  # Resolve install dir (match upstream installer semantics)
+  if __sudoif; then
+    install_dir="${SETUPMGR_DEFAULT_SYSTEM_BIN_DIR:-/usr/local/bin}"
+    prefix="sudo"
+  else
+    install_dir="${SETUPMGR_DEFAULT_USER_BIN_DIR:-$HOME/.local/bin}"
+    prefix=""
+  fi
+
+  release_url="https://github.com/github/copilot-cli/releases/latest/download"
+  tarball_url="$release_url/copilot-${platform}.tar.gz"
+  checksums_url="$release_url/SHA256SUMS.txt"
+
+  tmp_dir="$(mktemp -d "$SETUPMGR_TEMP_DIR/$name.XXXXXX" 2>/dev/null)"
+  if [ ! -d "$tmp_dir" ]; then
+    printf_red "Failed to create temp directory"
+    __message_installed_failed "$name"
+    return 1
+  fi
+
+  tarball_path="$tmp_dir/copilot-${platform}.tar.gz"
+  checksums_path="$tmp_dir/SHA256SUMS.txt"
+
+  if ! __curl "$tarball_url" -o "$tarball_path"; then
+    printf_red "Download failed: $tarball_url"
+    rm -rf "$tmp_dir"
+    __message_installed_failed "$name"
+    return 1
+  fi
+
+  if __curl "$checksums_url" -o "$checksums_path"; then
+    expected="$(awk -v f="copilot-${platform}.tar.gz" '$2==f || $2=="./"f {print $1; exit}' "$checksums_path")"
+    if [ -n "$expected" ]; then
+      if [ "$os" = "darwin" ]; then
+        actual="$(shasum -a 256 "$tarball_path" | cut -d' ' -f1)"
+      else
+        actual="$(sha256sum "$tarball_path" | cut -d' ' -f1)"
+      fi
+      if [ "$actual" != "$expected" ]; then
+        printf_red "Checksum verification failed"
+        rm -rf "$tmp_dir"
+        __message_installed_failed "$name"
+        return 1
+      fi
+    fi
+  fi
+
+  if ! tar -tzf "$tarball_path" >/dev/null 2>&1; then
+    printf_red "Downloaded tarball is not a valid archive"
+    rm -rf "$tmp_dir"
+    __message_installed_failed "$name"
+    return 1
+  fi
+
+  [ -d "$install_dir" ] || $prefix mkdir -p "$install_dir"
+  if ! $prefix tar -xzf "$tarball_path" -C "$install_dir"; then
+    printf_red "Failed to extract $name to $install_dir"
+    rm -rf "$tmp_dir"
+    __message_installed_failed "$name"
+    return 1
+  fi
+  $prefix chmod +x "$install_dir/$name"
+  rm -rf "$tmp_dir"
+
+  if [ -x "$install_dir/$name" ]; then
+    __message_installed_ok "$name" "$install_dir"
+  else
+    __message_installed_failed "$name"
+    exitCode=1
+  fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4006,17 +4283,36 @@ __setup_ollama() {
   local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
   local installDir="$SETUPMGR_DEFAULT_SHARE_DIR/ollama"
   local release_url="https://api.github.com/repos/ollama/ollama/releases/latest"
+  local release_assets="" asset_arch="" download_url=""
   tempBin="bin/$name"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
-  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux-amd64.tgz\$")" ;;
-  aarch64 | arm64) download_url="$(__curl ""$release_url | grep browser_download_url | cut -d '"' -f 4 | grep "linux-arm64.tgz\$")" ;;
+  x86_64) asset_arch="amd64" ;;
+  aarch64 | arm64) asset_arch="arm64" ;;
   esac
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
+  if [ -n "$asset_arch" ]; then
+    release_assets="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4)"
+    download_url="$(echo "$release_assets" | grep -E "/ollama-linux-${asset_arch}\.tar\.zst$" | head -n1)"
+    [ -n "$download_url" ] || download_url="$(echo "$release_assets" | grep -E "/ollama-linux-${asset_arch}\.tgz$" | head -n1)"
   fi
+  if __cmd_exists $name; then
+    printf_green "Updating $name to latest release"
+  else
+    printf_green "Installing $name (latest release)"
+  fi
+  case "$download_url" in
+  *.tar.zst)
+    if ! __cmd_exists zstd; then
+      printf_red "zstd is required to extract ollama release tarball (.tar.zst)"
+      printf_red "  Debian/Ubuntu: apt-get install zstd"
+      printf_red "  RHEL/Fedora:   dnf install zstd"
+      printf_red "  Arch:          pacman -S zstd"
+      printf_red "  Alpine:        apk add zstd"
+      __message_installed_failed "$name"
+      return 1
+    fi
+    ;;
+  esac
 
   if __download_extract_install "$download_url" "$installDir" "$tempBin" "$binFile" && __is_installed "$name" "$installDir/bin"; then
     __message_installed_ok "$name"
@@ -5930,7 +6226,7 @@ LONGOPTS+="system,all,$GET_OPTIONS_NO,$GET_OPTIONS_YES"
 ARRAY="act,aichat,asdf,bat,bob,bun,caddy,coder,delta,deno,devbox,direnv,distrobox,dotnet,dust,exa,fabric,fastfetch,fd,fnm,fzf,garage,gh,glow,go,gohttpserver,"
 ARRAY+="gpt,gvm,helm,incus,jekyll,jless,just,kind,kubectl,lapce,lazydocker,lazygit,lima,llama-cpp,llm,lua,mc,minikube,minio_server,mods,nix,nodejs,nvm,ollama,opentofu,"
 ARRAY+="packer,pipx,podman,powershell,procs,rbenv,remove,ripgrep,rvm,speedtest,starship,tokei,traefik,uv,vagrant,vfox,webhookd,yq,zed,zoxide,"
-ARRAY+="claude,copilot,codex,vercel,prettier,eslint,npm-check-updates"
+ARRAY+="claude,copilot,codex,openclaw,vercel,prettier,eslint,npm-check-updates"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""
@@ -6137,7 +6433,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
   claude)
     shift 1
-    __setup_claude "$@"
+    __setup_claude
     SETUPMGR_EXIT_STATUS=$?
     ;;
   codex)
@@ -6147,7 +6443,12 @@ while [ $# -gt 0 ]; do
     ;;
   copilot)
     shift 1
-    __execute_npm "copilot" "@github/copilot"
+    __setup_copilot
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  openclaw)
+    shift 1
+    __execute_npm "openclaw" "openclaw"
     SETUPMGR_EXIT_STATUS=$?
     ;;
   cortex)

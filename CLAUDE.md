@@ -557,7 +557,7 @@ When updating a script version, **ALWAYS update** the version in related files:
 
 1. **Script**: `bin/scriptname` - Update `##@Version` and `VERSION=` (first occurrences only)
 2. **Man page**: `man/scriptname.1` - Update `.TH` header line
-3. **Completion**: `completions/_scriptname_completions` - Update `##@Version` line
+3. **Completion**: `completions/_scriptname_completions.bash` - Update `##@Version` line
 
 **Safe update commands:**
 ```bash
@@ -572,7 +572,7 @@ sed -i "0,/^VERSION=/{s|^VERSION=.*|VERSION=\"$NEW_VERSION\"|}" bin/scriptname
 sed -i "1s|\"scriptname [^\"]*\"|\"scriptname $NEW_VERSION\"|" man/scriptname.1
 
 # 3. Update completion file (##@Version line)
-sed -i "s|^##@Version.*:.*|##@Version           :  $NEW_VERSION|" completions/_scriptname_completions
+sed -i "s|^##@Version.*:.*|##@Version           :  $NEW_VERSION|" completions/_scriptname_completions.bash
 ```
 
 **Why synchronize versions:**
@@ -620,7 +620,7 @@ sed -i "s|^##@Version.*:.*|##@Version           :  $NEW_VERSION|" completions/_s
    - Keep examples current with script capabilities
    - Maintain proper man page formatting
 
-3. **`completions/_{script}_completions`** - Shell completion file
+3. **`completions/_{script}_completions.bash`** - Shell completion file (bash). Use `.zsh`/`.fish` extensions for zsh/fish completions.
    - Update command/option arrays to match case statements
    - Add new subcommands and options
    - Remove obsolete completions
@@ -642,7 +642,7 @@ sed -i "s|^##@Version.*:.*|##@Version           :  $NEW_VERSION|" completions/_s
 1. Modify script in `bin/{script}`
 2. Update `__help()` function in same file
 3. Update `man/{script}.1` man page
-4. Update `completions/_{script}_completions`
+4. Update `completions/_{script}_completions.bash`
 5. Test all three: `script --help`, `man script`, tab completion
 6. Commit all four files together
 
@@ -714,8 +714,8 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 #### Completion Files
 
 - **Location**: `completions/`
-- **Format**: `_{scriptname}_completions`
-- **Examples**: `_dockermgr_completions`, `_virtmgr_completions`
+- **Format**: `_{scriptname}_completions.{shell}` where `{shell}` is `bash`, `zsh`, or `fish`
+- **Examples**: `_dockermgr_completions.bash`, `_virtmgr_completions.bash`
 
 ## Integration
 

@@ -37,7 +37,7 @@ apk add ncurses util-linux pciutils usbutils coreutils binutils findutils grep i
 ```shell
 export PATH="$PATH:/usr/local/share/CasjaysDev/scripts/bin"
 sudo git clone https://github.com/systemmgr/installer "/usr/local/share/CasjaysDev/scripts"
-echo 'for f in /usr/local/share/CasjaysDev/scripts/completions/*; do source "$f" >/dev/null 2>&1; done' | sudo tee -p "/etc/bash_completion.d/_my_scripts_completions" >/dev/null
+echo 'for f in /usr/local/share/CasjaysDev/scripts/completions/*.bash; do source "$f" >/dev/null 2>&1; done' | sudo tee -p "/etc/bash_completion.d/_my_scripts_completions.bash" >/dev/null
 sudo ln -sf /usr/local/share/CasjaysDev/scripts /usr/local/share/CasjaysDev/installer
 for f in $(ls /usr/local/share/CasjaysDev/scripts/bin/); do 
   sudo ln -sf /usr/local/share/CasjaysDev/scripts/bin/$f /usr/local/bin/$f

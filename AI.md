@@ -942,3 +942,248 @@ unchanged. Left these 5–6 sites alone — not worth a subtle behavior change.
 - `templates/gen-script/{script,header}/*.tmpl.sh` — 3 heredoc generators
 - `.git/COMMIT_MESS` — Amended with template fixes
 
+---
+
+## Session 2026-04-24: Completion extensions + setupmgr AI installer fixes
+
+### Tasks Completed
+1. Renamed all 242 files in `completions/` to add `.bash` extension. Confirmed
+   every file was bash (all had `#!/usr/bin/env bash`); no zsh/fish files
+   existed anywhere in the repo. `git mv` used to preserve history.
+2. Updated references across the tree:
+   - `install.sh:223` — glob now `*.bash`, output file `_my_scripts_completions.bash`,
+     and `rm -f` of stale pre-`.bash` file added before writing the new one so
+     upgrades don't leave duplicates.
+   - `README.md:40` — one-liner mirrors the install.sh change.
+   - `bin/gen-script` — 5 refs updated so future `gen-script completions` creates
+     `.bash` files and the duplicate-check looks for `.bash`.
+   - `man/gen-script.1` — 2 example refs updated.
+   - `CLAUDE.md` — naming-convention section now documents `.bash`/`.zsh`/`.fish`.
+3. `bin/setupmgr` fixes:
+   - **copilot** switched from npm (`@github/copilot` — now unmaintained) to a
+     native binary installer `__setup_copilot`, modeled on `__setup_claude`.
+     Downloads `copilot-${platform}.tar.gz` from github/copilot-cli releases,
+     verifies SHA256 against `SHA256SUMS.txt`, installs to `/usr/local/bin`
+     (root) or `~/.local/bin` (user). Reference: `gh.io/copilot-install`.
+   - **claude** output aligned with the rest of setupmgr: dropped
+     `(native binary)` and `to latest version` suffixes; every failure path
+     now calls `__message_installed_failed "$name"` in addition to the
+     diagnostic `printf_red`.
+   - **ollama** install was failing with `rm: refusing to remove '.' or '..'`.
+     Four fixes layered:
+     1. Ollama's release asset format changed from `.tgz` to `.tar.zst`; the
+        grep pattern was looking for the old name, so `download_url` came back
+        empty. Now prefers `.tar.zst`, falls back to `.tgz`.
+     2. Added `.tar.zst` extraction to `__extract` via a new
+        `_tar_zst_extract` helper (prefers `tar --zstd`, falls back to
+        `zstd -dc | tar -xf -`).
+     3. Fixed the aarch64 branch's `__curl ""$release_url` quoting typo that
+        ran curl with an empty URL arg.
+     4. **Root cause of the rm error**: `__basename ""` returned `.` due to
+        the `${1:-.}` default, so `SETUPMGR_TEMP_EXTRACT_FILE=$dir/.`, and the
+        EXIT trap tried `rm -rf $dir/.`. Fixed `__basename` to return empty
+        on empty input, and reordered every `__download_*` wrapper
+        (`__download_extract_install`, `__download_extract_all`,
+        `__download_extract_move`, `__download_and_execute`, `__download_and_move`)
+        to validate url/name *before* assigning the global temp-file vars.
+   - **openclaw** added (npm package `openclaw`, steipete's personal AI
+     assistant CLI). Wasn't previously present under any name. Wired into
+     dispatcher, help listing, `ARRAY`, completion ARRAY, and man page.
+4. Version sync: `bin/setupmgr`, `man/setupmgr.1`, and
+   `completions/_setupmgr_completions.bash` all bumped to `202604240910-git`.
+5. Man page got a new "AI and Coding Assistants" section listing claude,
+   codex, copilot, cortex, gemini, openclaw.
+
+### Key Discoveries
+- **Ollama's release layout change**: `.tgz` → `.tar.zst` is a quiet breaking
+  change for any installer that hardcoded `linux-amd64.tgz$`. Their official
+  install.sh handles both with a HEAD-check fallback; we mirrored that logic.
+- **`__basename` fallback footgun**: `basename -- "${1:-.}"` returning `.`
+  for empty input looks harmless in isolation, but the returned value flows
+  into global `SETUPMGR_TEMP_EXTRACT_FILE` paths that an EXIT trap later tries
+  to rm. Silent url-lookup failures (like the ollama asset regex miss) became
+  visible only via this downstream rm error.
+- **Every `__download_*` wrapper had the same bug shape**: assigned
+  `SETUPMGR_TEMP_*_FILE=$dir/$name` *before* validating url was non-empty.
+  Fixed the whole family, not just the one ollama hit.
+- **GitHub's `gh.io/copilot-install` redirects to the official install.sh**
+  (raw.githubusercontent.com/github/copilot-cli/…/install.sh). Fetched and
+  read it rather than piping to bash, per the user's standing rule against
+  `curl | sh`.
+
+### Rule Compliance Gaps (fixed in-session after user prompted)
+- AI.md not updated continuously — now caught up with this entry.
+- AI.TODO.md never created — the harness's TaskCreate/TaskUpdate was used
+  instead. Noted as a tool-vs-file convention divergence.
+- Commit short line started with lowercase proper noun (`setupmgr:`) —
+  recapitalized to `Setupmgr:`.
+- Man page content wasn't expanded for the new/changed installers —
+  added the "AI and Coding Assistants" section.
+
+### Files Modified
+- 242 files in `completions/` renamed to `.bash` via `git mv`
+- `install.sh`, `README.md`, `CLAUDE.md`, `bin/gen-script`, `man/gen-script.1`
+- `bin/setupmgr` (major — __setup_copilot added, claude/ollama reworked,
+  __basename guard, 5 __download_* wrappers hardened, _tar_zst_extract added)
+- `man/setupmgr.1` (.TH bump + new AI/Coding Assistants section)
+- `completions/_setupmgr_completions.bash` (version bump + openclaw in ARRAY)
+- `.git/COMMIT_MESS`
+- `AI.md` (this entry)
+
+---
+
+## Session 2026-04-24 (cont): 13-package test → 5 more bugs found and fixed
+
+User asked to test install/update/remove on 13 packages: claude, copilot,
+openclaw, ollama, bat, fd, ripgrep, jless, delta, yq, zoxide, act,
+hyperfine. The test exposed five real bugs in setupmgr that were latent
+without exercising the full lifecycle.
+
+### Bugs uncovered by the test
+
+1. **ollama .tar.zst extraction failed** — tar's `--zstd` flag is a wrapper
+   that calls the external `zstd` binary; it's not built-in. My pre-flight
+   check accepted "tar --help mentions --zstd" as sufficient, but on a
+   system without the zstd binary the install still fails at extraction
+   time. Fix: pre-flight requires the `zstd` binary outright (and prints
+   per-distro install hints). `_tar_zst_extract` also requires zstd.
+
+2. **claude failed: "Invalid channel: copilot"** — dispatcher case
+   `claude) shift 1; __setup_claude "$@"` passed all remaining argv to
+   `__setup_claude`, which uses `${1:-stable}` as the install channel.
+   So `setupmgr claude copilot openclaw` made claude try `claude install copilot`.
+   Fix: dispatcher calls `__setup_claude` / `__setup_copilot` with no args.
+
+3. **Output format inconsistency** — three different "Installing/Updating"
+   formats coexisted: plain (`Installing X`), archive (`Installing X
+   (latest release)`), npm (`Installing X (latest version)`). The user
+   originally complained claude "didn't match rest of scripts"; my first
+   fix aligned it to the *minority* plain format. After running 13 tools
+   through, the archive format was clearly the majority. User confirmed
+   "archive style". Updated claude / copilot / ollama to match. Left
+   `__execute_npm` on "(latest version)" — semantically correct for npm.
+
+4. **`setupmgr remove ripgrep` says "not found"** — the package name is
+   `ripgrep` but the installed binary is `rg`. `__is_package_installed`
+   was checking for a binary named after the package. Fix: added a
+   name→binary map (ripgrep→rg, llama-cpp→llama).
+
+5. **`setupmgr remove claude` / `ollama` / `openclaw` left state behind** —
+   - claude binary lives at `~/.claude/bin/`, not `/usr/local/bin/`
+   - ollama: only the `/usr/local/bin/ollama` symlink was removed; the
+     `/usr/local/share/ollama` directory (5 GB!) and the systemd unit
+     stayed.
+   - openclaw is an npm global package, the default rm path doesn't know
+     about npm.
+   Fix: explicit `__remove_package` cases:
+   - ripgrep removes `rg` binary
+   - claude runs `claude uninstall` then drops `~/.claude/bin/` and the
+     `~/.local/bin/claude` launcher
+   - ollama stops + disables the systemd service (system + user variants),
+     drops the unit file, removes `/usr/local/share/ollama` and the bin
+     symlink
+   - openclaw + codex + cortex + gemini + vercel + prettier + eslint +
+     npm-check-updates + markdownlint route through a new
+     `__remove_npm_global` helper that calls `npm uninstall -g`.
+
+### Test results after all fixes
+
+| Phase | Pass | Fail |
+|---|---|---|
+| Install (13) | 13/13 | 0 (after zstd installed + arg-leak fixed) |
+| Update (13)  | 13/13 | 0 (consistent "Updating X to latest release/version") |
+| Remove (13)  | 13/13 | 0 (after the 5 cases added) |
+
+### Lessons Learned
+
+- **Test the multi-arg path for dispatchers.** Single-tool invocations of
+  `setupmgr claude` would never hit the arg-leak. It only surfaces when
+  the user passes more than one tool. Same pattern likely exists in other
+  case branches that pass `"$@"` to a single-tool installer — worth a
+  global review.
+- **`tar --zstd` ≠ "tar can extract zst on its own".** It just exec's
+  zstd. Always require the underlying binary, not just the convenience
+  flag.
+- **`__is_package_installed` and `__remove_package` are two halves of the
+  same contract.** When you add a non-standard install path (claude's
+  `~/.claude/bin`, ollama's `/usr/local/share/ollama`, an npm global),
+  both functions need to know about it. Otherwise install reports success
+  but remove silently no-ops.
+- **Format consistency questions are easier to answer with data.**
+  Asking "what's the standard format" before running the test got
+  ambiguous answers; running 13 tools revealed the archive style was
+  the de-facto majority and the user agreed once they could see them
+  side by side.
+
+### Files Modified (this continuation)
+
+- `bin/setupmgr` — `__is_package_installed` map, `__remove_npm_global`
+  helper, 4 new explicit `__remove_package` cases, claude/copilot/ollama
+  output format alignment, claude/copilot dispatcher cleanup, ollama zstd
+  pre-flight tightened, `_tar_zst_extract` zstd-binary requirement.
+- `man/setupmgr.1` — `.TH` version bump.
+- `completions/_setupmgr_completions.bash` — version bump.
+- `.git/COMMIT_MESS` — full rewrite covering this session.
+- `AI.md` — this entry.
+
+### Audit pass — same bug pattern in other tools
+
+After the user asked "any similar issues?", swept setupmgr for the same
+two patterns (name→binary mismatch and share-dir leak on remove) across
+the rest of the tool list. Found and fixed:
+
+- name→binary mismatches missed in the first pass:
+  - `llama-cpp` was mapped to `llama` but the real binary is `llama-cli`
+    (and llama.cpp installs several `llama-*` binaries, so the explicit
+    remove case loops over the lot).
+  - `bottom → btm`
+  - `opentofu → tofu`
+  - `powershell → pwsh`
+  - `minio_server → minio`
+- share-dir leak: the default `__remove_package *)` case only cleaned the
+  `/usr/local/bin/<name>` symlink, leaving `$SETUPMGR_DEFAULT_SHARE_DIR/<name>`
+  intact for zig, helix, lima, pipx, podman-desktop. Extended the default
+  to `__sudo rm -rf` the share dir when present (using sudo for `/usr/*`
+  or `/opt/*`, plain `__rm` otherwise). go/zed/powershell/ollama keep
+  their explicit cases since they have additional state (extra binaries,
+  systemd units, custom install dir vars).
+- `__is_package_installed` extended to recognize:
+  - `zed` install dir (`$ZED_INSTALL_DIR`),
+  - `go` install dir (`$GO_INSTALL_DIR`),
+  - `powershell` install dir (`$POWERSHELL_INSTALL_DIR`),
+  - any tool with `$SETUPMGR_DEFAULT_SHARE_DIR/<name>` present,
+  - npm-installed packages via `npm ls -g --depth=0` (catches
+    openclaw/codex/cortex/gemini/etc. even when the binary is gone but
+    the npm registration remains).
+
+### Lessons (audit pass)
+
+- **A bug pattern rarely lives alone.** Once we found ripgrep→rg, the
+  same shape existed for bottom, opentofu, powershell, minio_server.
+  Once we found ollama leaving its share dir, the same shape existed for
+  zig, helix, lima, pipx, podman-desktop. Worth doing a sweep instead
+  of only fixing the reported instance.
+- **The default `*)` case is leverage.** Per-tool explicit cases for
+  every share-dir tool would balloon the function. Instead, extending
+  the default to also clean `$SETUPMGR_DEFAULT_SHARE_DIR/<name>` covers
+  the long tail in one place. Per-tool cases are reserved for tools with
+  *additional* state: extra binaries, systemd units, custom install dir
+  variables.
+- **Install detection and removal must agree on the binary name.** When
+  the install map says ripgrep→rg, the remove case has to look for `rg`
+  too, not the package name. I had this for ripgrep but the matching
+  remove case for llama-cpp was missing — caught only by the audit
+  sweep, not by testing.
+
+### Files Modified (audit pass)
+
+- `bin/setupmgr` — install map extended, share-dir-presence detection,
+  npm `npm ls -g` fallback, 6 new explicit remove cases (bottom,
+  opentofu, llama-cpp/llama_cpp, powershell, zed, go), default `*)` case
+  extended with share-dir cleanup. Version bumped to 202604241958-git.
+- `man/setupmgr.1`, `completions/_setupmgr_completions.bash` — version sync.
+- `.git/COMMIT_MESS` — extended with audit-pass notes.
+- `AI.md` — this section.
+
+
+

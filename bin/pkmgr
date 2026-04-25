@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202604252155-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 19, 2022 16:56 EDT
 # @@File             :  pkmgr
 # @@Description      :  Manage system packages
-# @@Changelog        :  Added automatic PGP keyring recovery for pacman signature errors
+# @@Changelog        :  Fix keys broken: populate archlinux+distro keyrings, restore pacman.conf, remove hanging refresh-keys
 # @@TODO             :  Add BSD support
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202602020740-git"
+VERSION="202604252155-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -383,29 +383,33 @@ __pacman_reinit_keyring() {
   local exit_code=0
   # Update mirrorlist
   __default_mirror_list_archlinux | sudo tee -p /etc/pacman.d/mirrorlist &>/dev/null
-  # Remove existing gnupg directories
-  sudo rm -Rf "/root/.gnupg/" "/etc/pacman.d/gnupg/" &>/dev/null
-  # Handle broken mode - temporarily disable signature checking
+  # Remove only the pacman keyring directory, not root's personal GPG keyring
+  sudo rm -Rf "/etc/pacman.d/gnupg/" &>/dev/null
+  # Handle broken mode - temporarily disable signature checking and clear package cache
   if [ "$fix_broken" = "true" ] && [ -f "/etc/pacman.conf" ]; then
     sudo cp -Rf "/etc/pacman.conf" "$PKMGR_TEMP_DIR/pacman.conf"
     sudo sed -i "s|SigLevel.*=.*|SigLevel = Optional TrustAll|g" "/etc/pacman.conf"
+    # Clear package cache to remove any corrupted or partially-downloaded packages
+    sudo rm -Rf "/var/cache/pacman/pkg/" &>/dev/null
     __execute "sudo reflector -f 30 -l 30 --number 10 --verbose --save /etc/pacman.d/mirrorlist 2>/dev/null >&1" "${CYAN}Updating the mirrors"
     printf_cyan "Attempting to fix pacman signatures"
   fi
-  # Refresh GPG keys
-  sudo gpg --refresh-keys >/dev/null 2>&1
+  # Always include the base archlinux keyring; append distro-specific keyring if different
+  local populate_keys="archlinux"
+  if [ "$distro_keys" != "archlinux" ]; then
+    populate_keys="archlinux $distro_keys"
+  fi
   # Reinitialize and populate pacman keys
   __execute "sudo pacman-key --init >/dev/null 2>&1" "Initializing pacman key" || exit_code=$((exit_code + 1))
-  __execute "sudo pacman-key --populate $distro_keys >/dev/null 2>&1" "Populating the keys" || exit_code=$((exit_code + 1))
-  __execute "sudo pacman-key --refresh-keys >/dev/null 2>&1" "Refreshing the keys" || exit_code=$((exit_code + 1))
+  __execute "sudo pacman-key --populate $populate_keys >/dev/null 2>&1" "Populating the keys" || exit_code=$((exit_code + 1))
   __execute "sudo pacman -Syyu --noconfirm >/dev/null 2>&1" "${YELLOW}Updating packages" || exit_code=$((exit_code + 1))
   # Restore pacman.conf if we backed it up
+  # When fix_broken=true, save a reference copy then always restore the original
   if [ -f "$PKMGR_TEMP_DIR/pacman.conf" ]; then
     if [ "$fix_broken" = "true" ]; then
       sudo cp -Rf "$PKMGR_TEMP_DIR/pacman.conf" "/etc/pacman.broken.conf"
-    else
-      sudo cp -Rf "$PKMGR_TEMP_DIR/pacman.conf" "/etc/pacman.conf"
     fi
+    sudo cp -Rf "$PKMGR_TEMP_DIR/pacman.conf" "/etc/pacman.conf"
   fi
   return $exit_code
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202604241958-git
+##@Version           :  202604252124-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  copilot native, ollama tar.zst, claude/copilot arg-leak fix, install-from-archive output style, openclaw, full remove paths for ripgrep/claude/ollama/openclaw
+# @@Changelog        :  added opencode; removed every curl|sh installer (rustup, dotnet, volta, fnm, devbox, nix, plandex, distrobox); script-wide privilege drop via __run_as_user/__user_mkdir; honors RUSTUP_HOME, CARGO_HOME, GODIR, FNM_DIR, NVM_DIR, DENO_INSTALL, PIPX_HOME etc. from ~/.profile
 # @@TODO             :  Implement __setup_ functions for Priority 2-9 tools (63 tools pending implementation)
 # @@Other            :
 # @@Resource         :
@@ -21,9 +21,19 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202604241958-git"
+VERSION="202604252124-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
+# When invoked via sudo, $HOME points at /root by default. Re-anchor it on
+# the unprivileged invoker's home so every `${VAR:-$HOME/...}` default below
+# resolves to the user's own paths (e.g. FNM_DIR, RUSTUP_HOME, DOTNET_ROOT).
+# Binaries still go to $SETUPMGR_DEFAULT_BIN_DIR (computed against sudo
+# capability, not $HOME); this just keeps user-scoped paths user-scoped.
+if [ "$(id -u 2>/dev/null)" = "0" ] && [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER:-}" != "root" ]; then
+  __SUDO_TARGET_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+  [ -n "$__SUDO_TARGET_HOME" ] && [ -d "$__SUDO_TARGET_HOME" ] && HOME="$__SUDO_TARGET_HOME"
+  unset __SUDO_TARGET_HOME
+fi
 USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 SETUPMGR_REQUIRE_SUDO="${SETUPMGR_REQUIRE_SUDO:-no}"
@@ -357,7 +367,7 @@ __help() {
   __printf_line "dotnet,dust,exa,fabric,fastfetch,fd,fnm,fzf,garage,gemini,gh,glow,go,gohttpserver"
   __printf_line "gpt,gvm,helm,helix,hyperfine,incus,jekyll,jless,just,k9s,kind,kubectl,lapce,lazydocker"
   __printf_line "lazygit,lima,llama-cpp,llm,localai,lua,mc,markdownlint,minikube,minio_server,mods,nix,nodejs,nvm,ollama"
-  __printf_line "opentofu,packer,plandex,pipx,podman,powershell,procs,rbenv,ripgrep,ruff,rustup,rvm"
+  __printf_line "opencode,opentofu,packer,plandex,pipx,podman,powershell,procs,rbenv,ripgrep,ruff,rustup,rvm"
   __printf_line "shellcheck,shfmt,speedtest,starship,tokei,traefik,uv,vagrant,vale,vfox"
   __printf_line "webhookd,yq,zed,zellij,zig,zoxide,claude,copilot,cortex,codex,openclaw,vercel,prettier,eslint"
   __printf_line "npm-check-updates"
@@ -447,6 +457,89 @@ __sudo() {
     SETUPMGR_EXIT_STATUS=1
   fi
   return ${SETUPMGR_EXIT_STATUS:-0}
+}
+# Resolve the unprivileged user whose home directory should receive any
+# user-scoped configuration (~/.config, ~/.cache, ~/.local, ~/.<tool>).
+# Falls back through SUDO_USER -> RUN_USER -> USER -> id -un.
+__target_user() {
+  local user="${SUDO_USER:-${RUN_USER:-$USER}}"
+  [ -z "$user" ] || [ "$user" = "root" ] && user="$(id -un 2>/dev/null)"
+  printf '%s' "$user"
+}
+# Resolve the target user's home directory. When the current process is
+# running as a different uid than the target user (typically: process is
+# root via sudo, target is the unprivileged invoker), look the home up via
+# passwd so we never reuse $HOME — sudo points $HOME at /root, which would
+# poison every command we drop privileges for.
+__target_home() {
+  local target_user="$(__target_user)"
+  local current_uid="$(id -u 2>/dev/null)"
+  local target_uid=""
+  local home=""
+
+  if [ -z "$target_user" ]; then
+    printf '%s' "$HOME"
+    return
+  fi
+  if __cmd_exists id; then
+    target_uid="$(id -u "$target_user" 2>/dev/null)"
+  fi
+  # Same uid as us → $HOME is correct (we are that user).
+  if [ -n "$target_uid" ] && [ "$target_uid" = "$current_uid" ]; then
+    printf '%s' "$HOME"
+    return
+  fi
+  if __cmd_exists getent; then
+    home="$(getent passwd "$target_user" 2>/dev/null | cut -d: -f6)"
+  fi
+  [ -z "$home" ] && home="$(eval echo "~$target_user" 2>/dev/null)"
+  [ -z "$home" ] && home="$HOME"
+  printf '%s' "$home"
+}
+# Run a command as the unprivileged target user when the current process is
+# root, otherwise run it directly. Use this for any post-install command
+# that mutates the user's home directory (e.g. tools that install launchers,
+# shell integration, caches under $HOME). Setupmgr never modifies the user's
+# home permissions; it just drops privileges so each tool writes its own
+# files with the correct ownership in the first place.
+#
+# A modest set of env vars used by user-scoped tools is preserved so callers
+# don't have to re-export them: PATH, XDG_*, plus any SETUPMGR_*-prefixed and
+# standard toolchain vars (RUSTUP_HOME, CARGO_HOME, GOPATH, etc.).
+__run_as_user() {
+  local target_user="$(__target_user)"
+  if __user_is_root && [ -n "$target_user" ] && [ "$target_user" != "root" ] && __cmd_exists sudo; then
+    local target_home="$(__target_home)"
+    local preserve="PATH,TERM,LANG,LC_ALL,XDG_RUNTIME_DIR,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_CACHE_HOME"
+    preserve+=",RUSTUP_HOME,CARGO_HOME,RUST_HOME,GOPATH,GOROOT,GOBIN,GOCACHE,GODIR"
+    preserve+=",FNM_DIR,FNM_BIN,NVM_DIR,NVM_BIN,PNPM_HOME,NPM_PACKAGES,NODE_PATH"
+    preserve+=",DENO_INSTALL,DOTNET_ROOT,PIPX_HOME,PIPX_BIN_DIR,VAGRANT_HOME"
+    preserve+=",ASDF_DIR,ASDF_DATA_DIR,GVM_ROOT,LUAVER_HOME,LUAROCKS_PREFIX,LUAROCKS_BIN"
+    sudo -u "$target_user" -H \
+      --preserve-env="$preserve" \
+      env "HOME=$target_home" "USER=$target_user" "LOGNAME=$target_user" \
+      "$@"
+  else
+    "$@"
+  fi
+}
+# Wrappers around common file-system ops scoped to the user's home so callers
+# don't have to reach for __run_as_user every time. They drop privileges only
+# when needed; otherwise they run inline.
+__user_mkdir() { __run_as_user mkdir -p -- "$@"; }
+__user_install_file() {
+  local mode="$1" src="$2" dest="$3"
+  __run_as_user install -m "$mode" -- "$src" "$dest"
+}
+# Download a URL to a file inside the staging dir we control, NEVER piping to
+# a shell. The downloaded content is the caller's to inspect or hand to
+# __run_as_user as a regular script invocation.
+__download_to_file() {
+  local url="$1" dest="$2"
+  [ -n "$url" ] && [ -n "$dest" ] || return 1
+  __curl "$url" -o "$dest" || return 1
+  [ -s "$dest" ] || return 1
+  return 0
 }
 # End of sudo functions
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -538,9 +631,20 @@ __check_for_vulkan_support() { if __check_for_vulkan_info; then __check_for_vulk
 __check_for_vulkan_error() { if [ $? -eq 2 ]; then printf_red "This system doesn't seem to have vulkan support: Try installing vulkan drivers" && return 1; else return 0; fi; }
 __check_for_vulkan_info() { __cmd_exists vulkaninfo && { vulkaninfo 2>/dev/null | grep 'Devices: count = ' | awk -F '=' '{print $2}' | sed 's| ||g' | grep -qv '0' || return 2; } || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__git_update_repo() { (git -C "$1" reset --hard && git -C "$1" fetch origin && git -C "$1" pull && git -C "$1" reset --hard) &>/dev/null || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__git_clone_repo() { git clone "$1" "$2" -q &>/dev/null || return 2; }
+# Update an existing repo. Always run as the target user so commits, refs,
+# and worktree files stay user-owned even when setupmgr is invoked under sudo.
+__git_update_repo() {
+  __run_as_user sh -c "git -C \"\$1\" reset --hard >/dev/null 2>&1 && \
+    git -C \"\$1\" fetch origin >/dev/null 2>&1 && \
+    git -C \"\$1\" pull >/dev/null 2>&1 && \
+    git -C \"\$1\" reset --hard >/dev/null 2>&1" _ "$1" || return 1
+}
+# Clone a repo into a (typically user-home) destination. The clone itself
+# runs as the target user.
+__git_clone_repo() {
+  __user_mkdir "$(dirname "$2")"
+  __run_as_user git clone -q "$1" "$2" >/dev/null 2>&1 || return 2
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __npm_install_global() {
   local package="$1"
@@ -605,11 +709,14 @@ __execute_npm() {
     install_dir="$npm_root"
     npm install -g "$package" >/dev/null 2>&1 && install_ok=true
   else
-    # User prefix install
-    export npm_config_prefix="$HOME/.local"
-    export PATH="$HOME/.local/bin:$PATH"
-    install_dir="$HOME/.local"
-    npm install -g "$package" >/dev/null 2>&1 && install_ok=true
+    # User-prefix install — must run as the target user so the cache and
+    # the prefix tree are owned correctly. ~/.profile already sets
+    # NPM_PACKAGES; honor it when present.
+    local user_prefix="${NPM_PACKAGES:-$HOME/.local/share/nodejs/modules}"
+    install_dir="$user_prefix"
+    __user_mkdir "$user_prefix"
+    __run_as_user env NPM_CONFIG_PREFIX="$user_prefix" npm install -g "$package" >/dev/null 2>&1 \
+      && install_ok=true
   fi
 
   if [ "$install_ok" = true ]; then
@@ -684,10 +791,14 @@ __install_to_system_bin() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_desktopfile() {
   local exitCode=0
-  local desktop_file="$HOME/.local/share/applications/$1.desktop"
-  mkdir -p "$HOME/.local/share/applications"
+  local target_home="$(__target_home)"
+  local apps_dir="$target_home/.local/share/applications"
+  local desktop_file="$apps_dir/$1.desktop"
+  __user_mkdir "$apps_dir"
   [ -f "$desktop_file" ] && return
-  cat <<EOF | tee "$desktop_file" &>/dev/null
+  # Pipe the heredoc through `__run_as_user tee` so the file is created with
+  # the correct ownership when setupmgr runs under sudo.
+  __run_as_user tee "$desktop_file" >/dev/null <<EOF
 [Desktop Entry]
 Name=$1
 Exec=$2
@@ -696,7 +807,7 @@ Icon=xfce4
 
 EOF
   if [ -f "$desktop_file" ]; then
-    chmod 755 "$desktop_file"
+    __run_as_user chmod 755 "$desktop_file"
   fi
   return $exitCode
 }
@@ -1242,27 +1353,16 @@ __configure_skaffold() {
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# url options
+# Disabled: this helper used to do `curl <url> | bash` style installs, which
+# is prohibited in this codebase. Each previous consumer has been rewritten
+# to download a known-good binary or git-cloned repo and install it natively
+# (see __setup_rustup, __setup_dotnet, __setup_volta, __setup_fnm,
+# __setup_devbox, __setup_distrobox, __setup_nix, __setup_plandex, etc.).
+# Calls to this function now fail loudly so we don't accidentally regress.
 __download_and_execute() {
-  local exitCode=0
-  local url="$1"
-  [ -n "$url" ] || return 1
-  local name="$(__basename "$url")"
-  [ -n "$name" ] || return 1
-  shift 1
-  [ "$1" = "sudo" ] && local use_sudo="yes" && shift 1
-  SETUPMGR_TEMP_EXECUTE_FILE="$SETUPMGR_TEMP_DIR/$name"
-  if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
-    __rm "$PACKAGE_TMP_DIR"/*
-  fi
-  [ -n "$SETUPMGR_TEMP_EXECUTE_FILE" ] && { __rm "$SETUPMGR_TEMP_EXECUTE_FILE" || true; } || return
-  if [ "$use_sudo" = "yes" ]; then
-    shift 1
-    __curl "$url" | sudo -- bash -s -- "$@" 2>/dev/null || exitCode=1
-  else
-    __curl "$url" | bash -s -- "$@" 2>/dev/null || exitCode=1
-  fi
-  return $exitCode
+  printf_red "__download_and_execute() is disabled — pipe-to-shell installs are not allowed."
+  printf_red "Reimplement the caller as a native install (see existing __setup_* examples)."
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # url tmpFile installDir files
@@ -2125,11 +2225,14 @@ __install_from_npm() {
     install_dir="$npm_root"
     npm install -g "$package" >/dev/null 2>&1 && install_ok=true
   else
-    # User prefix install
-    export npm_config_prefix="$HOME/.local"
-    export PATH="$HOME/.local/bin:$PATH"
-    install_dir="$HOME/.local"
-    npm install -g "$package" >/dev/null 2>&1 && install_ok=true
+    # User-prefix install — drop to the target user so the cache and prefix
+    # tree are owned correctly. ~/.profile already sets NPM_PACKAGES; honor
+    # it when present.
+    local user_prefix="${NPM_PACKAGES:-$HOME/.local/share/nodejs/modules}"
+    install_dir="$user_prefix"
+    __user_mkdir "$user_prefix"
+    __run_as_user env NPM_CONFIG_PREFIX="$user_prefix" npm install -g "$package" >/dev/null 2>&1 \
+      && install_ok=true
   fi
 
   if [ "$install_ok" = true ]; then
@@ -2376,14 +2479,28 @@ __remove_package() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install Claude Code native binary from Anthropic's CDN
-# Downloads the binary, verifies SHA256 checksum, and runs claude install
+# Downloads the binary, verifies SHA256 checksum, installs it to the system
+# bin dir (when privileged) or the user bin dir, then runs `claude install`
+# as the target user so it only touches paths in that user's own home.
 __setup_claude() {
   local exitCode=0
   local name="claude"
   local target="${1:-stable}"
   local gcs_bucket="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
-  local download_dir="$HOME/.claude/downloads"
   local os="" arch="" platform="" version="" manifest_json="" checksum="" actual="" binary_path=""
+
+  # Stage the download somewhere outside any user's home so we never create
+  # root-owned files in $HOME when running under sudo. `claude install` will
+  # later run as the target user via __run_as_user.
+  local download_dir=""
+  if ! download_dir="$(mktemp -d -t claude-stage-XXXXXX 2>/dev/null)"; then
+    download_dir="/tmp/claude-stage-$$"
+    mkdir -p "$download_dir" || {
+      printf_red "Could not create staging directory"
+      __message_installed_failed "$name"
+      return 1
+    }
+  fi
 
   # Detect OS
   case "$(uname -s)" in
@@ -2424,13 +2541,12 @@ __setup_claude() {
     printf_green "Installing $name (latest release)"
   fi
 
-  mkdir -p "$download_dir"
-
   # Get latest version
   version="$(__curl "$gcs_bucket/latest")"
   if [ -z "$version" ]; then
     printf_red "Failed to fetch latest version"
     __message_installed_failed "$name"
+    rm -rf "$download_dir"
     return 1
   fi
 
@@ -2439,6 +2555,7 @@ __setup_claude() {
   if [ -z "$manifest_json" ]; then
     printf_red "Failed to fetch manifest"
     __message_installed_failed "$name"
+    rm -rf "$download_dir"
     return 1
   fi
 
@@ -2458,15 +2575,17 @@ __setup_claude() {
   if [ -z "$checksum" ] || [[ ! "$checksum" =~ ^[a-f0-9]{64}$ ]]; then
     printf_red "Platform $platform not found in manifest"
     __message_installed_failed "$name"
+    rm -rf "$download_dir"
     return 1
   fi
 
-  # Download binary
-  binary_path="$download_dir/claude-$version-$platform"
+  # Download binary into the staging dir (world-readable so the target user
+  # can read it after we drop privileges below).
+  binary_path="$download_dir/claude"
   if ! __curl "$gcs_bucket/$version/$platform/claude" -o "$binary_path"; then
     printf_red "Download failed"
-    rm -f "$binary_path"
     __message_installed_failed "$name"
+    rm -rf "$download_dir"
     return 1
   fi
 
@@ -2479,23 +2598,46 @@ __setup_claude() {
 
   if [ "$actual" != "$checksum" ]; then
     printf_red "Checksum verification failed"
-    rm -f "$binary_path"
     __message_installed_failed "$name"
+    rm -rf "$download_dir"
     return 1
   fi
 
-  chmod +x "$binary_path"
+  chmod 755 "$binary_path"
+  chmod 755 "$download_dir"
 
-  # Run claude install to set up launcher and shell integration
-  if "$binary_path" install ${target:+"$target"} 2>/dev/null; then
-    __message_installed_ok "$name" "$HOME/.claude/bin"
+  # Place the binary in the standard bin dir (system bin under sudo/root,
+  # user bin otherwise). __install_to_system_bin escalates privileges only
+  # when the destination requires it.
+  if ! __install_to_system_bin "$binary_path"; then
+    printf_red "Failed to install $name to $SETUPMGR_DEFAULT_BIN_DIR"
+    __message_installed_failed "$name"
+    rm -rf "$download_dir"
+    return 1
+  fi
+
+  local installed_bin="${SETUPMGR_DEFAULT_BIN_DIR}/$name"
+
+  # Run `claude install` as the target user (via __run_as_user) so it only
+  # writes to that user's own ~/.cache/claude, ~/.config/claude, and
+  # ~/.claude paths. setupmgr never modifies the user's home permissions;
+  # dropping privileges here is what keeps ownership correct.
+  # Capture all output so claude's verbose install banner never leaks past
+  # setupmgr's own success/failure line — only printed when the call fails.
+  local install_output="" install_rc=0
+  install_output="$(__run_as_user "$installed_bin" install ${target:+"$target"} </dev/null 2>&1)"
+  install_rc=$?
+
+  if [ $install_rc -eq 0 ]; then
+    __message_installed_ok "$name" "$SETUPMGR_DEFAULT_BIN_DIR"
   else
+    [ -n "$install_output" ] && printf_red "$install_output"
     __message_installed_failed "$name"
     exitCode=1
   fi
 
-  # Clean up downloaded binary
-  rm -f "$binary_path"
+  # Clean up the staging directory
+  rm -rf "$download_dir"
 
   return $exitCode
 }
@@ -2703,24 +2845,81 @@ __setup_zig() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_rustup() {
-  local exitCode=0
+  local exitCode=0 install_rc=0
   local name="rustup"
+  local triple="" rustup_url=""
+  local target_user="$(__target_user)"
+  local target_home="$(__target_home)"
 
-  if __cmd_exists $name && [ "$SETUPMGR_FORCE_INSTALL" != "true" ]; then
-    printf_green "$name is already installed"
-    return 0
-  fi
-
-  printf_green "Installing $name and Rust toolchain"
-
-  if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y |& __output_status; then
-    __message_installed_ok "$name"
-    printf_cyan "Run 'source \$HOME/.cargo/env' to add Rust to your PATH"
-    printf_cyan "Or restart your shell"
-  else
-    exitCode=1
+  # Resolve the toolchain triple rustup publishes binaries for.
+  case "$(uname -s)/$(uname -m)" in
+  Linux/x86_64)         triple="x86_64-unknown-linux-gnu" ;;
+  Linux/aarch64|Linux/arm64) triple="aarch64-unknown-linux-gnu" ;;
+  Linux/armv7l)         triple="armv7-unknown-linux-gnueabihf" ;;
+  Darwin/x86_64)        triple="x86_64-apple-darwin" ;;
+  Darwin/arm64)         triple="aarch64-apple-darwin" ;;
+  *)
+    printf_red "Unsupported platform for rustup: $(uname -s)/$(uname -m)"
     __message_installed_failed "$name"
+    return 1
+    ;;
+  esac
+  rustup_url="https://static.rust-lang.org/rustup/dist/${triple}/rustup-init"
+
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name to latest release"
+  else
+    printf_green "Installing $name (latest release)"
   fi
+
+  # Stage rustup-init in a non-user dir so the download never lands in $HOME
+  # under sudo. We hand the binary to __run_as_user below.
+  local stage_dir=""
+  if ! stage_dir="$(mktemp -d -t rustup-stage-XXXXXX 2>/dev/null)"; then
+    stage_dir="/tmp/rustup-stage-$$" && mkdir -p "$stage_dir"
+  fi
+  local init_bin="$stage_dir/rustup-init"
+  if ! __download_to_file "$rustup_url" "$init_bin"; then
+    printf_red "Download failed: $rustup_url"
+    __message_installed_failed "$name"
+    rm -rf "$stage_dir"
+    return 1
+  fi
+  chmod 755 "$stage_dir" "$init_bin"
+
+  # Install paths come from the user's profile (RUST_HOME / CARGO_HOME /
+  # RUSTUP_HOME). Run rustup-init as the target user so everything under
+  # $HOME ends up owned by them.
+  __user_mkdir "$RUST_HOME" "$CARGO_HOME" "$RUSTUP_HOME"
+
+  local install_output=""
+  install_output="$(RUSTUP_HOME="$RUSTUP_HOME" CARGO_HOME="$CARGO_HOME" \
+    __run_as_user env \
+      RUSTUP_HOME="$RUSTUP_HOME" \
+      CARGO_HOME="$CARGO_HOME" \
+      "$init_bin" -y --no-modify-path --default-toolchain stable </dev/null 2>&1)"
+  install_rc=$?
+
+  rm -rf "$stage_dir"
+
+  if [ $install_rc -ne 0 ]; then
+    [ -n "$install_output" ] && printf_red "$install_output"
+    __message_installed_failed "$name"
+    return 1
+  fi
+
+  # Symlink the rustup/cargo binaries into $SETUPMGR_DEFAULT_BIN_DIR so they
+  # show up on PATH without needing `source $CARGO_HOME/env` first.
+  local bin
+  if [ -d "$CARGO_HOME/bin" ]; then
+    for bin in "$CARGO_HOME/bin"/*; do
+      [ -x "$bin" ] || continue
+      ln -sf "$bin" "$SETUPMGR_DEFAULT_BIN_DIR/$(__basename "$bin")" 2>/dev/null \
+        || __sudo ln -sf "$bin" "$SETUPMGR_DEFAULT_BIN_DIR/$(__basename "$bin")" 2>/dev/null
+    done
+  fi
+
+  __message_installed_ok "$name" "$CARGO_HOME/bin"
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2924,28 +3123,51 @@ __setup_bun() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_distrobox() {
-  local bin name
-  local exitCode=0
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  local exitCode=0 bin name
+  local repo_url="https://github.com/89luca89/distrobox"
   DBX_HOME="${DBX_HOME:-$HOME/.local/share/distrobox}"
-  printf_green "Installing distrobox"
-  if __download_and_execute "$DISTROBOX_SCRIPT_URL" --next --prefix "$DISTROBOX_HOME" |& __output_status; then
-    if [ -f "$DISTROBOX_HOME/bin/distrobox-init" ]; then
-      for bin in "$DISTROBOX_HOME/bin"/*; do
-        name="$(basename -- "$bin")"
-        if [ ! -f "$SETUPMGR_DEFAULT_BIN_DIR/$name" ]; then
-          ln -sf "$bin" "$SETUPMGR_DEFAULT_BIN_DIR/$name"
-        fi
-      done
-      printf_green "Distrobox installed"
-    else
-      exitCode=1
-      printf_red "Failed to install distrobox"
-    fi
-    __rm "$SETUPMGR_TEMP_DIR/distrobox" "$DISTROBOX_LOG_DIR/error.log"
+  DISTROBOX_HOME="${DISTROBOX_HOME:-$DBX_HOME}"
+
+  if [ -d "$DISTROBOX_HOME/.git" ]; then
+    printf_green "Updating distrobox to latest release"
   else
+    printf_green "Installing distrobox (latest release)"
+  fi
+
+  # distrobox is a collection of POSIX shell scripts; the upstream installer
+  # just clones the repo and symlinks scripts into PATH. Do that directly.
+  __user_mkdir "$(dirname "$DISTROBOX_HOME")"
+  if [ -d "$DISTROBOX_HOME/.git" ]; then
+    __run_as_user git -C "$DISTROBOX_HOME" pull --quiet --ff-only \
+      || __run_as_user git -C "$DISTROBOX_HOME" reset --hard origin/main >/dev/null 2>&1 \
+      || exitCode=1
+  else
+    __run_as_user git clone --depth=1 --quiet "$repo_url" "$DISTROBOX_HOME" || exitCode=1
+  fi
+
+  if [ $exitCode -ne 0 ] || [ ! -d "$DISTROBOX_HOME" ]; then
+    __message_installed_failed "distrobox"
+    return 1
+  fi
+
+  # Symlink each distrobox-* script into the system bin dir. `install` uses
+  # __install_to_system_bin's escalation logic by going through ln + sudo.
+  local linked=0
+  for bin in "$DISTROBOX_HOME"/distrobox*; do
+    [ -f "$bin" ] && [ -x "$bin" ] || continue
+    name="$(__basename "$bin")"
+    if [ -w "$SETUPMGR_DEFAULT_BIN_DIR" ]; then
+      ln -sf "$bin" "$SETUPMGR_DEFAULT_BIN_DIR/$name" && linked=1
+    elif __can_i_sudo; then
+      __sudo ln -sf "$bin" "$SETUPMGR_DEFAULT_BIN_DIR/$name" && linked=1
+    fi
+  done
+
+  if [ $linked -eq 1 ]; then
+    __message_installed_ok "distrobox" "$SETUPMGR_DEFAULT_BIN_DIR"
+  else
+    __message_installed_failed "distrobox"
     exitCode=1
-    printf_red "Failed to download distrobox"
   fi
   return $exitCode
 }
@@ -2953,18 +3175,70 @@ __setup_distrobox() {
 __setup_dotnet() {
   local exitCode=0
   local name="dotnet"
-  local binDir="$SETUPMGR_DEFAULT_BIN_DIR"
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
+  local channel="${DOTNET_CHANNEL:-LTS}"
+  local rid="" tarball_url="" stage_dir=""
+
+  case "$(uname -s)/$(uname -m)" in
+  Linux/x86_64)         rid="linux-x64" ;;
+  Linux/aarch64|Linux/arm64) rid="linux-arm64" ;;
+  Linux/armv7l)         rid="linux-arm" ;;
+  Darwin/x86_64)        rid="osx-x64" ;;
+  Darwin/arm64)         rid="osx-arm64" ;;
+  *)
+    printf_red "Unsupported platform for dotnet: $(uname -s)/$(uname -m)"
+    __message_installed_failed "$name"
+    return 1
+    ;;
+  esac
+
+  # Microsoft publishes stable redirector URLs at aka.ms that always point to
+  # the latest SDK tarball for a given channel and platform. Using these
+  # avoids piping `dotnet-install.sh` through bash.
+  tarball_url="https://aka.ms/dotnet/${channel}/dotnet-sdk-${rid}.tar.gz"
+
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name to latest release"
   else
-    printf_green "Installing $name"
+    printf_green "Installing $name (latest release)"
   fi
-  if __curl "$DOTNET_SCRIPT_URL" | bash -s -- --install-dir "$DOTNET_ROOT" |& __output_status; then
-    [ -d "$HOME/.dotnet" ] && mv -f "$HOME/.dotnet" "$DOTNET_ROOT"
-    [ -f "$DOTNET_ROOT/$name" ] && ln -sf "$DOTNET_ROOT/$name" "$SETUPMGR_DEFAULT_BIN_DIR/$name"
+
+  if ! stage_dir="$(mktemp -d -t dotnet-stage-XXXXXX 2>/dev/null)"; then
+    stage_dir="/tmp/dotnet-stage-$$" && mkdir -p "$stage_dir"
   fi
-  if __cmd_exists $name && __is_installed "$name" "$DOTNET_ROOT"; then
+  local tarball="$stage_dir/dotnet-sdk.tar.gz"
+  if ! __download_to_file "$tarball_url" "$tarball"; then
+    printf_red "Download failed: $tarball_url"
+    __message_installed_failed "$name"
+    rm -rf "$stage_dir"
+    return 1
+  fi
+  if ! tar -tzf "$tarball" >/dev/null 2>&1; then
+    printf_red "Downloaded tarball is not a valid archive"
+    __message_installed_failed "$name"
+    rm -rf "$stage_dir"
+    return 1
+  fi
+
+  # Extract into $DOTNET_ROOT (per ~/.profile) as the user.
+  __user_mkdir "$DOTNET_ROOT"
+  if ! __run_as_user tar -xzf "$tarball" -C "$DOTNET_ROOT" >/dev/null 2>&1; then
+    printf_red "Failed to extract dotnet to $DOTNET_ROOT"
+    __message_installed_failed "$name"
+    rm -rf "$stage_dir"
+    return 1
+  fi
+  rm -rf "$stage_dir"
+
+  # Symlink dotnet into the standard bin dir.
+  if [ -x "$DOTNET_ROOT/$name" ]; then
+    if [ -w "$SETUPMGR_DEFAULT_BIN_DIR" ]; then
+      ln -sf "$DOTNET_ROOT/$name" "$SETUPMGR_DEFAULT_BIN_DIR/$name"
+    elif __can_i_sudo; then
+      __sudo ln -sf "$DOTNET_ROOT/$name" "$SETUPMGR_DEFAULT_BIN_DIR/$name"
+    fi
+  fi
+
+  if [ -x "$DOTNET_ROOT/$name" ]; then
     __message_installed_ok "$name" "$DOTNET_ROOT"
   else
     __message_installed_failed "$name"
@@ -3031,35 +3305,41 @@ __setup_vagrant() {
 __setup_fnm() {
   local exitCode=0
   local name="fnm"
-  local binDir="$HOME/.local/bin"
   local node_version="$FNM_NODE_VERSION"
-  local tmpFile="$(mktemp $SETUPMGR_TEMP_DIR/fnm_XXXXXX 2>/dev/null)"
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
+  local fnm_pattern=""
+
+  # fnm publishes assets named fnm-linux.zip (x86_64 only), fnm-arm64.zip,
+  # fnm-arm32.zip, fnm-macos.zip — its naming doesn't match
+  # __build_asset_pattern's "os-arch" expectations, so we build a custom one.
+  case "$(uname -s)/$(uname -m)" in
+  Linux/x86_64)         fnm_pattern="fnm-linux\\.zip" ;;
+  Linux/aarch64|Linux/arm64) fnm_pattern="fnm-arm64\\.zip" ;;
+  Linux/armv7l)         fnm_pattern="fnm-arm32\\.zip" ;;
+  Darwin/*)             fnm_pattern="fnm-macos\\.zip" ;;
+  *)
+    printf_red "Unsupported platform for fnm: $(uname -s)/$(uname -m)"
+    __message_installed_failed "$name"
+    return 1
+    ;;
+  esac
+
+  # Install fnm natively from its GitHub releases (no curl|sh).
+  if ! __install_from_archive "$name" "$FNM_GITREPO" "$SETUPMGR_DEFAULT_BIN_DIR" "$fnm_pattern"; then
+    return 1
   fi
-  [ -d "$FNM_DIR" ] || mkdir -p "$FNM_DIR"
-  if __download_and_execute "$FNM_INSTALL_SCRIPT" --install-dir "$binDir" --skip-shell |& __output_status; then
-    if __cmd_exists fnm; then
-      printf_blue "installing nodejs"
-      eval "$(fnm env)"
-      fnm install "$node_version" >/dev/null 2>&1
-      if fnm ls 2>&1 | grep -q "$node_version"; then
-        installed_version="$(node --version 2>/dev/null)"
-        fnm use "$node_version" >/dev/null 2>&1
-        fnm default "$node_version" >/dev/null 2>&1
-        printf_green "FNM is setup to use node $installed_version by default"
-      else
-        installed_version="$(node --version 2>/dev/null)"
-        printf_green "FNM is setup to use node $installed_version by default"
-      fi
-    else
-      printf_red "FNM Failed to install" >&2
+
+  # fnm itself only needs $FNM_DIR to exist; create it as the user.
+  __user_mkdir "$FNM_DIR"
+
+  if __cmd_exists fnm; then
+    printf_blue "installing nodejs"
+    __run_as_user env FNM_DIR="$FNM_DIR" fnm install "$node_version" >/dev/null 2>&1
+    if __run_as_user env FNM_DIR="$FNM_DIR" fnm ls 2>&1 | grep -q "$node_version"; then
+      __run_as_user env FNM_DIR="$FNM_DIR" fnm use "$node_version" >/dev/null 2>&1
+      __run_as_user env FNM_DIR="$FNM_DIR" fnm default "$node_version" >/dev/null 2>&1
     fi
-  else
-    exitCode=1
-    printf_red "Failed to download FNM installer script" &
+    local installed_version="$(node --version 2>/dev/null)"
+    [ -n "$installed_version" ] && printf_green "FNM is setup to use node $installed_version by default"
   fi
   return $exitCode
 }
@@ -3116,22 +3396,23 @@ __setup_nodejs() {
   else
     printf_green "Installing nodejs"
   fi
-  if __cmd_exists volta || curl -q -LSsf "https://get.volta.sh" | bash -s -- --skip-setup >/dev/null 2>&1; then
-    if [ -d "$HOME/.volta/bin" ]; then
-      for f in "$HOME/.volta/bin"/*; do
-        ln -sf "$f" "$HOME/.local/bin/$(basename -- "$f")"
-      done
-    else
-      exitCode=1
+
+  # Install volta natively from its GitHub releases (no curl|sh), then let
+  # volta itself install the node toolchain into $VOLTA_HOME under the user.
+  if ! __cmd_exists volta; then
+    if ! __install_from_archive "volta" "$VOLTA_GITREPO" "$SETUPMGR_DEFAULT_BIN_DIR"; then
       printf_red "Failed to install volta"
+      pkmgr silent install nodejs || pkmgr silent install node
     fi
-    volta install node@$version >/dev/null 2>&1
-  else
-    printf_red "Failed to install volta"
-    pkmgr silent install nodejs || pkmgr silent install node
   fi
+
+  if __cmd_exists volta; then
+    __user_mkdir "$VOLTA_HOME"
+    __run_as_user env VOLTA_HOME="$VOLTA_HOME" volta install "node@$version" >/dev/null 2>&1
+  fi
+
   if __cmd_exists nodejs || __cmd_exists node; then
-    npm_ver="$(npm -v 2>/dev/null)"
+    local npm_ver="$(npm -v 2>/dev/null)"
     version="$(node --version 2>/dev/null)"
     printf_green "nodejs $version and npm $npm_ver have been installed"
   else
@@ -3206,14 +3487,18 @@ __setup_powershell() {
         command -v brew >/dev/null 2>&1 && brew install jandedobbeleer/oh-my-posh/oh-my-posh >/dev/null 2>&1
       elif [ "$os" = "linux" ]; then
         if [ -n "$posh_arch" ]; then
-          install_posh="$(curl -q -LSsf -H "Accept: application/vnd.github+json" "$POWERSHELL_OMP_GITREPO" | jq -r '.assets[].browser_download_url' | grep "$os" | grep "$posh_arch$" || false)"
+          install_posh="$(__curl -H "Accept: application/vnd.github+json" "$POWERSHELL_OMP_GITREPO" | jq -r '.assets[].browser_download_url' | grep "$os" | grep "$posh_arch$" || false)"
           if [ -n "$install_posh" ]; then
             printf_purple "Installing oh-my-posh"
-            curl -q -LSsf "$install_posh" -o "$HOME/.local/bin/oh-my-posh"
-            if [ -f "$HOME/.local/bin/oh-my-posh" ]; then
-              chmod +x "$HOME/.local/bin/oh-my-posh"
-              printf_green "Successfully saved oh-my-posh to: ~/.local/bin/oh-my-posh"
+            local omp_stage=""
+            omp_stage="$(mktemp -d -t oh-my-posh-XXXXXX 2>/dev/null)" || omp_stage="/tmp/oh-my-posh-$$"
+            mkdir -p "$omp_stage"
+            if __download_to_file "$install_posh" "$omp_stage/oh-my-posh"; then
+              chmod 755 "$omp_stage/oh-my-posh"
+              __install_to_system_bin "$omp_stage/oh-my-posh" \
+                && printf_green "Successfully installed oh-my-posh to $SETUPMGR_DEFAULT_BIN_DIR"
             fi
+            rm -rf "$omp_stage"
           else
             printf_red "Can not find oh-my-posh $install_posh" >&2
           fi
@@ -3222,13 +3507,17 @@ __setup_powershell() {
         fi
       fi
       printf_cyan "Initializing powershell modules"
-      if [ -f "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.ps1" ]; then
-        mv -f "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.ps1" "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.bak"
+      local pwsh_target_home="$(__target_home)"
+      local pwsh_profile="$pwsh_target_home/.config/powershell/Microsoft.POWERSHELL_profile.ps1"
+      local pwsh_profile_bak="$pwsh_target_home/.config/powershell/Microsoft.POWERSHELL_profile.bak"
+      local pwsh_init="$pwsh_target_home/.config/powershell/init.ps1"
+      if [ -f "$pwsh_profile" ]; then
+        __run_as_user mv -f "$pwsh_profile" "$pwsh_profile_bak"
       fi
-      if [ -f "$HOME/.config/powershell/init.ps1" ]; then
-        if ! eval "$installDir/$tempBin -Command $HOME/.config/powershell/init.ps1" >/dev/null 2>&1; then
-          if [ -f "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.bak" ]; then
-            mv -f "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.bak" "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.ps1"
+      if [ -f "$pwsh_init" ]; then
+        if ! __run_as_user "$installDir/$tempBin" -Command "$pwsh_init" >/dev/null 2>&1; then
+          if [ -f "$pwsh_profile_bak" ]; then
+            __run_as_user mv -f "$pwsh_profile_bak" "$pwsh_profile"
           fi
         fi
         if __cmd_exists pwsh; then
@@ -3287,7 +3576,8 @@ __setup_jekyll() {
     jekyll_bin="$(type -P jekyll)"
     if [ -n "$jekyll_bin" ]; then
       version="$(jekyll -v 2>/dev/null | grep '[0-9]' | sed 's|[jJ]ekyll ||g')"
-      ln -sf "$jekyll_bin" "$HOME/.local/bin/jekyll"
+      __user_mkdir "$HOME/.local/bin"
+      __run_as_user ln -sf "$jekyll_bin" "$HOME/.local/bin/jekyll"
       printf_green "Finished installing jekyll $version"
     else
       printf_red "Installation of jekyll has failed" >&2
@@ -3385,45 +3675,73 @@ __setup_rbenv() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_devbox() {
-  local exitCode=0
-  local name="devbox"
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-  printf_green "Installing $name"
-  if __curl "https://get.jetify.com/devbox" | bash -s -- -f |& __output_status; then
-    printf_cyan "$name installed"
-  else
-    exitCode=1
-    __message_installed_failed "$name"
-  fi
-  return $exitCode
+  __install_from_archive "devbox" "$DEVBOX_GITREPO" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_nix() {
-  local exitCode=0
-  local name="nix"
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
+  local exitCode=0 install_rc=0
+  local name="nix" arch_tag="" installer_url="" stage_dir=""
+
+  case "$(uname -s)/$(uname -m)" in
+  Linux/x86_64)         arch_tag="x86_64-linux" ;;
+  Linux/aarch64|Linux/arm64) arch_tag="aarch64-linux" ;;
+  Darwin/x86_64)        arch_tag="x86_64-darwin" ;;
+  Darwin/arm64)         arch_tag="aarch64-darwin" ;;
+  *)
+    printf_red "Unsupported platform for nix: $(uname -s)/$(uname -m)"
+    __message_installed_failed "$name"
+    return 1
+    ;;
+  esac
+  installer_url="https://github.com/${NIX_INSTALLER_GITREPO}/releases/latest/download/nix-installer-${arch_tag}"
+
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name to latest release"
   else
-    printf_green "Installing $name"
+    printf_green "Installing $name (latest release)"
   fi
-  if __curl "https://install.determinate.systems/nix" | sh -s -- install --no-confirm |& __output_status; then
-    if [ -f "/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh" ]; then
-      printf_blue "nix-installer installed"
-      . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-      for f in /nix/var/nix/profiles/default/bin/*; do
-        ln -sf "$f" "$HOME/.local/bin/$(__basename "$f")"
-      done
-    else
-      exitCode=1
-      printf_red "Failed to install nix-installer"
-    fi
+
+  # Download the Determinate nix-installer binary directly. It's a real ELF
+  # executable, not a shell script — the curl|sh URL we previously used was
+  # a thin wrapper that just downloaded this same binary.
+  if ! stage_dir="$(mktemp -d -t nix-stage-XXXXXX 2>/dev/null)"; then
+    stage_dir="/tmp/nix-stage-$$" && mkdir -p "$stage_dir"
+  fi
+  local installer_bin="$stage_dir/nix-installer"
+  if ! __download_to_file "$installer_url" "$installer_bin"; then
+    printf_red "Download failed: $installer_url"
+    __message_installed_failed "$name"
+    rm -rf "$stage_dir"
+    return 1
+  fi
+  chmod 755 "$stage_dir" "$installer_bin"
+
+  # The installer creates /nix and a system-wide daemon. It uses sudo
+  # internally, so it should run as the regular user (not as root) so that
+  # interactive sudo prompts are bound to that user. --no-confirm runs
+  # non-interactively when sudo is already validated.
+  __run_as_user "$installer_bin" install --no-confirm </dev/null
+  install_rc=$?
+  rm -rf "$stage_dir"
+
+  if [ $install_rc -ne 0 ]; then
+    __message_installed_failed "$name"
+    return 1
+  fi
+
+  if [ -f "/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh" ]; then
+    . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+    local f
+    for f in /nix/var/nix/profiles/default/bin/*; do
+      [ -x "$f" ] || continue
+      __user_mkdir "$HOME/.local/bin"
+      __run_as_user ln -sf "$f" "$HOME/.local/bin/$(__basename "$f")"
+    done
+    __message_installed_ok "$name" "/nix/var/nix/profiles/default/bin"
   else
+    printf_red "nix daemon profile not found after install"
+    __message_installed_failed "$name"
     exitCode=1
-    printf_red "Failed to execute the nix-installer script"
   fi
   return $exitCode
 }
@@ -3647,9 +3965,10 @@ __setup_gohttpserver() {
     # Setup systemd service (create but don't enable)
     local service_file=""
     local systemd_cmd="systemctl"
-    local serve_dir="$HOME/public_html"
+    local target_home="$(__target_home)"
+    local serve_dir="$target_home/public_html"
 
-    mkdir -p "$serve_dir"
+    __user_mkdir "$serve_dir"
 
     if __sudoif; then
       service_file="/etc/systemd/system/gohttpserver.service"
@@ -3869,15 +4188,16 @@ __setup_bob() {
     printf_green "Installing $name"
   fi
   if __download_extract_move "$download_url" do_not_strip_components "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    mkdir -p "$HOME/.local/share/bob"
+    local target_home="$(__target_home)"
+    __user_mkdir "$target_home/.local/share/bob"
 
-    if [ ! -f "$HOME/.config/bob/config.json" ]; then
-      mkdir -p "$HOME/.config/bob"
-      cat <<EOF >"$HOME/.config/bob/config.json"
+    if [ ! -f "$target_home/.config/bob/config.json" ]; then
+      __user_mkdir "$target_home/.config/bob"
+      __run_as_user tee "$target_home/.config/bob/config.json" >/dev/null <<EOF
 {
-  "installation_location": "$HOME/.local/bin",
-  "downloads_location": "$HOME/.local/share/bob",
-  "version_sync_file_location": "$HOME/.config/bob/nvim.version"
+  "installation_location": "$target_home/.local/bin",
+  "downloads_location": "$target_home/.local/share/bob",
+  "version_sync_file_location": "$target_home/.config/bob/nvim.version"
 }
 EOF
     fi
@@ -4072,6 +4392,10 @@ __setup_gh() {
   __install_from_archive "gh" "cli/cli" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_opencode() {
+  __install_from_archive "opencode" "sst/opencode" "$SETUPMGR_DEFAULT_BIN_DIR"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_lima() {
   local exitCode=0
   local name="lima"
@@ -4236,9 +4560,13 @@ __setup_zed() {
   fi
 
   if __download_extract_install "$download_url" "$installDir" "$tempBin" "$binFile" && __is_installed "$name" "$binFile"; then
-    cp -Rf "$installDir/share/applications/zed.desktop" "$HOME/.local/share/applications/Zed-Editor.desktop"
-    sed -i "s|Icon=zed|Icon=$installDir/share/icons/hicolor/512x512/apps/zed.png|g" "$HOME/.local/share/applications/Zed-Editor.desktop"
-    sed -i "s|Exec=zed|Exec=$installDir/libexec/zed-editor|g" "$HOME/.local/share/applications/Zed-Editor.desktop"
+    local zed_target_home="$(__target_home)"
+    local zed_apps_dir="$zed_target_home/.local/share/applications"
+    local zed_desktop="$zed_apps_dir/Zed-Editor.desktop"
+    __user_mkdir "$zed_apps_dir"
+    __run_as_user cp -Rf "$installDir/share/applications/zed.desktop" "$zed_desktop"
+    __run_as_user sed -i "s|Icon=zed|Icon=$installDir/share/icons/hicolor/512x512/apps/zed.png|g" "$zed_desktop"
+    __run_as_user sed -i "s|Exec=zed|Exec=$installDir/libexec/zed-editor|g" "$zed_desktop"
     __message_installed_ok "$name"
   else
     exitCode=1
@@ -4988,16 +5316,12 @@ __setup_plandex() {
     return 1
   fi
 
-  # Install CLI
+  # Install CLI from the upstream GitHub releases (no curl|sh).
   if __cmd_exists "$cli_name" && [ "$SETUPMGR_FORCE_INSTALL" != "true" ]; then
     printf_green "Plandex CLI is already installed"
   else
-    printf_green "Installing Plandex CLI"
-    if curl -sL https://plandex.ai/install.sh | bash |& __output_status; then
-      printf_green "Plandex CLI installed successfully"
-    else
+    if ! __install_from_archive "$cli_name" "$PLANDEX_GITREPO" "$SETUPMGR_DEFAULT_BIN_DIR"; then
       exitCode=1
-      printf_red "Failed to install Plandex CLI"
       return $exitCode
     fi
   fi
@@ -5676,17 +6000,18 @@ __setup_antigravity() {
   local exitCode=0
   local name="antigravity"
   local arch="$(uname -m)"
-  local install_dir="$HOME/.local/share/antigravity"
+  local target_home="$(__target_home)"
+  local install_dir="$target_home/.local/share/antigravity"
   local bin_dir="$SETUPMGR_DEFAULT_BIN_DIR"
-  local desktop_file="$HOME/.local/share/applications/antigravity.desktop"
+  local desktop_file="$target_home/.local/share/applications/antigravity.desktop"
   local version=""
   local installed_version=""
   if ! __require_desktop "$name"; then
     printf_yellow "Skipping $name installation on headless system"
     return 1
   fi
-  [ -d "$install_dir" ] || mkdir -p "$install_dir"
-  [ -d "$HOME/.local/share/applications" ] || mkdir -p "$HOME/.local/share/applications"
+  __user_mkdir "$install_dir"
+  __user_mkdir "$target_home/.local/share/applications"
   if __cmd_exists antigravity; then
     installed_version="$(__get_installed_version "$name")"
     if [ -n "$installed_version" ]; then
@@ -5782,15 +6107,19 @@ __setup_antigravity() {
     fi
   else
     printf_cyan "Installing from tarball..."
-    if curl -fsSL "$download_url" -o "$tmp_file" 2>/dev/null; then
+    if __download_to_file "$download_url" "$tmp_file"; then
       printf_green "Download complete"
       printf_cyan "Extracting to $install_dir..."
-      if tar -xzf "$tmp_file" -C "$install_dir" --strip-components=1 2>/dev/null; then
+      if __run_as_user tar -xzf "$tmp_file" -C "$install_dir" --strip-components=1 2>/dev/null; then
         printf_green "Extraction complete"
         if [ -f "$install_dir/antigravity" ]; then
-          chmod +x "$install_dir/antigravity"
-          ln -sf "$install_dir/antigravity" "$bin_dir/antigravity" 2>/dev/null
-          cat >"$desktop_file" <<EOF
+          __run_as_user chmod +x "$install_dir/antigravity"
+          if [ -w "$bin_dir" ]; then
+            ln -sf "$install_dir/antigravity" "$bin_dir/antigravity" 2>/dev/null
+          else
+            __sudo ln -sf "$install_dir/antigravity" "$bin_dir/antigravity" 2>/dev/null
+          fi
+          __run_as_user tee "$desktop_file" >/dev/null <<EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -5830,17 +6159,18 @@ __setup_zed() {
   local exitCode=0
   local name="zed"
   local arch="$(uname -m)"
-  local install_dir="$HOME/.local/share/zed"
+  local target_home="$(__target_home)"
+  local install_dir="$target_home/.local/share/zed"
   local bin_dir="$SETUPMGR_DEFAULT_BIN_DIR"
-  local desktop_file="$HOME/.local/share/applications/zed.desktop"
+  local desktop_file="$target_home/.local/share/applications/zed.desktop"
   local version=""
   local installed_version=""
   if ! __require_desktop "$name"; then
     printf_yellow "Skipping $name installation on headless system"
     return 1
   fi
-  [ -d "$install_dir" ] || mkdir -p "$install_dir"
-  [ -d "$HOME/.local/share/applications" ] || mkdir -p "$HOME/.local/share/applications"
+  __user_mkdir "$install_dir"
+  __user_mkdir "$target_home/.local/share/applications"
   if __cmd_exists zed; then
     installed_version="$(__get_installed_version "$name")"
     if [ -n "$installed_version" ]; then
@@ -5892,15 +6222,19 @@ __setup_zed() {
       exitCode=1
     fi
   else
-    if curl -fsSL "$download_url" -o "$tmp_file" 2>/dev/null; then
+    if __download_to_file "$download_url" "$tmp_file"; then
       printf_green "Download complete"
       printf_cyan "Extracting to $install_dir..."
-      if tar -xzf "$tmp_file" -C "$install_dir" --strip-components=1 2>/dev/null; then
+      if __run_as_user tar -xzf "$tmp_file" -C "$install_dir" --strip-components=1 2>/dev/null; then
         printf_green "Extraction complete"
         if [ -f "$install_dir/bin/zed" ]; then
-          chmod +x "$install_dir/bin/zed"
-          ln -sf "$install_dir/bin/zed" "$bin_dir/zed" 2>/dev/null
-          cat >"$desktop_file" <<EOF
+          __run_as_user chmod +x "$install_dir/bin/zed"
+          if [ -w "$bin_dir" ]; then
+            ln -sf "$install_dir/bin/zed" "$bin_dir/zed" 2>/dev/null
+          else
+            __sudo ln -sf "$install_dir/bin/zed" "$bin_dir/zed" 2>/dev/null
+          fi
+          __run_as_user tee "$desktop_file" >/dev/null <<EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -5939,9 +6273,10 @@ __setup_lapce() {
   local exitCode=0
   local name="lapce"
   local arch="$(uname -m)"
-  local install_dir="$HOME/.local/share/lapce"
+  local target_home="$(__target_home)"
+  local install_dir="$target_home/.local/share/lapce"
   local bin_dir="$SETUPMGR_DEFAULT_BIN_DIR"
-  local desktop_file="$HOME/.local/share/applications/lapce.desktop"
+  local desktop_file="$target_home/.local/share/applications/lapce.desktop"
   local release_url="https://api.github.com/repos/lapce/lapce/releases/latest"
   local version=""
   local installed_version=""
@@ -5949,8 +6284,8 @@ __setup_lapce() {
     printf_yellow "Skipping $name installation on headless system"
     return 1
   fi
-  [ -d "$install_dir" ] || mkdir -p "$install_dir"
-  [ -d "$HOME/.local/share/applications" ] || mkdir -p "$HOME/.local/share/applications"
+  __user_mkdir "$install_dir"
+  __user_mkdir "$target_home/.local/share/applications"
   version="$(__get_release_info "$release_url" '"tag_name"')"
   if [ -z "$version" ]; then
     printf_red "Failed to determine latest version for $name"
@@ -6012,15 +6347,19 @@ __setup_lapce() {
       exitCode=1
     fi
   else
-    if curl -fsSL "$download_url" -o "$tmp_file" 2>/dev/null; then
+    if __download_to_file "$download_url" "$tmp_file"; then
       printf_green "Download complete"
       printf_cyan "Extracting to $install_dir..."
-      if tar -xzf "$tmp_file" -C "$install_dir" 2>/dev/null; then
+      if __run_as_user tar -xzf "$tmp_file" -C "$install_dir" 2>/dev/null; then
         printf_green "Extraction complete"
         if [ -f "$install_dir/lapce" ]; then
-          chmod +x "$install_dir/lapce"
-          ln -sf "$install_dir/lapce" "$bin_dir/lapce" 2>/dev/null
-          cat >"$desktop_file" <<EOF
+          __run_as_user chmod +x "$install_dir/lapce"
+          if [ -w "$bin_dir" ]; then
+            ln -sf "$install_dir/lapce" "$bin_dir/lapce" 2>/dev/null
+          else
+            __sudo ln -sf "$install_dir/lapce" "$bin_dir/lapce" 2>/dev/null
+          fi
+          __run_as_user tee "$desktop_file" >/dev/null <<EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -6066,6 +6405,14 @@ SETUPMGR_CONFIG_BACKUP_DIR="${SETUPMGR_CONFIG_BACKUP_DIR:-$HOME/.local/share/mys
 SETUPMGR_LOG_DIR="${SETUPMGR_LOG_DIR:-$HOME/.local/log/setupmgr}"
 SETUPMGR_RUN_DIR="${SETUPMGR_RUN_DIR:-$HOME/.local/run/system_scripts/$SETUPMGR_SCRIPTS_PREFIX}"
 SETUPMGR_TEMP_DIR="${SETUPMGR_TEMP_DIR:-$HOME/.local/tmp/system_scripts/setupmgr}"
+# When invoked via sudo, $HOME may point at the unprivileged user's home and
+# any mkdir we do here would land in their home as root. Move staging to a
+# system tmp instead so we never create root-owned files inside $HOME.
+if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER:-}" != "root" ]; then
+  case "$SETUPMGR_TEMP_DIR" in
+  "$HOME"/* | /home/* | /Users/*) SETUPMGR_TEMP_DIR="/tmp/setupmgr-root" ;;
+  esac
+fi
 SETUPMGR_CACHE_DIR="${SETUPMGR_CACHE_DIR:-$HOME/.cache/setupmgr}"
 SETUPMGR_VERSIONS_FILE="${SETUPMGR_VERSIONS_FILE:-$SETUPMGR_CONFIG_DIR/versions}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -6114,7 +6461,7 @@ if [ -z "$SETUPMGR_DEFAULT_SHARE_DIR" ]; then
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dog dotnet dua duf dust earthly entr evans exa eza fabric fastfetch fd fnm fzf fx garage gh ghz git-cliff gitleaks gitui glow golang gohttpserver gpt grex gron grype grpcurl gvm helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama_cpp llm localai lsd lua mc miller mise minio minikube mods nix nodejs nushell nvm oha ollama opentofu packer pipx plandex podman powershell procs rbenv ripgrep ruff rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task tgpt tig tilt tldr tokei traefik trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd wrk xcaddy xh xsv yq zed zellij zig zoxide}"
+SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dog dotnet dua duf dust earthly entr evans exa eza fabric fastfetch fd fnm fzf fx garage gh ghz git-cliff gitleaks gitui glow golang gohttpserver gpt grex gron grype grpcurl gvm helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama_cpp llm localai lsd lua mc miller mise minio minikube mods nix nodejs nushell nvm oha ollama opencode opentofu packer pipx plandex podman powershell procs rbenv ripgrep ruff rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task tgpt tig tilt tldr tokei traefik trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd wrk xcaddy xh xsv yq zed zellij zig zoxide}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LUA_JIT_VERSION="${LUA_JIT_VERSION:-2.0.5}"
 LUA_DEFAULT_VERSION="${LUA_DEFAULT_VERSION:-5.4.3}"
@@ -6128,10 +6475,10 @@ ASDF_GITREPO="${ASDF_GITREPO:-https://github.com/asdf-vm/asdf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 DBX_HOME="${DBX_HOME:-$HOME/.local/share/distrobox}"
 DISTROBOX_HOME="${DISTROBOX_HOME:-$DBX_HOME}"
-DISTROBOX_SCRIPT_URL="${DISTROBOX_SCRIPT_URL:-https://raw.githubusercontent.com/89luca89/distrobox/main/install}"
+DISTROBOX_GITREPO="${DISTROBOX_GITREPO:-https://github.com/89luca89/distrobox}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.local/share/dotnet}"
-DOTNET_SCRIPT_URL="${DOTNET_SCRIPT_URL:-https://dot.net/v1/dotnet-install.sh}"
+DOTNET_CHANNEL="${DOTNET_CHANNEL:-LTS}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 GVM_ROOT="${GVM_ROOT:-$HOME/.local/share/gvm}"
 GVM_GITREPO="${GVM_GITREPO:-https://github.com/moovweb/gvm}"
@@ -6143,12 +6490,42 @@ VAGRANT_CLOUD_TOKEN="${VAGRANT_CLOUD_TOKEN:-}"
 VAGRANT_CLOUD_USERNAME="${VAGRANT_CLOUD_USERNAME:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 FNM_DIR="${FNM_DIR:-$HOME/.local/share/nodejs/fnm}"
+FNM_BIN="${FNM_BIN:-$HOME/.local/bin}"
 FNM_NODE_VERSION="${FNM_NODE_VERSION:-latest}"
-FNM_INSTALL_SCRIPT="${FNM_INSTALL_SCRIPT:-https://raw.githubusercontent.com/Schniz/fnm/master/.ci/install.sh}"
+FNM_GITREPO="${FNM_GITREPO:-Schniz/fnm}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 NVM_NODE_VERSION="${NVM_NODE_VERSION:-22}"
 NVM_DIR="${NVM_DIR:-$HOME/.local/share/nodejs/nvm}"
+NVM_BIN="${NVM_BIN:-$HOME/.local/bin}"
 NVM_GITREPO="${NVM_GITREPO:-https://github.com/nvm-sh/nvm}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/nodejs/pnpm}"
+NPM_PACKAGES="${NPM_PACKAGES:-$HOME/.local/share/nodejs/modules}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+RUST_HOME="${RUST_HOME:-$HOME/.local/share/rust}"
+CARGO_HOME="${CARGO_HOME:-$HOME/.local/share/cargo}"
+RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.local/share/rustup}"
+RUSTUP_GITREPO="${RUSTUP_GITREPO:-rust-lang/rustup}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+DENO_INSTALL="${DENO_INSTALL:-$HOME/.local/share/deno}"
+DENO_GITREPO="${DENO_GITREPO:-denoland/deno}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+PIPX_HOME="${PIPX_HOME:-$HOME/.local/share/python/pipx}"
+PIPX_BIN_DIR="${PIPX_BIN_DIR:-$HOME/.local/bin}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+GODIR="${GODIR:-$HOME/.local/share/go}"
+GOPATH="${GOPATH:-$GODIR}"
+GOBIN="${GOBIN:-$GODIR/bin}"
+GOCACHE="${GOCACHE:-$GODIR/build}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+VOLTA_HOME="${VOLTA_HOME:-$HOME/.local/share/nodejs/volta}"
+VOLTA_GITREPO="${VOLTA_GITREPO:-volta-cli/volta}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+DEVBOX_GITREPO="${DEVBOX_GITREPO:-jetify-com/devbox}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+NIX_INSTALLER_GITREPO="${NIX_INSTALLER_GITREPO:-DeterminateSystems/nix-installer}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+PLANDEX_GITREPO="${PLANDEX_GITREPO:-plandex-ai/plandex}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 POWERSHELL_TEMP_DIR="${POWERSHELL_TEMP_DIR:-$SETUPMGR_TEMP_DIR/powershell}"
 POWERSHELL_INSTALL_DIR="${POWERSHELL_INSTALL_DIR:-$HOME/.local/share/powershell}"
@@ -6201,11 +6578,11 @@ NODE_NPM_PACKAGES="${NODE_NPM_PACKAGES:-vercel prettier eslint npm-check-updates
 # Import config
 [ -f "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE" ] && . "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
-[ -d "$SETUPMGR_RUN_DIR" ] || mkdir -p "$SETUPMGR_RUN_DIR" |& __devnull
-[ -d "$SETUPMGR_LOG_DIR" ] || mkdir -p "$SETUPMGR_LOG_DIR" |& __devnull
+# Ensure Directories exist. The user-scoped ones (LOG, CACHE, RUN, CONFIG)
+# are created under the invoker's home as that user, never as root, so
+# setupmgr never leaves root-owned dirs in someone else's $HOME under sudo.
+__user_mkdir "$SETUPMGR_RUN_DIR" "$SETUPMGR_LOG_DIR" "$SETUPMGR_CACHE_DIR" "$SETUPMGR_CONFIG_DIR" |& __devnull
 [ -d "$SETUPMGR_TEMP_DIR" ] || mkdir -p "$SETUPMGR_TEMP_DIR" |& __devnull
-[ -d "$SETUPMGR_CACHE_DIR" ] || mkdir -p "$SETUPMGR_CACHE_DIR" |& __devnull
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 SETUPMGR_TEMP_FILE="${SETUPMGR_TEMP_FILE:-$(mktemp $SETUPMGR_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -6224,7 +6601,7 @@ LONGOPTS="completions:,config,reset-config,configure,debug,dir:,help,options,raw
 LONGOPTS+="system,all,$GET_OPTIONS_NO,$GET_OPTIONS_YES"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="act,aichat,asdf,bat,bob,bun,caddy,coder,delta,deno,devbox,direnv,distrobox,dotnet,dust,exa,fabric,fastfetch,fd,fnm,fzf,garage,gh,glow,go,gohttpserver,"
-ARRAY+="gpt,gvm,helm,incus,jekyll,jless,just,kind,kubectl,lapce,lazydocker,lazygit,lima,llama-cpp,llm,lua,mc,minikube,minio_server,mods,nix,nodejs,nvm,ollama,opentofu,"
+ARRAY+="gpt,gvm,helm,incus,jekyll,jless,just,kind,kubectl,lapce,lazydocker,lazygit,lima,llama-cpp,llm,lua,mc,minikube,minio_server,mods,nix,nodejs,nvm,ollama,opencode,opentofu,"
 ARRAY+="packer,pipx,podman,powershell,procs,rbenv,remove,ripgrep,rvm,speedtest,starship,tokei,traefik,uv,vagrant,vfox,webhookd,yq,zed,zoxide,"
 ARRAY+="claude,copilot,codex,openclaw,vercel,prettier,eslint,npm-check-updates"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -6395,7 +6772,16 @@ export SETUPMGR_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 #requiresudo "$0" "$@" || exit 2     # exit 2 if errors
-cmd_exists --error --ask bash curl tar unzip || exit 3 # exit 3 if not found
+# Verify the small set of binaries every install path depends on. Use the
+# local __cmd_exists rather than calling out to the external `cmd_exists`
+# helper, which would create its own ~/.cache/cmd_exists dir as root.
+for __setupmgr_required in bash curl tar unzip; do
+  if ! __cmd_exists "$__setupmgr_required"; then
+    printf_red "Missing required dependency: $__setupmgr_required"
+    exit 3
+  fi
+done
+unset __setupmgr_required
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
@@ -6785,6 +7171,11 @@ while [ $# -gt 0 ]; do
     SETUPMGR_LAST_TOOL="ollama"
     shift 1
     __setup_ollama
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  opencode)
+    shift 1
+    __setup_opencode
     SETUPMGR_EXIT_STATUS=$?
     ;;
   opentofu)

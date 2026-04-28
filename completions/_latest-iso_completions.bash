@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202604210445-git
+##@Version           :  202604281008-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -28,9 +28,10 @@ _latest-iso() {
   local OPTS=""
   local SHORTOPTS="-C"
   local LONGOPTS="--raw --debug --completions --options --version --help --config --silent --dir --force --all --ask --filename --arch --release --name --test"
-  local ARRAY="aeryn alma alpine arch archcraft bazzite blackarch cachy centos chimera clonezilla debian endeavour fedora flatcar "
-  local ARRAY+="freenas garuda gentoo gparted heads hirens kali manjaro nixos nobara opensuse openvz parrot peppermint pfsense "
-  local ARRAY+="photon popos proxmox redcore rocky solus tails tiny ubuntu vanilla void xcp-ng"
+  local SUBCMDS="all gui iso server"
+  local ARRAY="aeryn alma alpine arch archcraft bazzite blackarch cachy centos chimera clonezilla debian debian-server endeavour fedora flatcar "
+  local ARRAY+="freenas garuda gentoo gparted heads hirens kali mac macos manjaro nixos nobara opensuse openvz osx parrot peppermint pfsense "
+  local ARRAY+="photon pop popos proxmox redcore rocky serpent solus tails tiny ubuntu ubuntu-server vanilla void xcp-ng"
 
   _init_completion || return
 
@@ -73,8 +74,25 @@ _latest-iso() {
       return
       ;;
 
+    --completions)
+      COMPREPLY=($(compgen -W 'long short array list' -- "${cur}"))
+      ;;
+
+    --filename | --name | --arch | --release)
+      COMPREPLY=()
+      ;;
+
+    iso)
+      _filedir
+      return
+      ;;
+
+    server)
+      COMPREPLY=($(compgen -W 'debian ubuntu cachy' -- "${cur}"))
+      ;;
+
     *)
-      COMPREPLY=($(compgen -W '--all ${ARRAY}' -- "${cur}"))
+      COMPREPLY=($(compgen -W '${SUBCMDS} ${ARRAY}' -- "${cur}"))
       ;;
     esac
   fi

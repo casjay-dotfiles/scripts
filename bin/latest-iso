@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202604210445-git
+##@Version           :  202604281008-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 12, 2022 15:05 EDT
 # @@File             :  latest-iso
 # @@Description      :  Find and download the latest ISO for a given distro
-# @@Changelog        :  Cache tput escapes at init (~38 forks/print saved); dirname -> ${var%/*}; echo|sed|grep pipelines -> bash [[ =~ ]] / BASH_REMATCH; simplify __filesize_local
+# @@Changelog        :  parrot: walk newest->oldest until a release publishes a matching ISO/torrent (skip empty staging dirs like 7.2/); torrents resolved via __find_iso now dispatch through __get_torrent instead of being curl-downloaded as plain files; clearer error when only torrents are published and no client is installed (lists install commands per package manager). __help/man/completion reconciled with the script's actual case block - documented missing distros (clonezilla, gparted, hirens, macos, redcore, xcp-ng), debian-server/ubuntu-server, the iso/gui/all/server subcommands, and the --silent/--ask/--filename/--arch/--test/--completions/-C options; completion now offers subcommands and aliases (mac/osx/serpent/pop).
 # @@TODO             :  Refactor code
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202604210445-git"
+VERSION="202604281008-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -240,55 +240,83 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "latest-iso:  Find and download the latest ISO for a given distro - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: latest-iso [options] [commands]"
-  __printf_line "Any distro below accepts =<version> to pin (e.g. alma=9, ubuntu=24.04);"
+  __printf_line "Usage: latest-iso [options] [command|distro[=version]] [distro[=version] ...]"
+  __printf_line "Any distro below accepts =<version> to pin a specific release;"
   __printf_line "env LATEST_ISO_<DISTRO>_RELEASE serves as the default when no =<ver> is given."
   __printf_line "Rolling releases accept =<ver> but emit a notice and fetch latest."
-  __printf_line "iso [url] [name.iso]            - Set custom iso url and iso name"
-  __printf_line "alma                            - Download almalinux"
-  __printf_line "alpine                          - Download alpinelinux"
-  __printf_line "aeryn                           - Download aerynos (serpent)"
-  __printf_line "arch                            - Download archlinux"
-  __printf_line "archcraft                       - Download archcraft"
-  __printf_line "bazzite                         - Download bazzite"
-  __printf_line "blackarch                       - Download blackarch"
-  __printf_line "cachy                           - Download cachylinux"
-  __printf_line "centos                          - Download centos"
-  __printf_line "chimera                         - Download chimera"
-  __printf_line "debian                          - Download debian"
-  __printf_line "endeavour                       - Download endeavour"
-  __printf_line "fedora                          - Download fedora"
-  __printf_line "flatcar                         - Download flatcar"
-  __printf_line "freenas                         - Download freenas"
-  __printf_line "garuda                          - Download garuda"
-  __printf_line "heads                           - Download heads"
-  __printf_line "kali                            - Download kali"
-  __printf_line "manjaro                         - Download manjaro"
-  __printf_line "nixos                           - Download nixos"
-  __printf_line "nobara                          - Download nobara"
-  __printf_line "openvz                          - Download openvz"
-  __printf_line "parrot                          - Download parrot"
-  __printf_line "peppermint                      - Download peppermint"
-  __printf_line "pfsense                         - Download pfsense"
-  __printf_line "photon                          - Download photon"
-  __printf_line "popos                           - Download pop!_os"
-  __printf_line "proxmox                         - Download proxmox"
-  __printf_line "rocky                           - Download rockylinux"
-  __printf_line "solus                           - Download solus"
-  __printf_line "ubuntu                          - Download ubuntu"
-  __printf_line "vanilla                         - Download vanilla os"
-  __printf_line "void                            - Download voidlinux"
-  __printf_line "tails                           - Download tails"
-  __printf_line "tiny                            - Download tiny"
+  __printf_line ""
+  __printf_line "Subcommands:"
+  __printf_line "iso <url> [name.iso]            - Download a custom ISO/archive/torrent URL"
+  __printf_line "gui                             - Launch graphical picker (zenity/yad)"
+  __printf_line "all                             - Download every supported distro (alias of --all)"
+  __printf_line "server <debian|ubuntu|cachy>    - Server edition for the named distro (=ver supported)"
+  __printf_line ""
+  __printf_line "Linux distros:"
+  __printf_line "aeryn (alias: serpent)          - Download AerynOS (formerly Serpent OS)"
+  __printf_line "alma                            - Download AlmaLinux"
+  __printf_line "alpine                          - Download Alpine Linux"
+  __printf_line "arch                            - Download Arch Linux"
+  __printf_line "archcraft                       - Download Archcraft"
+  __printf_line "bazzite                         - Download Bazzite"
+  __printf_line "blackarch                       - Download BlackArch"
+  __printf_line "cachy                           - Download CachyOS"
+  __printf_line "centos                          - Download CentOS Stream"
+  __printf_line "chimera                         - Download Chimera Linux"
+  __printf_line "debian                          - Download Debian (use 'server debian' for server)"
+  __printf_line "endeavour                       - Download EndeavourOS"
+  __printf_line "fedora                          - Download Fedora"
+  __printf_line "flatcar                         - Download Flatcar Container Linux"
+  __printf_line "garuda                          - Download Garuda Linux"
+  __printf_line "gentoo                          - Download Gentoo"
+  __printf_line "kali                            - Download Kali Linux"
+  __printf_line "manjaro                         - Download Manjaro"
+  __printf_line "nixos                           - Download NixOS"
+  __printf_line "nobara                          - Download Nobara"
+  __printf_line "opensuse                        - Download openSUSE"
+  __printf_line "parrot                          - Download Parrot OS"
+  __printf_line "peppermint                      - Download Peppermint OS"
+  __printf_line "photon                          - Download VMware Photon OS"
+  __printf_line "popos (alias: pop)              - Download Pop!_OS"
+  __printf_line "redcore                         - Download Redcore Linux"
+  __printf_line "rocky                           - Download Rocky Linux"
+  __printf_line "solus                           - Download Solus"
+  __printf_line "tiny                            - Download Tiny Core Linux"
+  __printf_line "ubuntu                          - Download Ubuntu (use 'server ubuntu' for server)"
+  __printf_line "vanilla                         - Download Vanilla OS"
+  __printf_line "void                            - Download Void Linux"
+  __printf_line ""
+  __printf_line "macOS:"
+  __printf_line "macos (alias: mac, osx)         - Download macOS recovery (BaseSystem.dmg)"
+  __printf_line ""
+  __printf_line "Privacy / security / recovery:"
+  __printf_line "clonezilla                      - Download Clonezilla Live"
+  __printf_line "gparted                         - Download GParted Live"
+  __printf_line "heads                           - Download Heads (Tails-derived)"
+  __printf_line "hirens                          - Download Hiren's BootCD PE"
+  __printf_line "tails                           - Download Tails"
+  __printf_line ""
+  __printf_line "Hypervisor / NAS / network:"
+  __printf_line "freenas                         - Download FreeNAS / TrueNAS"
+  __printf_line "openvz                          - Download OpenVZ template"
+  __printf_line "pfsense                         - Download pfSense"
+  __printf_line "proxmox                         - Download Proxmox VE"
+  __printf_line "xcp-ng                          - Download XCP-ng"
+  __printf_line ""
+  __printf_line "Options:"
   __printf_line "--all                           - Download all ISOs"
-  __printf_line "--force                         - Force overwriting of ISO"
-  __printf_line "--release                       - Sets the release to search for"
-  __printf_line "--dir                           - Sets the download directory"
+  __printf_line "--force                         - Force overwrite of existing ISO"
+  __printf_line "--dir <path>                    - Set download directory"
+  __printf_line "--filename <name>               - Override saved filename (used with 'iso')"
+  __printf_line "--arch <arch>                   - Override system arch detection (x86_64|aarch64|...)"
+  __printf_line "--silent                        - Suppress non-error output"
+  __printf_line "--ask                           - Print the supported distro array and exit"
+  __printf_line "-C                              - Allow overwriting (sets LATEST_ISO_OVERWRITE=yes)"
   __printf_line "--test [distro...]              - Dry-run: resolve URL, HEAD it, print a table row"
   __printf_line "--test --all                    - Dry-run every distro (latest only)"
-  __printf_line "--test=<sec>                    - Same as --test but with a custom HEAD timeout (default 5)"
+  __printf_line "--test=<sec>                    - --test with a custom HEAD timeout (default 5)"
   __printf_line ""
   __printf_line "URL resolution tries .iso -> .torrent automatically when upstream only has torrents."
+  __printf_line "Torrent fallback requires aria2c, transadd, or transmission-remote."
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -296,6 +324,8 @@ __help() {
   __printf_line "--config                        - Generate user config file"
   __printf_line "--version                       - Show script version"
   __printf_line "--options                       - Shows all available options"
+  __printf_line "--completions <long|short|array|list>"
+  __printf_line "                                - Emit completions for shell wrappers"
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--raw                           - Removes all formatting on output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -970,6 +1000,28 @@ __latest_iso() {
     file="${2:-$file}"
     archive_iso_name="${3:-$archive_iso_name}"
     latest=$(__find_iso "$url")
+    # If __find_iso could not resolve a direct .iso/archive but the listing carries
+    # only torrents, surface that explicitly so the user knows why and what to install,
+    # rather than the generic "No iso found" which hides the real reason.
+    if [ -z "$latest" ] && [[ "$url" =~ ^(https?|ftp):// ]]; then
+      local body torrent_count
+      body="$(__curl "$url" 2>/dev/null)"
+      if [ -n "$body" ]; then
+        torrent_count="$(printf '%s' "$body" | __strip_href | __grep -cE '\.(iso|img|dmg|tar|gz|xz|bz2|7z|zip)\.torrent$')"
+        if [ "${torrent_count:-0}" -gt 0 ]; then
+          printf_red "No direct ISO found on ${url:-$real_url}; only torrent files are published"
+          if ! { __cmd_exists aria2c || __cmd_exists transadd || __cmd_exists transmission-remote; }; then
+            printf_yellow "Install a torrent client to download these (aria2 recommended):"
+            printf_yellow "  Debian/Ubuntu/Kali/Parrot: sudo apt install aria2"
+            printf_yellow "  Fedora/RHEL/Alma/Rocky:    sudo dnf install aria2"
+            printf_yellow "  Arch/Manjaro:              sudo pacman -S aria2"
+            printf_yellow "  Alpine:                    sudo apk add aria2"
+            printf_yellow "  macOS (Homebrew):          brew install aria2"
+          fi
+          return 1
+        fi
+      fi
+    fi
     localname=${latest##*/}
     download_dir="${2:-$LATEST_ISO_DOWNLOAD_DIR/$localname}"
     download_dir="${download_dir%/*}"
@@ -981,7 +1033,15 @@ __latest_iso() {
     [ -n "$latest" ] || { printf_red "No iso found on ${url:-$real_url}\n" && return 1; }
     # Validate that $latest ends in a recognized ISO/archive/torrent extension without forking.
     [[ "$latest" =~ \.(iso|dmg|tar|gz|xz|bz2|7z|zip|torrent)$ ]] || { printf_red "$latest seems to be invalid\n" && return 1; }
-    __grab_iso "$latest" "$download_file" "$archive_iso_name" && exitCode="0" || exitCode="2"
+    # If __find_iso fell back to a .torrent (no direct ISO published), dispatch through
+    # the torrent client path instead of curl-downloading the .torrent metadata file as
+    # if it were the ISO. This also surfaces the "no torrent client installed" error
+    # cleanly when the user lacks aria2c/transadd/transmission-remote.
+    if [[ "$latest" == *.torrent ]] || [[ "$latest" == magnet:* ]]; then
+      __get_torrent "$latest" && exitCode="0" || exitCode="3"
+    else
+      __grab_iso "$latest" "$download_file" "$archive_iso_name" && exitCode="0" || exitCode="2"
+    fi
   fi
   if [ "$exitCode" = 0 ]; then
     exitCode=0
@@ -1561,7 +1621,14 @@ __get_torrent() {
         printf_red "Downloading of $torrent_name has failed: transmission-remote error"
       fi
     else
-      printf_red "No torrent client found (aria2c, transadd, or transmission-remote)"
+      printf_red "Torrent download requires a torrent client; none of aria2c, transadd, or transmission-remote is installed"
+      printf_yellow "URL: $torrent_url"
+      printf_yellow "Install one of: aria2 (aria2c) | transmission-cli (transmission-remote)"
+      printf_yellow "  Debian/Ubuntu/Kali/Parrot: sudo apt install aria2"
+      printf_yellow "  Fedora/RHEL/Alma/Rocky:    sudo dnf install aria2"
+      printf_yellow "  Arch/Manjaro:              sudo pacman -S aria2"
+      printf_yellow "  Alpine:                    sudo apk add aria2"
+      printf_yellow "  macOS (Homebrew):          brew install aria2"
       exitTCode=1
     fi
   fi
@@ -2031,15 +2098,31 @@ __latest_list() {
     ;;
   parrot|parrot=*)
     shift 1
-    local version=""
+    local version="" candidate_versions="" candidate=""
     __parse_version "$system_iso" "LATEST_ISO_PARROT_RELEASE"; version="$LATEST_ISO_VERSION"
     ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/parrot.iso"
     real_url="$LATEST_ISO_PARROT_URL"
-    release="${version:-$(__curl "$LATEST_ISO_PARROT_URL" | __sort_v | __grep -vi '[a-z]' | head -n1)}"
-    iso_url_filename="$(__curl "$LATEST_ISO_PARROT_URL/$release" | __strip_href | __grep -i "$LATEST_ISO_PARROT_FLAVOR" | __strip_iso)"
-    # Older releases (<7.x) only publish .torrent on this mirror. Fall back to matching
-    # .iso.torrent with the same flavor filter so we pick security, not home/core/htb.
-    [ -n "$iso_url_filename" ] || iso_url_filename="$(__try_torrent_fallback "$LATEST_ISO_PARROT_URL/$release" "$LATEST_ISO_PARROT_FLAVOR")"
+    iso_url_filename=""
+    release=""
+    # Mirrors frequently publish an empty next-release directory before the build is
+    # uploaded (e.g. 7.2/ exists but contains no files while 7.1 is still current).
+    # Walk newest→oldest until we find a release that actually carries our flavor's
+    # ISO (or, failing that, a matching torrent).
+    if [ -n "$version" ]; then
+      candidate_versions="$version"
+    else
+      candidate_versions="$(__curl "$LATEST_ISO_PARROT_URL" | __sort_v | __grep -vi '[a-z]' | head -n5)"
+    fi
+    for candidate in $candidate_versions; do
+      candidate="${candidate%/}"
+      [ -n "$candidate" ] || continue
+      iso_url_filename="$(__curl "$LATEST_ISO_PARROT_URL/$candidate" | __strip_href | __grep -i "$LATEST_ISO_PARROT_FLAVOR" | __strip_iso)"
+      [ -n "$iso_url_filename" ] || iso_url_filename="$(__try_torrent_fallback "$LATEST_ISO_PARROT_URL/$candidate" "$LATEST_ISO_PARROT_FLAVOR")"
+      if [ -n "$iso_url_filename" ]; then
+        release="$candidate"
+        break
+      fi
+    done
     iso_url="$LATEST_ISO_PARROT_URL/$release/$iso_url_filename"
     __latest_iso "$iso_url" "$ISOFILE"
     statusCode=$(($? + $statusCode))

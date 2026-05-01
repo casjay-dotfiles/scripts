@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605011518-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 22:58 EDT
 # @@File             :  cloudflare
 # @@Description      :  cloudflare api script
-# @@Changelog        :  Added auto-tunnel creation, token persistence, enhanced IP detection
+# @@Changelog        :  Fix DNS bugs (AAAA path, CNAME type, FQDN match, delete, --record parser); honor env IDs.
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :  https://gist.github.com/benkulbertis/fff10759c2391b6618dd
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202602020740-git"
+VERSION="202605011518-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -155,7 +155,16 @@ __gen_config() {
     cp -Rf "$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE" "$CLOUDFLARE_CONFIG_BACKUP_DIR/$CLOUDFLARE_CONFIG_FILE.$$"
   cat <<EOF >"$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE"
 # Settings for cloudflare
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Required for every API call (Global API Key auth uses both)
+CLOUDFLARE_EMAIL="${CLOUDFLARE_EMAIL:-}"
 CLOUDFLARE_API_KEY="${CLOUDFLARE_API_KEY:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Optional pre-resolved IDs. When set, the script skips the lookup API call. Convenient for cron jobs and CI runners.
+CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
+CLOUDFLARE_ZONE_ID="${CLOUDFLARE_ZONE_ID:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# DNS defaults. Overridable per-call with --record / --zone / etc.
 CLOUDFLARE_TUNNEL_KEY="${CLOUDFLARE_TUNNEL_KEY:-}"
 CLOUDFLARE_HOSTNAME="${CLOUDFLARE_HOSTNAME:-}"
 CLOUDFLARE_DNS_TYPE="${CLOUDFLARE_DNS_TYPE:-A}"
@@ -233,11 +242,27 @@ __help() { #     --id[zone/record]
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--raw                           - Removes all formatting on output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Environment Variables"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Required for every API call:"
+  __printf_line "  CLOUDFLARE_EMAIL       - account email"
+  __printf_line "  CLOUDFLARE_API_KEY     - Global API Key"
+  __printf_line "Optional pre-resolved IDs (skip lookup API calls):"
+  __printf_line "  CLOUDFLARE_ZONE_ID     - skips zones lookup"
+  __printf_line "  CLOUDFLARE_ACCOUNT_ID  - skips accounts lookup (used by tunnel)"
+  __printf_line "Other:"
+  __printf_line "  CLOUDFLARE_ZONE_NAME   - default zone for record commands"
+  __printf_line "  CLOUDFLARE_ADDR_IPv4   - skip IPv4 auto-detect"
+  __printf_line "  CLOUDFLARE_ADDR_IPv6   - skip IPv6 auto-detect"
+  __printf_line "  CLOUDFLARE_TUNNEL_KEY  - pre-existing tunnel token"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Notes"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "• Tunnel command automatically creates and saves tunnel tokens"
-  __printf_line "• Tokens saved to: ~/.config/myscripts/cloudflare/tunnel-hostname"
-  __printf_line "• Requires: CLOUDFLARE_API_KEY and CLOUDFLARE_EMAIL for tunnel creation"
+  __printf_line "• Tunnel command auto-creates and saves tunnel tokens"
+  __printf_line "• Tokens saved to: ~/.config/myscripts/cloudflare/tunnel-<host>"
+  __printf_line "• ~/.config/secure/cloudflare.txt is sourced if present"
+  __printf_line "• Short hostnames (e.g. 'amd' for zone 'casjay.com') are auto-"
+  __printf_line "  expanded to FQDN when querying records"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -453,24 +478,38 @@ __load_tunnel_token() {
   }
 
   if [ -f "$token_file" ] && [ -r "$token_file" ]; then
-    cat "$token_file" 2>/dev/null | grep '^' || return 1
+    grep -sh '^' "$token_file" || return 1
   else
     return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_verify() {
-  curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/user/tokens/verify" 2>/dev/null | __jq -r '.messages | .[] | .message' | grep 'valid and active' || return 1
+  # Use /user (right endpoint for X-Auth-Email + X-Auth-Key auth); /user/tokens/verify is for Bearer auth and 400s here.
+  local results
+  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/user" 2>/dev/null)"
+  [ -n "$results" ] || return 1
+  if printf '%s' "$results" | __jq -e '.success == true' >/dev/null 2>&1; then
+    printf '%s' "$results" | __jq -r '"Authenticated as \(.result.email)"'
+    return 0
+  fi
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_account_id() {
-  local results=""
-  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/accounts" 2>/dev/null || echo '')"
-  if echo "$results" | __jq '.success' 2>/dev/null | grep -q 'false'; then
-    return 1
-  else
-    echo "$results" | __jq -r '.result[0].id' 2>/dev/null | grep '^'
+  if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+    printf '%s' "$CLOUDFLARE_ACCOUNT_ID"
+    return 0
   fi
+  local results id
+  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/accounts" 2>/dev/null)"
+  [ -n "$results" ] || return 1
+  if printf '%s' "$results" | __jq -e '.success == false' >/dev/null 2>&1; then
+    return 1
+  fi
+  id="$(printf '%s' "$results" | __jq -r '.result[0].id // empty')"
+  [ -n "$id" ] || return 1
+  printf '%s' "$id"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_tunnel() {
@@ -524,31 +563,73 @@ __get_tunnel_token() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__zone_identifier() {
-  local results=""
-  CLOUDFLARE_ZONE_NAME="${1:-$CLOUDFLARE_ZONE_NAME}"
-  [ -z "$CLOUDFLARE_ZONE_ID" ] || return 0
-  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones?per_page=1000&name=$CLOUDFLARE_ZONE_NAME" 2>/dev/null || echo '')"
-  if [ -z "$results" ] || echo "$results" | __jq '.success' 2>/dev/null | grep -q 'false'; then
-    exitCode="1"
-  else
-    echo "$results" | grep -Po '(?<="id":")[^"]*' | head -n1
-  fi
-  return ${exitCode:-0}
+# Build a Cloudflare record FQDN: @ -> zone (apex), * -> *.zone (wildcard), short -> short.zone, FQDN passes through.
+__cf_fqdn() {
+  local host="$1" zone="$2"
+  case "$host" in
+    "@" | "")
+      printf '%s' "$zone"
+      ;;
+    "*")
+      printf '*.%s' "$zone"
+      ;;
+    *.*)
+      printf '%s' "$host"
+      ;;
+    *)
+      printf '%s.%s' "$host" "$zone"
+      ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__record_identifier() {
-  local results="" id=""
-  local CLOUDFLARE_HOSTNAME="${1:-$CLOUDFLARE_HOSTNAME}"
-  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records" 2>/dev/null || echo '')"
-  if echo "$results" | __jq '.success' 2>/dev/null | grep -q 'false'; then
-    exitCode="1"
-  else
-    RECORD_RESULTS="$results"
-    id="$(echo "$results" | __jq -r '.result | .[]' | __jq -rc '{name:.name,id:.id,type:.type}' 2>/dev/null | grep '^{"name":"'$CLOUDFLARE_HOSTNAME'' | grep -Ew 'A|AAAA|CNAME' | __jq -rc '.id' 2>/dev/null | head -n1 | grep '^')"
-    [ -n "$id" ] && echo "$id" && exitCode=0 || exitCode=1
+__zone_identifier() {
+  CLOUDFLARE_ZONE_NAME="${1:-$CLOUDFLARE_ZONE_NAME}"
+  [ -z "$CLOUDFLARE_ZONE_ID" ] || {
+    printf '%s' "$CLOUDFLARE_ZONE_ID"
+    return 0
+  }
+  local results id
+  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones?per_page=1000&name=$CLOUDFLARE_ZONE_NAME" 2>/dev/null)"
+  [ -n "$results" ] || return 1
+  if printf '%s' "$results" | __jq -e '.success == false' >/dev/null 2>&1; then
+    return 1
   fi
-  return ${exitCode:-0}
+  id="$(printf '%s' "$results" | __jq -r '.result[0].id // empty')"
+  [ -n "$id" ] || return 1
+  printf '%s' "$id"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Print "<id> <type>" for each A/AAAA/CNAME under $CLOUDFLARE_ZONE_NAME matching $1; expands short names to FQDN first.
+__cf_records_for_host() {
+  local host="${1:-$CLOUDFLARE_HOSTNAME}"
+  local fqdn results
+  fqdn="$(__cf_fqdn "$host" "$CLOUDFLARE_ZONE_NAME")"
+  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records?per_page=1000&name=$fqdn" 2>/dev/null)"
+  [ -n "$results" ] || return 1
+  if printf '%s' "$results" | __jq -e '.success == false' >/dev/null 2>&1; then
+    return 1
+  fi
+  printf '%s' "$results" | __jq -r '
+    .result[]
+    | select(.type == "A" or .type == "AAAA" or .type == "CNAME")
+    | "\(.id) \(.type)"
+  '
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Print the first matching record id for $1; optional $2 narrows to A/AAAA/CNAME. rc=1 with no output if no match.
+__record_identifier() {
+  local host="${1:-$CLOUDFLARE_HOSTNAME}"
+  local want_type="${2:-}"
+  local line id type
+  while IFS=' ' read -r id type; do
+    [ -n "$id" ] || continue
+    if [ -n "$want_type" ] && [ "$type" != "$want_type" ]; then
+      continue
+    fi
+    printf '%s' "$id"
+    return 0
+  done < <(__cf_records_for_host "$host")
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __api() {
@@ -571,11 +652,20 @@ __api_full() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __delete_record() {
-  local exitStatus=0 results=""
-  printf_blue "Attempting to delete host"
-  results="$(curl -q -LSs -X DELETE -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$CLOUDFLARE_RECORD_ID" 2>/dev/null || echo '')"
-  echo "$results" >"$CLOUDFLARE_TEMP_FILE"
-  __message "Successfully deleted $CLOUDFLARE_HOSTNAME" || exitStatus=1
+  local host="${1:-$CLOUDFLARE_HOSTNAME}"
+  local exitStatus=0 results id type any=0
+  while IFS=' ' read -r id type; do
+    [ -n "$id" ] || continue
+    any=1
+    printf_blue "Attempting to delete $host ($type)"
+    results="$(curl -q -LSs -X DELETE -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$id" 2>/dev/null)"
+    printf '%s' "$results" >"$CLOUDFLARE_TEMP_FILE"
+    __message "Successfully deleted $host ($type)" || exitStatus=1
+  done < <(__cf_records_for_host "$host")
+  if [ "$any" = "0" ]; then
+    printf_yellow "No A/AAAA/CNAME records found for $host"
+    return 1
+  fi
   return $exitStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -595,6 +685,13 @@ __bulk_delete() {
   return $exitStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Upsert (host,type,content): try create, fall back to update. update self-resolves the id so RECORD_ID can't clobber.
+__cf_upsert() {
+  local host="$1" type="$2" content="$3"
+  __curl_record_create "$host" "$type" "$content" && return 0
+  __curl_record_update "$host" "$type" "$content"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_record() {
   local exitStatus=0
   CLOUDFLARE_HOSTNAME="${1:-$CLOUDFLARE_HOSTNAME}"
@@ -603,24 +700,29 @@ __create_record() {
   [ -n "$CLOUDFLARE_HOSTNAME" ] || CLOUDFLARE_HOSTNAME="$(hostname -s)"
   [ "$CLOUDFLARE_PROXY_ENABLED" = "yes" ] && CLOUDFLARE_PROXY_ENABLED=true
   [ "$CLOUDFLARE_PROXY_ENABLED" = "no" ] && CLOUDFLARE_PROXY_ENABLED=false
-  printf_blue "Attempting to create $CLOUDFLARE_HOSTNAME for zone: ${CLOUDFLARE_ZONE_NAME:-$CLOUDFLARE_ZONE_ID}"
-  if [ "$CLOUDFLARE_HOSTNAME" = '@' ]; then
-    __curl_record_create "www" "CNAME" "$CLOUDFLARE_ZONE_NAME" || __curl_record_update "www" "CNAME" "$CLOUDFLARE_ZONE_NAME"
-    __curl_record_create "@" "A" "$CLOUDFLARE_ADDR_IPv4" || __curl_record_update "@" "A" "$CLOUDFLARE_ADDR_IPv4"
+  printf_blue "Attempting to create $CLOUDFLARE_HOSTNAME ($CLOUDFLARE_DNS_TYPE) for zone: ${CLOUDFLARE_ZONE_NAME:-$CLOUDFLARE_ZONE_ID}"
+  if [ "$CLOUDFLARE_DNS_TYPE" = "CNAME" ]; then
+    # Single CNAME; content was set by __cloudflare_zone to $CLOUDFLARE_ZONE_NAME (or what the user passed via --ip).
+    __cf_upsert "$CLOUDFLARE_HOSTNAME" "CNAME" "$CLOUDFLARE_ADDR_IPv4"
+    __message "Successfully created/updated $CLOUDFLARE_HOSTNAME (CNAME)" || exitStatus=1
+  elif [ "$CLOUDFLARE_HOSTNAME" = '@' ]; then
+    # Apex: A + AAAA + www CNAME -> apex. www gets its own (host,type) lookup so the fallback patches the right record.
+    __cf_upsert "www" "CNAME" "$CLOUDFLARE_ZONE_NAME"
+    __cf_upsert "@" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
-      __curl_record_create "@" "AAAA" "$CLOUDFLARE_ADDR_IPv6" || __curl_record_update "@" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
+      __cf_upsert "@" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
     fi
     __message "Successfully created the record @" || exitStatus=1
   elif [ "$CLOUDFLARE_HOSTNAME" = '*' ]; then
-    __curl_record_create "*" "A" "$CLOUDFLARE_ADDR_IPv4" || __curl_record_update "*" "A" "$CLOUDFLARE_ADDR_IPv4"
+    __cf_upsert "*" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
-      __curl_record_create "*" "AAAA" "$CLOUDFLARE_ADDR_IPv6" || __curl_record_update "*" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
+      __cf_upsert "*" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
     fi
     __message "Successfully created the record *" || exitStatus=2
   elif [ -n "$CLOUDFLARE_HOSTNAME" ]; then
-    __curl_record_create "$CLOUDFLARE_HOSTNAME" "A" "$CLOUDFLARE_ADDR_IPv4" || __curl_record_update "$CLOUDFLARE_HOSTNAME" "A" "$CLOUDFLARE_ADDR_IPv4"
+    __cf_upsert "$CLOUDFLARE_HOSTNAME" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
-      __curl_record_create "$CLOUDFLARE_HOSTNAME" "AAAA" "$CLOUDFLARE_ADDR_IPv6" || __curl_record_update "$CLOUDFLARE_HOSTNAME" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
+      __cf_upsert "$CLOUDFLARE_HOSTNAME" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
     fi
     __message "Successfully created ${CLOUDFLARE_HOSTNAME}" || exitStatus=3
   else
@@ -636,9 +738,11 @@ __update_record() {
   CLOUDFLARE_PROXY_ENABLED="${2:-$CLOUDFLARE_PROXY_ENABLED}"
   [ "$CLOUDFLARE_PROXY_ENABLED" = "yes" ] && CLOUDFLARE_PROXY_ENABLED=true
   [ "$CLOUDFLARE_PROXY_ENABLED" = "no" ] && CLOUDFLARE_PROXY_ENABLED=false
-  [ -n "$CLOUDFLARE_RECORD_ID" ] || printf_exit "Failed to get record is for $CLOUDFLARE_HOSTNAME"
   printf_blue "Attempting to update host for zone: ${CLOUDFLARE_ZONE_NAME:-$CLOUDFLARE_ZONE_ID}"
-  if [ "$CLOUDFLARE_HOSTNAME" = '@' ]; then
+  if [ "$CLOUDFLARE_DNS_TYPE" = "CNAME" ]; then
+    __curl_record_update "$CLOUDFLARE_HOSTNAME" "CNAME" "$CLOUDFLARE_ADDR_IPv4"
+    __message "Successfully updated ${CLOUDFLARE_HOSTNAME} (CNAME)" || exitStatus=1
+  elif [ "$CLOUDFLARE_HOSTNAME" = '@' ]; then
     __curl_record_update "@" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
       __curl_record_update "@" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
@@ -665,20 +769,24 @@ __cloudflare_zone() {
   CLOUDFLARE_DNS_TYPE="${2:-$CLOUDFLARE_DNS_TYPE}"
   CLOUDFLARE_PROXY_ENABLED="${3:-$CLOUDFLARE_PROXY_ENABLED}"
   CLOUDFLARE_HOSTNAME="${CLOUDFLARE_HOSTNAME:-$CLOUDFLARE_ZONE_NAME}"
+  [ -n "$CLOUDFLARE_ZONE_NAME" ] || {
+    __usage
+    exit 1
+  }
   CLOUDFLARE_ZONE_ID="${CLOUDFLARE_ZONE_ID:-$(__zone_identifier "$CLOUDFLARE_ZONE_NAME")}"
   CLOUDFLARE_RECORD_ID="${CLOUDFLARE_RECORD_ID:-$(__record_identifier "$CLOUDFLARE_HOSTNAME")}"
   [ "$CLOUDFLARE_PROXY_ENABLED" = "no" ] && CLOUDFLARE_PROXY_ENABLED=false
   [ "$CLOUDFLARE_PROXY_ENABLED" = "yes" ] && CLOUDFLARE_PROXY_ENABLED=true
-  if [ "$CLOUDFLARE_DNS_TYPE" == "CNAME" ]; then
-    CLOUDFLARE_ADDR_IPv4="$CLOUDFLARE_ZONE_NAME"
-  elif [ "$CLOUDFLARE_DNS_TYPE" == "AAAA" ]; then
-    CLOUDFLARE_ADDR_IPv4=${CLOUDFLARE_ADDR_IPv4:-$(__get_ip6)}
-  else
-    CLOUDFLARE_ADDR_IPv4=${CLOUDFLARE_ADDR_IPv4:-$(__get_ip4)}
-  fi
   [ -n "$CLOUDFLARE_PROXY_ENABLED" ] || CLOUDFLARE_PROXY_ENABLED="true"
-  [ -n "$CLOUDFLARE_ADDR_IPv4" ] || CLOUDFLARE_ADDR_IPv4="$(__get_ip4)"
-  [ -n "$CLOUDFLARE_ZONE_NAME" ] || __usage $CLOUDFLARE_ZONE_NAME || exit 1
+  # Content per type: CNAME -> zone apex (or --ip), AAAA -> ADDR_IPv6 (else __get_ip6), A -> ADDR_IPv4 (else __get_ip4).
+  if [ "$CLOUDFLARE_DNS_TYPE" = "CNAME" ]; then
+    CLOUDFLARE_ADDR_IPv4="${CLOUDFLARE_ADDR_IPv4:-$CLOUDFLARE_ZONE_NAME}"
+  elif [ "$CLOUDFLARE_DNS_TYPE" = "AAAA" ]; then
+    CLOUDFLARE_ADDR_IPv6="${CLOUDFLARE_ADDR_IPv6:-$(__get_ip6)}"
+    CLOUDFLARE_ADDR_IPv4="$CLOUDFLARE_ADDR_IPv6"
+  else
+    CLOUDFLARE_ADDR_IPv4="${CLOUDFLARE_ADDR_IPv4:-$(__get_ip4)}"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __usage() {
@@ -698,7 +806,17 @@ __usage() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_zones() {
-  local resp="$(curl -q -LSs -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" "$CLOUDFLARE_API_URL/zones" | jq -rc '.[]|.[]|{name,id}' 2>/dev/null | jq -rc '[.name,.id]' | sed 's|,| : |g;s|"||g;s|\[||g;s|]||g' | grep '^')"
+  local results resp
+  results="$(curl -q -LSs -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" "$CLOUDFLARE_API_URL/zones?per_page=1000" 2>/dev/null)"
+  [ -n "$results" ] || {
+    printf_red "No response from API"
+    return 1
+  }
+  if printf '%s' "$results" | __jq -e '.success == false' >/dev/null 2>&1; then
+    printf_red "API error listing zones"
+    return 1
+  fi
+  resp="$(printf '%s' "$results" | __jq -r '.result[] | "\(.name) : \(.id)"')"
   if [ -n "$resp" ]; then
     printf_cyan "You have the following zones"
     printf_green "$resp"
@@ -708,18 +826,29 @@ __list_zones() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Returns 0 iff $CLOUDFLARE_TEMP_FILE parses as JSON with .success == true; replaces a brittle grep heuristic.
+__cf_response_succeeded() {
+  [ -s "$CLOUDFLARE_TEMP_FILE" ] || return 1
+  __jq -e '.success == true' "$CLOUDFLARE_TEMP_FILE" >/dev/null 2>&1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_record_create() {
   local exitCode=0
   curl -q -LSs -X POST -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" --data "{\"name\":\"$1\",\"type\":\"$2\",\"content\":\"$3\",\"ttl\":3600,\"priority\":0,\"proxied\":${CLOUDFLARE_PROXY_ENABLED}}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
-  grep -qshE "ERROR|An identical record" "$CLOUDFLARE_TEMP_FILE" && exitCode=1
+  __cf_response_succeeded || exitCode=1
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# PATCH (host,type); self-resolves id by (FQDN,type) so global RECORD_ID can't clobber. Args: host, type, content.
 __curl_record_update() {
-  local exitCode=0
-  curl -q -LSs -X PATCH -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" --data "{\"name\":\"$1\",\"ttl\":3600,\"type\":\"$2\",\"proxied\":${CLOUDFLARE_PROXY_ENABLED},\"content\":\"$3\"}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$CLOUDFLARE_RECORD_ID" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
-  grep -qshE "ERROR|An identical record" "$CLOUDFLARE_TEMP_FILE" && exitCode=1
-  #[ $exitCode -eq 0 ] && echo '{"success":true}' >"$CLOUDFLARE_TEMP_FILE"
+  local host="$1" type="$2" content="$3"
+  local exitCode=0 record_id
+  record_id="$(__record_identifier "$host" "$type")" || record_id=""
+  if [ -z "$record_id" ]; then
+    return 1
+  fi
+  curl -q -LSs -X PATCH -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" --data "{\"name\":\"$host\",\"ttl\":3600,\"type\":\"$type\",\"proxied\":${CLOUDFLARE_PROXY_ENABLED},\"content\":\"$content\"}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$record_id" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
+  __cf_response_succeeded || exitCode=1
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -770,7 +899,8 @@ CLOUDFLARE_TUNNEL_KEY="${CLOUDFLARE_TUNNEL_KEY:-}"
 CLOUDFLARE_HOSTNAME="${CLOUDFLARE_HOSTNAME:-$(hostname -s)}"
 CLOUDFLARE_ZONE_ID="${CLOUDFLARE_ZONE_ID:-}"
 CLOUDFLARE_ZONE_NAME="${CLOUDFLARE_ZONE_NAME:-}"
-CLOUDFLARE_API_KEY="${CLOUDFLARE_ZONE_KEY:-$CLOUDFLARE_API_KEY}"
+CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
+CLOUDFLARE_API_KEY="${CLOUDFLARE_API_KEY:-}"
 CLOUDFLARE_API_URL="${CLOUDFLARE_API_URL:-https://api.cloudflare.com/client/v4}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
@@ -930,7 +1060,8 @@ while :; do
     shift 2
     ;;
   --record)
-    CLOUDFLARE_HOSTNAME="$2"
+    # "Set the DNS record type" per --help; was wired to CLOUDFLARE_HOSTNAME so --record CNAME became a hostname.
+    CLOUDFLARE_DNS_TYPE="$2"
     shift 2
     ;;
   --key)
@@ -1047,11 +1178,22 @@ cron)
   shift 1
   __cloudflare_zone "$@"
   [ -n "$CLOUDFLARE_HOSTNAME" ] || printf_exit "Usage: $APPNAME cron HOST"
-  cat <<EOF >"/etc/cron.d/cloudflare_${CLOUDFLARE_HOSTNAME}"
+  # Sanitize hostname before using in filename: reject chars outside [A-Za-z0-9._-] to prevent escape of /etc/cron.d/.
+  case "$CLOUDFLARE_HOSTNAME" in
+    *[!A-Za-z0-9._-]*)
+      printf_exit "Invalid hostname for cron: $CLOUDFLARE_HOSTNAME"
+      ;;
+  esac
+  __user_is_root || printf_exit "cron writes to /etc/cron.d which requires root; rerun with sudo"
+  cron_script="$(realpath -- "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || printf '%s' "$0")"
+  cron_file="/etc/cron.d/cloudflare_${CLOUDFLARE_HOSTNAME//\//_}"
+  cat <<EOF >"$cron_file"
 # Cloudflare updater for $CLOUDFLARE_HOSTNAME
-*/5 * * * root $0 update $CLOUDFLARE_HOSTNAME >/dev/null 2>&1
+*/5 * * * * root $cron_script update $CLOUDFLARE_HOSTNAME >/dev/null 2>&1
 
 EOF
+  chmod 644 "$cron_file" 2>/dev/null
+  printf_green "Wrote $cron_file"
   ;;
 
 verify)
@@ -1088,21 +1230,24 @@ list)
   ;;
 
 *)
-  __cloudflare_zone "$@"
   if [ "$SET_API" = "full" ]; then
-    __api_full | __jq "{ \"zone_name\":.zone_name,\"name\":.name,\"id\":.id,\"zone_id\":.zone_id,\"type\":.type,\"content\":.content,\"proxiable\":.proxiable,\"proxied\":.proxied }"
+    __cloudflare_zone "$@"
+    __api_full | __jq '{ zone_name, name, id, zone_id, type, content, proxiable, proxied }'
   else
+    # Default `cloudflare` (no subcmd): prints values from env/settings.conf, no API call. Use list/verify for API.
+    [ -n "$CLOUDFLARE_API_KEY" ] && api_show="<set>" || api_show="<unset>"
     printf_green "Current settings for cloudflare"
-    printf_blue "Cloudflare Zone Name:   $CLOUDFLARE_ZONE_NAME"
-    printf_blue "Cloudflare Zone ID:     ${CLOUDFLARE_ZONE_ID:-error}"
-    printf_blue "Cloudflare API_Key:     $CLOUDFLARE_API_KEY"
-    printf_blue "Cloudflae user Email:   $CLOUDFLARE_EMAIL"
+    printf_blue "Cloudflare Zone Name:   ${CLOUDFLARE_ZONE_NAME:-<unset>}"
+    printf_blue "Cloudflare Zone ID:     ${CLOUDFLARE_ZONE_ID:-<unset; will lookup>}"
+    printf_blue "Cloudflare Account ID:  ${CLOUDFLARE_ACCOUNT_ID:-<unset; will lookup>}"
+    printf_blue "Cloudflare API Key:     $api_show"
+    printf_blue "Cloudflare user Email:  ${CLOUDFLARE_EMAIL:-<unset>}"
     printf_yellow "Current settings for the host"
     printf_cyan "Default Record:         $CLOUDFLARE_HOSTNAME"
-    printf_cyan "Default proxy:          $CLOUDFLARE_PROXY_ENABLED"
-    printf_cyan "Default DNS Type        $CLOUDFLARE_DNS_TYPE"
-    printf_cyan "Configured IP Address:  $CLOUDFLARE_ADDR_IPv4"
-    printf_cyan "Record ID:              ${CLOUDFLARE_RECORD_ID:-Might need to create the record}"
+    printf_cyan "Default proxy:          ${CLOUDFLARE_PROXY_ENABLED:-true}"
+    printf_cyan "Default DNS Type:       $CLOUDFLARE_DNS_TYPE"
+    printf_cyan "Configured IPv4:        ${CLOUDFLARE_ADDR_IPv4:-<auto-detect>}"
+    printf_cyan "Configured IPv6:        ${CLOUDFLARE_ADDR_IPv6:-<auto-detect>}"
   fi
   ;;
 esac

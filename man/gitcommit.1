@@ -1,5 +1,5 @@
 .\" Manpage for gitcommit
-.TH man 1 "02 February 2026" "202602020740-git" "gitcommit"
+.TH man 1 "01 May 2026" "202605011256-git" "gitcommit"
 
 .SH NAME
 gitcommit \- Self-contained Git repository commit management tool
@@ -345,6 +345,69 @@ Custom arguments for the AI command (e.g., "run mistral" for ollama, "-p --model
 .TP
 .B GITCOMMIT_LOG_SHOW_EXCLUDE
 Pipe-separated regex patterns to exclude from "log show" command (default: "Version Bump:"). Example: "Version Bump:|Merge|fixup"
+.TP
+.B GITCOMMIT_SIGNING_KEY
+GPG key id used for signing when neither the repo-local nor the global \fBuser.signingkey\fR is set. See \fBGPG SIGNING\fR below
+.TP
+.B GITCOMMIT_GPG_CACHE_TTL
+Target value (in seconds) for gpg-agent's \fBdefault-cache-ttl\fR, applied when \fBgitcommit --config\fR runs. Default \fB28800\fR (8 hours). Set to \fB0\fR/\fBno\fR/\fBoff\fR/\fBskip\fR/\fBfalse\fR/\fBdisabled\fR to leave \fI~/.gnupg/gpg-agent.conf\fR alone
+.TP
+.B GITCOMMIT_GPG_PASSPHRASE
+GPG passphrase for non-interactive contexts (CI/CD, AI agents). Loaded into gpg-agent at script startup. See \fBNON-INTERACTIVE PASSPHRASE\fR below
+.TP
+.B GITCOMMIT_GPG_PASSPHRASE_FILE
+Path to a file containing the GPG passphrase (intended mode \fB0600\fR). Used when \fB$GITCOMMIT_GPG_PASSPHRASE\fR is unset. When this var itself is unset, \fBgitcommit\fR auto-picks the first valid candidate from \fI/var/run/secrets/gpg/pass\fR (k8s/CI mount) then \fI~/.gnupg/commit_pass.txt\fR (per-user stash). Files must contain at least one non-blank line of actual text; empty or whitespace-only files are silently skipped
+.TP
+.B GITCOMMIT_GPG_PASSPHRASE_STDIN
+Set to \fB1\fR/\fBtrue\fR to read the passphrase from stdin at script startup. Used as the third fallback after env var and file
+.TP
+.B GITCOMMIT_GPG_KEYGRIP
+Manual override for the GPG keygrip used by \fBgpg-preset-passphrase\fR. Normally auto-detected via \fBgpg --with-keygrip\fR; override only if auto-detection fails
+
+.SH GPG SIGNING
+Every commit and version-bump made by \fBgitcommit\fR is signed. The signing key is resolved in this order:
+.IP \(bu 2
+Repo-local \fBgit config user.signingkey\fR (per-repo override always wins)
+.IP \(bu 2
+\fB$GITCOMMIT_SIGNING_KEY\fR env var (or \fBsettings.conf\fR entry)
+.IP \(bu 2
+Global \fBgit config --global user.signingkey\fR
+.IP \(bu 2
+If none of the above are set, \fBgitcommit\fR falls back to bare \fB-S\fR and lets gpg pick its default key
+.PP
+The same precedence applies to release tags created by \fBgitcommit release\fR; tags use \fB-s -u <keyid>\fR rather than \fB-S<keyid>\fR.
+.SS gpg-agent passphrase caching
+Running \fBgitcommit --config\fR (only the explicit invocation \(em not the silent auto-init that fires when \fBsettings.conf\fR is absent) updates \fI~/.gnupg/gpg-agent.conf\fR so the GPG passphrase is cached between commits. The update is idempotent and safe to re-run:
+.IP \(bu 2
+If \fBdefault-cache-ttl\fR or \fBmax-cache-ttl\fR is missing, it is appended
+.IP \(bu 2
+If present but lower than the target, it is replaced in-place; existing comments and unrelated directives (e.g. \fBpinentry-program\fR) are preserved
+.IP \(bu 2
+If already at or above the target, the file is left untouched
+.PP
+The target is \fB$GITCOMMIT_GPG_CACHE_TTL\fR (default \fB28800\fR seconds = 8 hours); \fBmax-cache-ttl\fR is set to \fB86400\fR or the same value as \fBdefault-cache-ttl\fR if larger. After modification \fBgpg-connect-agent reloadagent /bye\fR is called automatically. Set the env var to \fB0\fR/\fBno\fR/\fBoff\fR/\fBskip\fR to disable this behavior.
+.PP
+\fBgitcommit --config\fR also appends \fBallow-preset-passphrase\fR and \fBallow-loopback-pinentry\fR to \fI~/.gnupg/gpg-agent.conf\fR (idempotently). Both directives are required by the non-interactive paths described in the next section; they have no effect on interactive use.
+.SS Non-interactive passphrase
+For CI/CD pipelines, AI agents, and other non-interactive contexts that cannot answer a passphrase prompt, \fBgitcommit\fR can preload the passphrase into \fBgpg-agent\fR at script startup. The passphrase is sourced in this order:
+.IP 1. 4
+\fB$GITCOMMIT_GPG_PASSPHRASE\fR \(em literal env var (typical for CI runners)
+.IP 2. 4
+\fB$GITCOMMIT_GPG_PASSPHRASE_FILE\fR \(em explicit file path
+.IP 3. 4
+Auto-detected default file: \fI/var/run/secrets/gpg/pass\fR (k8s/CI secret mount) if present, else \fI~/.gnupg/commit_pass.txt\fR
+.IP 4. 4
+\fBstdin\fR, if \fB$GITCOMMIT_GPG_PASSPHRASE_STDIN\fR is set to \fB1\fR or \fBtrue\fR
+.PP
+Files in steps 2 and 3 must contain at least one non-blank line of actual text. Empty files, whitespace-only files, and missing files are silently skipped \(em the resolver simply continues to the next source. Only the first non-blank line of the chosen file is used as the passphrase, so a trailing newline left by an editor will not be appended to the passphrase.
+.PP
+Once a passphrase is resolved, \fBgitcommit\fR tries two injection paths in order:
+.IP \(bu 2
+\fBPreset (preferred)\fR \(em invoke \fBgpg-preset-passphrase --preset <keygrip>\fR with the passphrase on stdin. The keygrip is resolved via \fBgpg --with-keygrip --with-colons --list-secret-keys <key>\fR, or taken from \fB$GITCOMMIT_GPG_KEYGRIP\fR if set. Requires \fBallow-preset-passphrase\fR in \fIgpg-agent.conf\fR. After preset, normal \fBgit commit -S<key>\fR works prompt-free until the agent's \fBdefault-cache-ttl\fR expires
+.IP \(bu 2
+\fBLoopback fallback\fR \(em used when \fBgpg-preset-passphrase\fR isn't installed or the keygrip can't be resolved. \fBgitcommit\fR writes the passphrase to a \fB0600\fR tempfile under \fI$GITCOMMIT_TEMP_DIR\fR and a tiny wrapper that invokes \fBgpg --batch --pinentry-mode loopback --passphrase-file <tempfile>\fR. The wrapper is exposed to git as \fBgpg.program\fR via \fBGIT_CONFIG_KEY_*\fR / \fBGIT_CONFIG_VALUE_*\fR env vars so every \fBgit\fR invocation in this script picks it up. Requires \fBallow-loopback-pinentry\fR in \fIgpg-agent.conf\fR. Cleanup happens via the \fBEXIT\fR trap
+.PP
+The init runs exactly once per script invocation, immediately after \fIsettings.conf\fR is sourced and the temp directory is created. If no passphrase source is configured, init is a no-op and the original interactive behavior is preserved.
 
 .SH FEATURES
 .TP

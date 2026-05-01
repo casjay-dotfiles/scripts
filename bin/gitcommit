@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202604051737-git
+##@Version           :  202605011256-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Synchronized __help with actual commands (added pull, merge, merge-resolve, etc.)
+# @@Changelog        :  Auto-discover GPG passphrase file: when $GITCOMMIT_GPG_PASSPHRASE_FILE is unset, prefer /var/run/secrets/gpg/pass (k8s/CI) then ~/.gnupg/commit_pass.txt. Files must contain at least one non-blank line of actual text; empty/whitespace-only files are silently skipped. Only the first non-blank line is used (trailing editor newlines no longer poison the passphrase).
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202604051737-git"
+VERSION="202605011256-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -335,6 +335,31 @@ GITCOMMIT_ERROR_MESSAGE="${GITCOMMIT_ERROR_MESSAGE:-}"
 GITCOMMIT_NOTIFY_CLIENT_NAME="${GITCOMMIT_NOTIFY_CLIENT_NAME:-}"
 GITCOMMIT_NOTIFY_CLIENT_ICON="${GITCOMMIT_NOTIFY_CLIENT_ICON:-}"
 GITCOMMIT_NOTIFY_CLIENT_URGENCY="${GITCOMMIT_NOTIFY_CLIENT_URGENCY:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# GPG signing key. Used as a fallback when neither the repo-local
+# nor global git user.signingkey is set. Repo-local always wins.
+GITCOMMIT_SIGNING_KEY="${GITCOMMIT_SIGNING_KEY:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Target value (in seconds) for gpg-agent's default-cache-ttl when
+# 'gitcommit --config' runs. Set to 0/no/off/skip to disable the
+# gpg-agent.conf update entirely. Default: 28800 (8 hours).
+GITCOMMIT_GPG_CACHE_TTL="${GITCOMMIT_GPG_CACHE_TTL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Non-interactive GPG passphrase (CI/CD, AI agents). Pick one source:
+#   GITCOMMIT_GPG_PASSPHRASE      - literal env var
+#   GITCOMMIT_GPG_PASSPHRASE_FILE - explicit file path (overrides
+#                                   the auto-detected default)
+#   GITCOMMIT_GPG_PASSPHRASE_STDIN=1 - read from stdin
+# When _FILE is unset, gitcommit auto-picks (in order):
+#   /var/run/secrets/gpg/pass     - k8s/CI secret mount
+#   ~/.gnupg/commit_pass.txt      - per-user stash
+# Files must contain at least one non-blank line of actual text;
+# empty or whitespace-only files are skipped. Optionally pin
+# GITCOMMIT_GPG_KEYGRIP if 'gpg --with-keygrip' lookup is unavailable.
+GITCOMMIT_GPG_PASSPHRASE="${GITCOMMIT_GPG_PASSPHRASE:-}"
+GITCOMMIT_GPG_PASSPHRASE_FILE="${GITCOMMIT_GPG_PASSPHRASE_FILE:-}"
+GITCOMMIT_GPG_PASSPHRASE_STDIN="${GITCOMMIT_GPG_PASSPHRASE_STDIN:-}"
+GITCOMMIT_GPG_KEYGRIP="${GITCOMMIT_GPG_KEYGRIP:-}"
 
 EOF
   if builtin type -t __gen_config_local | __grep -q 'function'; then __gen_config_local; fi
@@ -345,6 +370,11 @@ EOF
   else
     printf_red "Failed to create the config file"
     exitCode=1
+  fi
+  # Touch ~/.gnupg/gpg-agent.conf only on explicit --config runs, not
+  # the silent auto-init path that fires when settings.conf is absent.
+  if [ "$INIT_CONFIG" != "TRUE" ] && [ "$exitCode" = "0" ]; then
+    __gitcommit_setup_gpg_agent
   fi
   return ${exitCode:-0}
 }
@@ -445,6 +475,45 @@ __help() {
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--raw                           - Removes all formatting on output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "GPG Signing"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Every commit/version-bump is signed with -S<key>. The key is"
+  __printf_line "resolved in this order:"
+  __printf_line "  1. Repo-local 'git config user.signingkey' (per-repo override)"
+  __printf_line "  2. \$GITCOMMIT_SIGNING_KEY env var (or settings.conf)"
+  __printf_line "  3. Global 'git config --global user.signingkey'"
+  __printf_line "If none of the above are set, gitcommit falls back to bare -S"
+  __printf_line "and lets gpg pick its default key."
+  __printf_line ""
+  __printf_line "Running 'gitcommit --config' also tunes ~/.gnupg/gpg-agent.conf"
+  __printf_line "so the passphrase is cached between commits. Idempotent: if"
+  __printf_line "default-cache-ttl / max-cache-ttl are already at or above the"
+  __printf_line "target, the file is left alone. Target value: \$GITCOMMIT_GPG"
+  __printf_line "_CACHE_TTL (default 28800 = 8h). Set to 0/no/off/skip to"
+  __printf_line "disable the gpg-agent.conf update entirely."
+  __printf_line ""
+  __printf_line "Non-interactive contexts (CI/CD, AI agents): set ONE of these"
+  __printf_line "and gitcommit will inject the passphrase automatically:"
+  __printf_line "  \$GITCOMMIT_GPG_PASSPHRASE       (literal env var)"
+  __printf_line "  \$GITCOMMIT_GPG_PASSPHRASE_FILE  (explicit file path)"
+  __printf_line "  \$GITCOMMIT_GPG_PASSPHRASE_STDIN (set to 1, then pipe in)"
+  __printf_line ""
+  __printf_line "When _FILE is unset, gitcommit auto-picks the first valid file"
+  __printf_line "from this list:"
+  __printf_line "  /var/run/secrets/gpg/pass    (k8s/CI secret mount)"
+  __printf_line "  ~/.gnupg/commit_pass.txt     (per-user stash)"
+  __printf_line "Files must contain at least one non-blank line of actual text;"
+  __printf_line "empty / whitespace-only files are silently skipped. Only the"
+  __printf_line "first non-blank line is used as the passphrase."
+  __printf_line ""
+  __printf_line "Resolver priority: env var -> _FILE -> auto-detect -> stdin."
+  __printf_line "Optional pin:"
+  __printf_line "  \$GITCOMMIT_GPG_KEYGRIP          (override keygrip lookup)"
+  __printf_line "First tries gpg-preset-passphrase to seed gpg-agent; if that"
+  __printf_line "isn't available, falls back to a loopback gpg.program wrapper"
+  __printf_line "via GIT_CONFIG_*. Both paths require the relevant 'allow-*'"
+  __printf_line "directives in gpg-agent.conf (added by 'gitcommit --config')."
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
@@ -453,6 +522,9 @@ __is_an_option() { if echo "$ARRAY" | __grep -q "${1:-^}"; then return 1; else r
 __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$GITCOMMIT_TEMP_FILE" ] && rm -Rf "$GITCOMMIT_TEMP_FILE" &>/dev/null
+  if builtin type -t __gitcommit_cleanup_loopback | __grep -q 'function'; then
+    __gitcommit_cleanup_loopback
+  fi
   #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
   if builtin type -t __trap_exit_local | __grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
@@ -559,6 +631,360 @@ __git_signing_enabled() {
   return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Resolve which GPG key to use for signing. Order:
+#   1. Repo-local user.signingkey (per-repo override always wins)
+#   2. $GITCOMMIT_SIGNING_KEY env var
+#   3. Global user.signingkey
+# Returns empty if no key configured anywhere; caller decides whether
+# to fall back to bare `-S` (let gpg pick) or refuse.
+__gitcommit_signing_key() {
+  local git_dir="${1:-$GITCOMMIT_ROOT_DIR}"
+  local key
+  key="$(git -C "$git_dir" config --local --get user.signingkey 2>/dev/null)"
+  if [ -z "$key" ] && [ -n "$GITCOMMIT_SIGNING_KEY" ]; then
+    key="$GITCOMMIT_SIGNING_KEY"
+  fi
+  if [ -z "$key" ]; then
+    key="$(git -C "$git_dir" config --global --get user.signingkey 2>/dev/null)"
+  fi
+  printf '%s' "$key"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Build the commit sign flag. Returns `-S<key>` if a key is resolved,
+# bare `-S` otherwise (so gpg's own default-key logic still applies).
+# Use via command substitution: git commit $(__gitcommit_sign_flag)
+__gitcommit_sign_flag() {
+  local key
+  key="$(__gitcommit_signing_key "${1:-$GITCOMMIT_ROOT_DIR}")"
+  if [ -n "$key" ]; then
+    printf -- '-S%s' "$key"
+  else
+    printf -- '-S'
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Same idea for git tag, which uses different flags (-s to sign,
+# -u <keyid> to pick the key). Echoes the full flag block so the
+# caller can splat it without quoting concerns.
+__gitcommit_tag_sign_flag() {
+  local key
+  key="$(__gitcommit_signing_key "${1:-$GITCOMMIT_ROOT_DIR}")"
+  if [ -n "$key" ]; then
+    printf -- '-s -u %s' "$key"
+  else
+    printf -- '-s'
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Bump default-cache-ttl / max-cache-ttl in ~/.gnupg/gpg-agent.conf so
+# the user isn't asked for the GPG passphrase on every commit. Idempotent:
+#   - If the directive is missing, append it.
+#   - If present but lower than the target, replace in-place.
+#   - If present and already >= target, leave it alone.
+# Target is taken from $GITCOMMIT_GPG_CACHE_TTL (default 28800 = 8h).
+# Set GITCOMMIT_GPG_CACHE_TTL to one of {0|no|off|skip|false|disabled}
+# to skip the setup entirely. Only invoked from __gen_config when the
+# user runs --config explicitly, never during the auto-init flow.
+__gitcommit_setup_gpg_agent() {
+  local raw="${GITCOMMIT_GPG_CACHE_TTL:-28800}"
+  case "$raw" in
+    0 | no | off | skip | false | disabled)
+      [ "$INIT_CONFIG" = "TRUE" ] || printf_blue "Skipping gpg-agent setup (GITCOMMIT_GPG_CACHE_TTL=$raw)"
+      return 0
+      ;;
+  esac
+  if ! [[ "$raw" =~ ^[0-9]+$ ]]; then
+    printf_red "Invalid GITCOMMIT_GPG_CACHE_TTL=$raw (must be a positive integer or one of: 0/no/off/skip)"
+    return 1
+  fi
+  if ! __cmd_exists gpg; then
+    printf_blue "Skipping gpg-agent setup (gpg not installed)"
+    return 0
+  fi
+  local target_default="$raw"
+  local target_max=86400
+  [ "$target_default" -gt "$target_max" ] 2>/dev/null && target_max="$target_default"
+
+  local conf="$HOME/.gnupg/gpg-agent.conf"
+  local conf_dir="${conf%/*}"
+  if [ ! -d "$conf_dir" ]; then
+    mkdir -p "$conf_dir" 2>/dev/null || {
+      printf_red "Could not create $conf_dir"
+      return 1
+    }
+    chmod 700 "$conf_dir" 2>/dev/null
+  fi
+  [ -f "$conf" ] || touch "$conf"
+
+  local changed=0
+  __gitcommit_gpg_set_directive() {
+    local key="$1" target="$2" existing
+    if grep -qE "^[[:space:]]*${key}[[:space:]]+" "$conf"; then
+      existing="$(grep -E "^[[:space:]]*${key}[[:space:]]+" "$conf" | head -1 | awk '{print $2}')"
+      if [[ "$existing" =~ ^[0-9]+$ ]] && [ "$existing" -ge "$target" ]; then
+        printf_blue "$key already $existing (>= $target), leaving as-is"
+        return 0
+      fi
+      sed -i.gitcommit.bak "s|^[[:space:]]*${key}[[:space:]].*|${key} ${target}|" "$conf"
+      rm -f "$conf.gitcommit.bak" 2>/dev/null
+      printf_green "$key: ${existing:-?} -> $target"
+    else
+      printf '%s %s\n' "$key" "$target" >>"$conf"
+      printf_green "Added $key $target"
+    fi
+    changed=1
+  }
+  __gitcommit_gpg_set_directive default-cache-ttl "$target_default"
+  __gitcommit_gpg_set_directive max-cache-ttl "$target_max"
+  unset -f __gitcommit_gpg_set_directive
+
+  # Presence-only directives (no value). Required for the
+  # passphrase-preloading paths used by CI/CD and AI invocations.
+  __gitcommit_gpg_ensure_line() {
+    local key="$1"
+    if grep -qE "^[[:space:]]*${key}[[:space:]]*$" "$conf"; then
+      printf_blue "$key already present, leaving as-is"
+      return 0
+    fi
+    printf '%s\n' "$key" >>"$conf"
+    printf_green "Added $key"
+    changed=1
+  }
+  __gitcommit_gpg_ensure_line allow-preset-passphrase
+  __gitcommit_gpg_ensure_line allow-loopback-pinentry
+  unset -f __gitcommit_gpg_ensure_line
+
+  if [ "$changed" = "1" ] && __cmd_exists gpg-connect-agent; then
+    if gpg-connect-agent reloadagent /bye >/dev/null 2>&1; then
+      printf_green "gpg-agent reloaded"
+    else
+      printf_yellow "gpg-agent reload failed; new settings take effect on next agent start"
+    fi
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# True iff the given path exists, has size > 0, AND contains at
+# least one non-blank line of actual text. Treats files that are
+# only whitespace as invalid.
+__gitcommit_passphrase_file_valid() {
+  local f="$1"
+  [ -n "$f" ] || return 1
+  [ -f "$f" ] || return 1
+  [ -s "$f" ] || return 1
+  grep -q '[^[:space:]]' "$f" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Read the passphrase from a file: strip blank lines, return the
+# first remaining line on stdout. Bails with rc=1 if the file isn't
+# valid per __gitcommit_passphrase_file_valid.
+__gitcommit_read_passphrase_file() {
+  local f="$1"
+  __gitcommit_passphrase_file_valid "$f" || return 1
+  local content
+  content="$(awk 'NF' "$f" 2>/dev/null | head -n1)"
+  [ -n "$content" ] || return 1
+  printf '%s' "$content"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pick a default passphrase file by checking well-known locations
+# in priority order:
+#   1. /var/run/secrets/gpg/pass     (k8s/CI secret mount, takes
+#                                     precedence when present)
+#   2. $HOME/.gnupg/commit_pass.txt  (per-user stash)
+# Each candidate must pass __gitcommit_passphrase_file_valid; an
+# empty or whitespace-only file is treated as "absent". Returns
+# the chosen path on stdout, or empty if neither candidate is
+# usable. Honors $XDG_DATA_HOME-equivalent overrides via the
+# explicit env var GITCOMMIT_GPG_PASSPHRASE_FILE (handled in the
+# resolver).
+__gitcommit_default_passphrase_file() {
+  local candidates=(
+    "/var/run/secrets/gpg/pass"
+    "$HOME/.gnupg/commit_pass.txt"
+  )
+  local f
+  for f in "${candidates[@]}"; do
+    if __gitcommit_passphrase_file_valid "$f"; then
+      printf '%s' "$f"
+      return 0
+    fi
+  done
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Resolve a GPG passphrase for non-interactive contexts (CI/CD, AI
+# agents, etc). Order:
+#   1. $GITCOMMIT_GPG_PASSPHRASE         (env var, literal)
+#   2. $GITCOMMIT_GPG_PASSPHRASE_FILE    (explicit file path)
+#   3. /var/run/secrets/gpg/pass         (auto-detected, k8s style)
+#   4. $HOME/.gnupg/commit_pass.txt      (auto-detected, user stash)
+#   5. stdin, when $GITCOMMIT_GPG_PASSPHRASE_STDIN is set to 1/true
+# Files in 2-4 must contain at least one non-blank line of actual
+# text; otherwise they are skipped. The first non-blank line is
+# returned (no trailing newline) so editors that append a final
+# newline don't poison the passphrase.
+__gitcommit_resolve_passphrase() {
+  if [ -n "$GITCOMMIT_GPG_PASSPHRASE" ]; then
+    printf '%s' "$GITCOMMIT_GPG_PASSPHRASE"
+    return 0
+  fi
+  local content
+  if [ -n "$GITCOMMIT_GPG_PASSPHRASE_FILE" ]; then
+    if content="$(__gitcommit_read_passphrase_file "$GITCOMMIT_GPG_PASSPHRASE_FILE")"; then
+      printf '%s' "$content"
+      return 0
+    fi
+  fi
+  local default_file
+  if default_file="$(__gitcommit_default_passphrase_file)"; then
+    if content="$(__gitcommit_read_passphrase_file "$default_file")"; then
+      printf '%s' "$content"
+      return 0
+    fi
+  fi
+  case "${GITCOMMIT_GPG_PASSPHRASE_STDIN:-}" in
+    1 | true | yes | on)
+      cat
+      return 0
+      ;;
+  esac
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Locate gpg-preset-passphrase across distro layouts. Different
+# packagers stash it in different libexec dirs.
+__gitcommit_find_preset_bin() {
+  local p
+  for p in \
+    /usr/lib/gnupg/gpg-preset-passphrase \
+    /usr/lib/gnupg2/gpg-preset-passphrase \
+    /usr/libexec/gpg-preset-passphrase \
+    /usr/libexec/gnupg/gpg-preset-passphrase \
+    /usr/local/lib/gnupg/gpg-preset-passphrase \
+    /opt/homebrew/lib/gnupg/gpg-preset-passphrase \
+    /opt/local/lib/gnupg/gpg-preset-passphrase; do
+    [ -x "$p" ] && {
+      printf '%s' "$p"
+      return 0
+    }
+  done
+  if __cmd_exists gpg-preset-passphrase; then
+    command -v gpg-preset-passphrase
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Resolve the keygrip for a given GPG key id. Keygrip is what
+# gpg-agent stores passphrases against (NOT the key id). Order:
+#   1. $GITCOMMIT_GPG_KEYGRIP env var (manual override)
+#   2. gpg --with-keygrip --with-colons output (first grp: line)
+__gitcommit_resolve_keygrip() {
+  if [ -n "$GITCOMMIT_GPG_KEYGRIP" ]; then
+    printf '%s' "$GITCOMMIT_GPG_KEYGRIP"
+    return 0
+  fi
+  local key="${1:-$(__gitcommit_signing_key)}"
+  [ -n "$key" ] || return 1
+  __cmd_exists gpg || return 1
+  local grip
+  grip="$(gpg --batch --with-keygrip --with-colons --list-secret-keys "$key" 2>/dev/null \
+    | awk -F: '/^grp:/ { print $10; exit }')"
+  if [ -n "$grip" ]; then
+    printf '%s' "$grip"
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Push the passphrase into gpg-agent's cache via gpg-preset-passphrase.
+# Requires `allow-preset-passphrase` in gpg-agent.conf (the --config
+# flow adds it idempotently). After a successful preset, normal
+# `git commit -S<key>` works without a passphrase prompt until the
+# agent's default-cache-ttl expires.
+# Args: $1 = passphrase. Returns 0 on success.
+__gitcommit_preset_passphrase() {
+  local pass="$1"
+  [ -n "$pass" ] || return 1
+  local bin grip
+  bin="$(__gitcommit_find_preset_bin)" || return 1
+  grip="$(__gitcommit_resolve_keygrip)" || return 1
+  printf '%s' "$pass" | "$bin" --preset "$grip" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Fallback when preset isn't available: write the passphrase to a
+# 0600-mode tempfile and a wrapper script that invokes gpg with
+# `--pinentry-mode loopback --passphrase-file <tempfile>`. Then
+# expose the wrapper to git as `gpg.program` via GIT_CONFIG_* env
+# vars (which apply to every `git` invocation in this script).
+# Caller is responsible for cleanup via __gitcommit_cleanup_loopback.
+__gitcommit_setup_loopback_wrapper() {
+  local pass="$1"
+  [ -n "$pass" ] || return 1
+  local tmpdir
+  tmpdir="$(mktemp -d "${GITCOMMIT_TEMP_DIR:-/tmp}/gpg-loopback.XXXXXX" 2>/dev/null)" || return 1
+  chmod 700 "$tmpdir"
+  local passfile="$tmpdir/pass"
+  local wrapper="$tmpdir/gpg-wrap.sh"
+  ( umask 077 && printf '%s' "$pass" >"$passfile" ) || {
+    rm -rf "$tmpdir"
+    return 1
+  }
+  cat >"$wrapper" <<EOF
+#!/bin/sh
+exec gpg --batch --pinentry-mode loopback --passphrase-file "$passfile" "\$@"
+EOF
+  chmod 700 "$wrapper"
+  GITCOMMIT_GPG_WRAPPER="$wrapper"
+  GITCOMMIT_GPG_WRAPPER_DIR="$tmpdir"
+  export GITCOMMIT_GPG_WRAPPER GITCOMMIT_GPG_WRAPPER_DIR
+  # Inject as git's gpg.program via GIT_CONFIG_* env vars so every
+  # `git` invocation in this script picks it up automatically. We
+  # append rather than overwrite so we don't trample on any
+  # GIT_CONFIG_* the caller already set.
+  local idx="${GIT_CONFIG_COUNT:-0}"
+  export "GIT_CONFIG_KEY_${idx}=gpg.program"
+  export "GIT_CONFIG_VALUE_${idx}=$wrapper"
+  GIT_CONFIG_COUNT=$((idx + 1))
+  export GIT_CONFIG_COUNT
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitcommit_cleanup_loopback() {
+  if [ -n "$GITCOMMIT_GPG_WRAPPER_DIR" ] && [ -d "$GITCOMMIT_GPG_WRAPPER_DIR" ]; then
+    rm -rf "$GITCOMMIT_GPG_WRAPPER_DIR" 2>/dev/null
+  fi
+  unset GITCOMMIT_GPG_WRAPPER GITCOMMIT_GPG_WRAPPER_DIR
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Bring up the passphrase machinery exactly once per script run.
+# Tries preset first, then falls back to loopback. Silent when no
+# passphrase source is configured (preserves the old interactive
+# behavior for users who type the passphrase). Caller should invoke
+# this once after settings.conf is sourced.
+__gitcommit_init_passphrase() {
+  [ "$GITCOMMIT_PASSPHRASE_INITIALIZED" = "1" ] && return 0
+  GITCOMMIT_PASSPHRASE_INITIALIZED=1
+  export GITCOMMIT_PASSPHRASE_INITIALIZED
+  local pass
+  pass="$(__gitcommit_resolve_passphrase 2>/dev/null)" || return 0
+  [ -n "$pass" ] || return 0
+  if __gitcommit_preset_passphrase "$pass"; then
+    [ -n "$_DEBUG" ] && printf_blue "GPG passphrase preset to gpg-agent"
+    unset pass
+    return 0
+  fi
+  if __gitcommit_setup_loopback_wrapper "$pass"; then
+    [ -n "$_DEBUG" ] && printf_blue "GPG loopback wrapper installed at $GITCOMMIT_GPG_WRAPPER"
+    unset pass
+    return 0
+  fi
+  printf_yellow "Could not preload GPG passphrase (preset failed and loopback wrapper setup failed)"
+  unset pass
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_release_version() {
   local version="$1"
   local message="${2:-}"
@@ -566,7 +992,7 @@ __git_release_version() {
   local sign_flag=""
   # Check if signing is enabled
   if __git_signing_enabled "$GITCOMMIT_ROOT_DIR"; then
-    sign_flag="-s"
+    sign_flag="$(__gitcommit_tag_sign_flag "$GITCOMMIT_ROOT_DIR")"
   fi
   # Prepend 'v' if version starts with a number
   if [[ "$version" =~ ^[0-9] ]]; then
@@ -692,9 +1118,9 @@ __gitcommit_cmd() {
   fi
 
   if [ -s "$GITCOMMIT_MESSAGE_FILE" ]; then
-    __git_repo "$GITCOMMIT_ROOT_DIR" commit -q -S -m "$(<"$GITCOMMIT_MESSAGE_FILE")" &>"$GITCOMMIT_TEMP_FILE" || return 1
+    __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$(<"$GITCOMMIT_MESSAGE_FILE")" &>"$GITCOMMIT_TEMP_FILE" || return 1
   else
-    __git_repo "$GITCOMMIT_ROOT_DIR" commit -q -S -m "$GITCOMMIT_MESSAGE_FULL" &>"$GITCOMMIT_TEMP_FILE" || return 1
+    __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$GITCOMMIT_MESSAGE_FULL" &>"$GITCOMMIT_TEMP_FILE" || return 1
   fi
   export GITCOMMIT_RAN="true" GITADMIN_NO_ERROR_MESSAGE="true"
   # Delete commit message file if it was used from .git/COMMIT_MSG or .git/COMMIT_MESS
@@ -1145,7 +1571,7 @@ __test_gitignore() {
     printf '%s\n%s\n' '# ignore commit message' '**/.gitcommit' >>"$GITCOMMIT_ROOT_DIR/.gitignore"
   fi
   if [ -d "${1:-$GITCOMMIT_ROOT_DIR}/.git" ]; then
-    git -C "${1:-$GITCOMMIT_ROOT_DIR}" add .gitignore &>/dev/null && git -C "${1:-$GITCOMMIT_ROOT_DIR}" commit -q -S -m "🤖 Added .gitignore 🤖" ".gitignore" || return 1
+    git -C "${1:-$GITCOMMIT_ROOT_DIR}" add .gitignore &>/dev/null && git -C "${1:-$GITCOMMIT_ROOT_DIR}" commit -q $(__gitcommit_sign_flag "${1:-$GITCOMMIT_ROOT_DIR}") -m "🤖 Added .gitignore 🤖" ".gitignore" || return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1910,13 +2336,13 @@ __commit_custom_cmd() {
   fi
   if [ "$version_update" = "update_version" ]; then
     __git_repo "$GITCOMMIT_ROOT_DIR" add "$version_file" &&
-      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q -S -m "$GITCOMMIT_MESSAGE_VERSION" "$version_file" &>/dev/null && commit_result=0 || commit_result=1
+      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$GITCOMMIT_MESSAGE_VERSION" "$version_file" &>/dev/null && commit_result=0 || commit_result=1
   elif [ -n "$GITCOMMIT_MESSAGE_FULL" ]; then
     __git_repo "$GITCOMMIT_ROOT_DIR" add $op &>/dev/null &&
-      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q -S -m "$GITCOMMIT_MESSAGE_FULL" &>/dev/null && commit_result=0 || commit_result=1
+      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$GITCOMMIT_MESSAGE_FULL" &>/dev/null && commit_result=0 || commit_result=1
   else
     __git_repo "$GITCOMMIT_ROOT_DIR" add $op &>/dev/null &&
-      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q -S -m "$GITCOMMIT_MESSAGE_SHORT" &>/dev/null && commit_result=0 || commit_result=1
+      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$GITCOMMIT_MESSAGE_SHORT" &>/dev/null && commit_result=0 || commit_result=1
   fi
   # Delete commit message file if commit succeeded and it was used from .git/COMMIT_MSG or .git/COMMIT_MESS
   if [ "$commit_result" = "0" ] && [ -n "$GITCOMMIT_MESSAGE_FROM_FILE" ]; then
@@ -3118,6 +3544,21 @@ GITCOMMIT_NOTIFY_CLIENT_NAME="${GITCOMMIT_NOTIFY_CLIENT_NAME:-$APPNAME}"
 GITCOMMIT_NOTIFY_CLIENT_ICON="${GITCOMMIT_NOTIFY_CLIENT_ICON:-notification-new}"
 GITCOMMIT_NOTIFY_CLIENT_URGENCY="${GITCOMMIT_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# GPG signing key fallback. Used when neither repo-local nor global
+# git user.signingkey is set. Repo-local always takes precedence.
+GITCOMMIT_SIGNING_KEY="${GITCOMMIT_SIGNING_KEY:-}"
+# Target gpg-agent default-cache-ttl applied on `gitcommit --config`.
+GITCOMMIT_GPG_CACHE_TTL="${GITCOMMIT_GPG_CACHE_TTL:-28800}"
+# Non-interactive GPG passphrase sources. Empty by default for the
+# env var; the file path auto-detects /var/run/secrets/gpg/pass first
+# and falls back to ~/.gnupg/commit_pass.txt. Whichever exists with
+# at least one non-blank line of actual text wins; missing or
+# empty/whitespace-only files leave the variable empty.
+GITCOMMIT_GPG_PASSPHRASE="${GITCOMMIT_GPG_PASSPHRASE:-}"
+GITCOMMIT_GPG_PASSPHRASE_FILE="${GITCOMMIT_GPG_PASSPHRASE_FILE:-$(__gitcommit_default_passphrase_file 2>/dev/null)}"
+GITCOMMIT_GPG_PASSPHRASE_STDIN="${GITCOMMIT_GPG_PASSPHRASE_STDIN:-}"
+GITCOMMIT_GPG_KEYGRIP="${GITCOMMIT_GPG_KEYGRIP:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 GITCOMMIT_NO_CONFIRM="${GITCOMMIT_NO_CONFIRM:-true}"
 GITCOMMIT_PROJECT_DIR="${GIT_PROJECT_DIR:-$HOME/Projects}"
@@ -3149,6 +3590,11 @@ GITCOMMIT_TEMP_FILE="${GITCOMMIT_TEMP_FILE:-$(mktemp $GITCOMMIT_TEMP_DIR/XXXXXX 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
 trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Preload the GPG passphrase if a source is configured. No-op when
+# none of $GITCOMMIT_GPG_PASSPHRASE / _FILE / _STDIN are set, so the
+# interactive flow for human users is unchanged.
+__gitcommit_init_passphrase
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
 __notifications() {

@@ -259,7 +259,7 @@ __command() {
     builtin type -P "$1" | grep -q "/" 2>/dev/null
   done
 }
-set_trap() { trap -p "$1" | grep "$2" &>/dev/null || trap '$2' "$1"; }
+set_trap() { trap -p "$1" | grep "$2" &>/dev/null || trap "$2" "$1"; }
 getuser() { [ -z "$1" ] && cut -d: -f1 /etc/passwd | grep "$USER" || cut -d: -f1 /etc/passwd | grep "$1"; }
 log() {
   mkdir -p "$HOME/.local/log"

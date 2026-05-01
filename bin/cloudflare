@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605011518-git
+##@Version           :  202605011817-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 22:58 EDT
 # @@File             :  cloudflare
 # @@Description      :  cloudflare api script
-# @@Changelog        :  Fix DNS bugs (AAAA path, CNAME type, FQDN match, delete, --record parser); honor env IDs.
+# @@Changelog        :  Add curl timeouts so cloudflare can no longer hang when API or IP-detect endpoints are slow.
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :  https://gist.github.com/benkulbertis/fff10759c2391b6618dd
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605011518-git"
+VERSION="202605011817-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -349,8 +349,29 @@ __trap_exit() {
 # User defined functions
 __jq() { \jq "$@" 2>/dev/null; }
 __rm_rf() { rm -Rf "$@" 2>/dev/null; }
-__curl_ip4() { curl -q -LSsf -4 "$1" 2>/dev/null || return 1; }
-__curl_ip6() { curl -q -LSsf -6 "$1" 2>/dev/null || return 1; }
+__curl_ip4() { curl -q -LSsf -4 --connect-timeout "${CLOUDFLARE_IP_CONNECT_TIMEOUT:-2}" --max-time "${CLOUDFLARE_IP_TIMEOUT:-3}" "$1" 2>/dev/null || return 1; }
+__curl_ip6() { curl -q -LSsf -6 --connect-timeout "${CLOUDFLARE_IP_CONNECT_TIMEOUT:-2}" --max-time "${CLOUDFLARE_IP_TIMEOUT:-3}" "$1" 2>/dev/null || return 1; }
+# Wrapper for Cloudflare API curl: pins connect/max timeouts and standard auth/content headers; aborts if creds unset.
+__cf_curl() {
+  if [ -z "$CLOUDFLARE_EMAIL" ] || [ -z "$CLOUDFLARE_API_KEY" ]; then return 1; fi
+  curl -q -LSs --connect-timeout "${CLOUDFLARE_API_CONNECT_TIMEOUT:-5}" --max-time "${CLOUDFLARE_API_TIMEOUT:-15}" \
+    -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$@"
+}
+# Fast-fail when an API-bound subcommand is missing creds. Both vars are mandatory for Global API Key auth.
+__cf_require_creds() {
+  local missing=""
+  [ -n "$CLOUDFLARE_EMAIL" ] || missing="CLOUDFLARE_EMAIL"
+  [ -n "$CLOUDFLARE_API_KEY" ] || missing="${missing:+$missing, }CLOUDFLARE_API_KEY"
+  if [ -n "$missing" ]; then
+    printf_exit 1 1 "$missing not set; configure ${CLOUDFLARE_CONFIG_DIR:-~/.config/myscripts/cloudflare}/${CLOUDFLARE_CONFIG_FILE:-settings.conf} or export them"
+  fi
+}
+# Fast-fail when an API-bound record subcommand has no zone resolved. ZONE_ID short-circuits the lookup.
+__cf_require_zone() {
+  if [ -z "$CLOUDFLARE_ZONE_NAME" ] && [ -z "$CLOUDFLARE_ZONE_ID" ]; then
+    printf_exit 1 1 "CLOUDFLARE_ZONE_NAME (or CLOUDFLARE_ZONE_ID) not set; pass --zone DOMAIN or configure it"
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_ip4() { __curl_ip4 "https://ifcfg.us" || __curl_ip4 "https://ifconfig.co" || __curl_ip4 "https://api.ipify.org" || __curl_ip4 "https://ipv4.icanhazip.com" || return 1; }
 __get_ip6() { __curl_ip6 "https://ifcfg.us" || __curl_ip6 "https://ifconfig.co" || __curl_ip6 "https://api.ipify.org" || __curl_ip6 "https://ipv6.icanhazip.com" || return 1; }
@@ -487,7 +508,7 @@ __load_tunnel_token() {
 __api_verify() {
   # Use /user (right endpoint for X-Auth-Email + X-Auth-Key auth); /user/tokens/verify is for Bearer auth and 400s here.
   local results
-  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/user" 2>/dev/null)"
+  results="$(__cf_curl -X GET "$CLOUDFLARE_API_URL/user" 2>/dev/null)"
   [ -n "$results" ] || return 1
   if printf '%s' "$results" | __jq -e '.success == true' >/dev/null 2>&1; then
     printf '%s' "$results" | __jq -r '"Authenticated as \(.result.email)"'
@@ -502,7 +523,7 @@ __get_account_id() {
     return 0
   fi
   local results id
-  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/accounts" 2>/dev/null)"
+  results="$(__cf_curl -X GET "$CLOUDFLARE_API_URL/accounts" 2>/dev/null)"
   [ -n "$results" ] || return 1
   if printf '%s' "$results" | __jq -e '.success == false' >/dev/null 2>&1; then
     return 1
@@ -523,7 +544,7 @@ __create_tunnel() {
   }
 
   printf_blue "Creating tunnel: $tunnel_name"
-  results="$(curl -q -LSs -X POST -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" \
+  results="$(__cf_curl -X POST \
     --data "{\"name\":\"$tunnel_name\",\"tunnel_secret\":\"$(openssl rand -base64 32)\"}" \
     "$CLOUDFLARE_API_URL/accounts/$account_id/cfd_tunnel" 2>/dev/null || echo '')"
 
@@ -551,8 +572,7 @@ __get_tunnel_token() {
   }
 
   printf_blue "Getting tunnel token for ID: $tunnel_id"
-  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" \
-    "$CLOUDFLARE_API_URL/accounts/$account_id/cfd_tunnel/$tunnel_id/token" 2>/dev/null || echo '')"
+  results="$(__cf_curl -X GET "$CLOUDFLARE_API_URL/accounts/$account_id/cfd_tunnel/$tunnel_id/token" 2>/dev/null || echo '')"
 
   if echo "$results" | __jq '.success' 2>/dev/null | grep -q 'false'; then
     printf_red "Failed to get tunnel token"
@@ -589,7 +609,7 @@ __zone_identifier() {
     return 0
   }
   local results id
-  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones?per_page=1000&name=$CLOUDFLARE_ZONE_NAME" 2>/dev/null)"
+  results="$(__cf_curl -X GET "$CLOUDFLARE_API_URL/zones?per_page=1000&name=$CLOUDFLARE_ZONE_NAME" 2>/dev/null)"
   [ -n "$results" ] || return 1
   if printf '%s' "$results" | __jq -e '.success == false' >/dev/null 2>&1; then
     return 1
@@ -604,7 +624,7 @@ __cf_records_for_host() {
   local host="${1:-$CLOUDFLARE_HOSTNAME}"
   local fqdn results
   fqdn="$(__cf_fqdn "$host" "$CLOUDFLARE_ZONE_NAME")"
-  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records?per_page=1000&name=$fqdn" 2>/dev/null)"
+  results="$(__cf_curl -X GET "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records?per_page=1000&name=$fqdn" 2>/dev/null)"
   [ -n "$results" ] || return 1
   if printf '%s' "$results" | __jq -e '.success == false' >/dev/null 2>&1; then
     return 1
@@ -634,7 +654,7 @@ __record_identifier() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __api() {
   local results=""
-  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records" 2>/dev/null || echo '')"
+  results="$(__cf_curl -X GET "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records" 2>/dev/null || echo '')"
   if echo "$results" | __jq '.success' 2>/dev/null | grep -q 'false'; then
     exitCode=1
   else
@@ -645,7 +665,7 @@ __api() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_full() {
   local results=""
-  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records" 2>/dev/null || echo '')"
+  results="$(__cf_curl -X GET "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records" 2>/dev/null || echo '')"
   #echo "$results" | __jq '.result|.[]'|__jq -rc '{name:.name,type:.type,content:.content,proxiable:.proxiable,proxied:.proxied}
   echo "$results" | __jq '.result|.[]'
   return ${exitCode:-0}
@@ -658,7 +678,7 @@ __delete_record() {
     [ -n "$id" ] || continue
     any=1
     printf_blue "Attempting to delete $host ($type)"
-    results="$(curl -q -LSs -X DELETE -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$id" 2>/dev/null)"
+    results="$(__cf_curl -X DELETE "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$id" 2>/dev/null)"
     printf '%s' "$results" >"$CLOUDFLARE_TEMP_FILE"
     __message "Successfully deleted $host ($type)" || exitStatus=1
   done < <(__cf_records_for_host "$host")
@@ -672,13 +692,13 @@ __delete_record() {
 __bulk_delete() {
   local exitStatus=0 results="" name=""
   printf_cyan "Getting data for $CLOUDFLARE_ZONE_NAME"
-  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records?per_page=1000" 2>/dev/null | __jq '.result| .[]' | __jq -rc '{ "name":.name,"id":.id }' | grep "${1:-^}" || echo '')"
+  results="$(__cf_curl -X GET "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records?per_page=1000" 2>/dev/null | __jq '.result| .[]' | __jq -rc '{ "name":.name,"id":.id }' | grep "${1:-^}" || echo '')"
   [ -n "$results" ] || printf_exit 2 0 "There doesn't seem to be any records for zone: $CLOUDFLARE_ZONE_NAME"
   printf_read_question "Are your sure you want to continue?" || return 1
   for dns_record in $(echo "$results" | __jq -rc '.id'); do
     name="$(echo "$results" | grep "$dns_record" | __jq -rc '.name')"
     printf_blue "Attempting to delete host: $name"
-    curl -q -LSs -X DELETE -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$dns_record" >"$CLOUDFLARE_TEMP_FILE" || exitStatus=$((1 + exitStatus))
+    __cf_curl -X DELETE "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$dns_record" >"$CLOUDFLARE_TEMP_FILE" || exitStatus=$((1 + exitStatus))
     __message "Successfully deleted id: $dns_record" || exitStatus=1
     [ -f "$CLOUDFLARE_TEMP_FILE" ] && rm -Rf "$CLOUDFLARE_TEMP_FILE"
   done
@@ -807,7 +827,7 @@ __usage() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_zones() {
   local results resp
-  results="$(curl -q -LSs -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" "$CLOUDFLARE_API_URL/zones?per_page=1000" 2>/dev/null)"
+  results="$(__cf_curl -X GET "$CLOUDFLARE_API_URL/zones?per_page=1000" 2>/dev/null)"
   [ -n "$results" ] || {
     printf_red "No response from API"
     return 1
@@ -834,7 +854,7 @@ __cf_response_succeeded() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_record_create() {
   local exitCode=0
-  curl -q -LSs -X POST -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" --data "{\"name\":\"$1\",\"type\":\"$2\",\"content\":\"$3\",\"ttl\":3600,\"priority\":0,\"proxied\":${CLOUDFLARE_PROXY_ENABLED}}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
+  __cf_curl -X POST --data "{\"name\":\"$1\",\"type\":\"$2\",\"content\":\"$3\",\"ttl\":3600,\"priority\":0,\"proxied\":${CLOUDFLARE_PROXY_ENABLED}}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
   __cf_response_succeeded || exitCode=1
   return $exitCode
 }
@@ -847,7 +867,7 @@ __curl_record_update() {
   if [ -z "$record_id" ]; then
     return 1
   fi
-  curl -q -LSs -X PATCH -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" --data "{\"name\":\"$host\",\"ttl\":3600,\"type\":\"$type\",\"proxied\":${CLOUDFLARE_PROXY_ENABLED},\"content\":\"$content\"}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$record_id" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
+  __cf_curl -X PATCH --data "{\"name\":\"$host\",\"ttl\":3600,\"type\":\"$type\",\"proxied\":${CLOUDFLARE_PROXY_ENABLED},\"content\":\"$content\"}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$record_id" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
   __cf_response_succeeded || exitCode=1
   return $exitCode
 }
@@ -1129,8 +1149,7 @@ export CLOUDFLARE_CWD
 CLOUDFLARE_ADDR_IPv4="${CLOUDFLARE_ADDR_IPv4:-$(curl -q -LSsf -4 "https://ifcfg.us" --max-time 2 --retry 0 2>/dev/null || false)}"
 CLOUDFLARE_ADDR_IPv6="${CLOUDFLARE_ADDR_IPv6:-$(curl -q -LSsf -6 "https://ifcfg.us" --max-time 2 --retry 0 2>/dev/null || false)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
-[ -n "$CLOUDFLARE_API_KEY" ] || printf_exit 1 1 "Please set CLOUDFLARE_API_KEY variable"
+# Actions based on env (per-subcommand creds/zone checks live in __cf_require_creds and __cf_require_zone below).
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
 
@@ -1142,6 +1161,7 @@ CLOUDFLARE_ADDR_IPv6="${CLOUDFLARE_ADDR_IPv6:-$(curl -q -LSsf -6 "https://ifcfg.
 case "$1" in
 tunnel)
   shift 1
+  __cf_require_creds
   if [ -z "$CLOUDFLARE_TUNNEL_KEY" ]; then
     printf_cyan "Usage: $APPNAME --key 'MyAPIKEY' tunnel or set the"
     printf_exit "CLOUDFLARE_TUNNEL_KEY variable in the config file"
@@ -1151,6 +1171,8 @@ tunnel)
 
 create)
   shift 1
+  __cf_require_creds
+  __cf_require_zone
   __cloudflare_zone "$@"
   __create_record "$CLOUDFLARE_HOSTNAME" "$CLOUDFLARE_DNS_TYPE" "$CLOUDFLARE_PROXY_ENABLED"
   exit $?
@@ -1158,6 +1180,8 @@ create)
 
 update)
   shift 1
+  __cf_require_creds
+  __cf_require_zone
   __cloudflare_zone "$@"
   __update_record "$CLOUDFLARE_HOSTNAME" "$CLOUDFLARE_PROXY_ENABLED"
   exit $?
@@ -1165,6 +1189,8 @@ update)
 
 delete)
   shift 1
+  __cf_require_creds
+  __cf_require_zone
   __cloudflare_zone "$@"
   if [ "$CLOUDFLARE_BULK_DELETE" = "true" ]; then
     __bulk_delete "$CLOUDFLARE_HOSTNAME"
@@ -1198,14 +1224,15 @@ EOF
 
 verify)
   shift 1
+  __cf_require_creds
   printf_cyan "Fetching data from: $CLOUDFLARE_API_URL"
   if [ "$1" = "id" ]; then
     shift 1
+    __cf_require_zone
     __cloudflare_zone "$1"
     results="$(__record_identifier "$CLOUDFLARE_HOSTNAME")"
     [ -n "$results" ] && printf_green "ID for $CLOUDFLARE_HOSTNAME should be: $results" || printf_exit 2 5 "Failed to get ID for $CLOUDFLARE_HOSTNAME"
   else
-    __cloudflare_zone "$@"
     results="$(__api_verify)"
     [ -n "$results" ] && printf_green "$results" || printf_red "Invalid API Key"
   fi
@@ -1214,12 +1241,15 @@ verify)
 
 zones)
   shift 1
+  __cf_require_creds
   __list_zones
   exit $?
   ;;
 
 list)
   shift 1
+  __cf_require_creds
+  __cf_require_zone
   if [ "$SET_API" = "full" ]; then
     __cloudflare_zone "$@"
     __api_full "$CLOUDFLARE_ZONE_NAME"
@@ -1231,6 +1261,8 @@ list)
 
 *)
   if [ "$SET_API" = "full" ]; then
+    __cf_require_creds
+    __cf_require_zone
     __cloudflare_zone "$@"
     __api_full | __jq '{ zone_name, name, id, zone_id, type, content, proxiable, proxied }'
   else

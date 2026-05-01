@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605011214-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:22 EDT
 # @@File             :  gitadmin
 # @@Description      :  push/clone/pull from github/gitlab/private/bitbucket/codeberg/forgejo/gitea/gogs/azure/aws repos
-# @@Changelog        :  Synchronized __help with multi-platform commands and utility commands
+# @@Changelog        :  Fix `gitadmin org all [username/org]` dispatcher (was falling through to default and treating "all" as a username); all org subcommands now fall back to GITADMIN_DEFAULT_USERNAME when no username/org given
 # @@TODO             :  Continue local variable cleanup
 # @@Other            :  Somethings may be broken due to variable changes
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202602020740-git"
+VERSION="202605011214-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -303,6 +303,9 @@ __help() {
   __printf_line "org push [username] all         - Push repos including owned orgs"
   __printf_line "org pull [username]             - Pull repos for user/org (scoped)"
   __printf_line "org pull [username] all         - Pull repos including owned orgs"
+  __printf_line "org all [username/org]          - Shortcut for clone-all-orgs"
+  __printf_line "                                  Falls back to GITADMIN_DEFAULT_USERNAME"
+  __printf_line "                                  if no username/org given"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Github Gist: [clone,create,delete,edit,list,search] [userName]"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -7953,13 +7956,28 @@ user)
 # organization options
 org)
   shift 1
+  # Resolve a username/org from the next positional arg, falling back
+  # to GITADMIN_DEFAULT_USERNAME. Errors out if neither is set.
+  __org_resolve_username() {
+    local cmd="$1" arg="$2"
+    if [ -n "$arg" ] && [ "$arg" != "all" ] && [ "$arg" != "help" ]; then
+      printf '%s' "$arg"
+      return 0
+    fi
+    if [ -n "$GITADMIN_DEFAULT_USERNAME" ]; then
+      printf '%s' "$GITADMIN_DEFAULT_USERNAME"
+      return 0
+    fi
+    __printf_help "Usage: $APPNAME org $cmd [username/org]   (or set GITADMIN_DEFAULT_USERNAME)"
+    return 1
+  }
   case "$1" in
   # Show repos owned by org
   repos)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME org repos [username [all]]"
-    username="$1"
-    shift 1
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME org repos [username [all]]"
+    username="$(__org_resolve_username repos "$1")" || exit 1
+    [ -n "$1" ] && [ "$1" != "all" ] && shift 1
     if [ "$1" = "all" ]; then
       __github_all_orgs_list_repos "$username"
     else
@@ -7970,9 +7988,9 @@ org)
 
   clone)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME org clone [username [all]]"
-    username="$1"
-    shift 1
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME org clone [username [all]]"
+    username="$(__org_resolve_username clone "$1")" || exit 1
+    [ -n "$1" ] && [ "$1" != "all" ] && shift 1
     if [ "$1" = "all" ]; then
       __git_all_orgs_clone "$username"
     else
@@ -7993,10 +8011,10 @@ org)
 
   push)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME org push [username [all]]"
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME org push [username [all]]"
     [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_exit "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set"
-    username="$1"
-    shift 1
+    username="$(__org_resolve_username push "$1")" || exit 1
+    [ -n "$1" ] && [ "$1" != "all" ] && shift 1
     if [ "$1" = "all" ]; then
       __git_all_orgs_push "$username"
     else
@@ -8007,9 +8025,9 @@ org)
 
   pull)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME org pull [username [all]]"
-    username="$1"
-    shift 1
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME org pull [username [all]]"
+    username="$(__org_resolve_username pull "$1")" || exit 1
+    [ -n "$1" ] && [ "$1" != "all" ] && shift 1
     if [ "$1" = "all" ]; then
       __git_all_orgs_pull "$username"
     else
@@ -8027,15 +8045,26 @@ org)
     exit $?
     ;;
 
+  # Shortcut: `gitadmin org all [username/org]` clones every org owned
+  # by username/org. With no positional arg, falls back to
+  # $GITADMIN_DEFAULT_USERNAME.
+  all)
+    shift 1
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME org all [username/org]   (defaults to GITADMIN_DEFAULT_USERNAME)"
+    username="$(__org_resolve_username all "$1")" || exit 1
+    __git_all_orgs_clone "$username"
+    exit $?
+    ;;
+
   help | "")
-    __printf_help "Usage: $APPNAME org [repos|clone|push|pull] [username [all]]"
+    __printf_help "Usage: $APPNAME org [all|repos|clone|push|pull] [username [all]]"
     ;;
 
   *)
-    # Default: treat as username for clone
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME org [repos|clone|push|pull] [username [all]]"
-    username="$1"
-    shift 1
+    # Default: treat $1 as username for clone (legacy behavior).
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME org [all|repos|clone|push|pull] [username [all]]"
+    username="$(__org_resolve_username '' "$1")" || exit 1
+    [ -n "$1" ] && [ "$1" != "all" ] && shift 1
     if [ "$1" = "all" ]; then
       __git_all_orgs_clone "$username"
     else

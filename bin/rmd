@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605011124-git
+##@Version           :  202605011146-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 12, 2022 20:51 EDT
 # @@File             :  rmd
 # @@Description      :  remove files and directories recursively
-# @@Changelog        :  Hard blocks for /, /etc, /bin, /usr/bin, $HOME and /etc/{passwd,group,shadow}* even with --force. Interactive prompt for / asking if user meant $PWD
+# @@Changelog        :  Hard blocks; / prompt; quoted-glob expansion (rmd ~/dir/*); stdin path reading (find . | rmd); avoids ARG_MAX via internal expansion
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605011124-git"
+VERSION="202605011146-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -194,6 +194,16 @@ __help() {
   __printf_line "Usage: rmd [options] [paths...]"
   __printf_line ""
   __printf_line "Removes files and directories recursively with safety guards."
+  __printf_line ""
+  __printf_line "Paths may be passed as positional args, piped on stdin, or"
+  __printf_line "single-quoted with glob meta chars for the script to expand:"
+  __printf_line "  rmd file1 file2"
+  __printf_line "  rmd '~/Test/*.log'           # script expands tilde + glob"
+  __printf_line "  find . -name '*.bak' | rmd --yes"
+  __printf_line "  ls /tmp/junk | rmd --yes"
+  __printf_line ""
+  __printf_line "Quoted-glob and stdin both avoid the kernel ARG_MAX limit you"
+  __printf_line "would hit with an unquoted wildcard expanding to many paths."
   __printf_line ""
   __printf_line "--force                         - Override soft system-wildcard blocks"
   __printf_line "--yes                           - Skip the 2 second cancel delay"
@@ -383,6 +393,42 @@ __rmd_handle_root_request() {
   return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Expand a single argument: leading ~ -> $HOME, then glob ('*?[' meta
+# chars). Lets users single-quote patterns the shell would otherwise
+# eat: rmd '~/Test/*' or rmd '/var/log/*.gz'. This also avoids the
+# kernel ARG_MAX limit because the script never receives the expanded
+# list as argv -- the expansion happens after exec.
+# Output: one expanded path per line on stdout, nothing if the pattern
+# matched no files.
+__rmd_expand_arg() {
+  local pat="$1"
+  case "$pat" in
+    "~") pat="$HOME" ;;
+    "~/"*) pat="${HOME}${pat#\~}" ;;
+  esac
+  case "$pat" in
+    *"*"* | *"?"* | *"["*) ;;
+    *)
+      printf '%s\n' "$pat"
+      return 0
+      ;;
+  esac
+  local oldnull oldfail
+  oldnull="$(shopt -p nullglob 2>/dev/null)"
+  oldfail="$(shopt -p failglob 2>/dev/null)"
+  shopt -s nullglob
+  shopt -u failglob
+  local -a matches
+  # shellcheck disable=SC2206
+  matches=( $pat )
+  eval "$oldnull"
+  eval "$oldfail"
+  if [ "${#matches[@]}" -eq 0 ]; then
+    return 0
+  fi
+  printf '%s\n' "${matches[@]}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __test_dir() {
   local tmp="${TMP:-$HOME/.local/tmp}"
   local original_arg="$1"
@@ -443,61 +489,123 @@ __rm_file() {
   return $rmexitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__execute_rmd() {
-  local files delete_dir delete_file delete_error_file exitCode=0
-  if [ $# -ne 0 ]; then
-    local -a files=("$@")
-    for file in "${files[@]}"; do
-      if [[ "$file" = -* ]]; then
-        if [ ! -e "$file" ]; then
-          file="" && shift 1
-        fi
-      fi
-      if [ -n "$file" ]; then
-        # Literal '/' or '/*' gets the special "did you mean $PWD?" prompt
-        # before any other check. Yes -> path is replaced with $PWD and
-        # falls through to __test_dir for normal validation. No / non-tty
-        # -> refused outright.
-        if [ "$file" = "/" ] || [ "$file" = "/*" ]; then
-          local replacement
-          if replacement="$(__rmd_handle_root_request)" && [ -n "$replacement" ]; then
-            file="$replacement"
-          else
-            exitCode=$((exitCode + 1))
-            continue
-          fi
-        fi
-
-        # Early check for other dangerous bare patterns
-        if [[ "$file" == "*" ]] || [[ "$file" == "**" ]]; then
-          printf_red "SECURITY: Refusing dangerous pattern: $file"
-          exitCode=$((exitCode + 1))
-          continue
-        fi
-
-        if __test_dir "$file"; then
-          if [ -d "$file" ]; then
-            printf_green "Deleting folder and all files within: $file - this is unsafe "
-            [ -z "$RMD_SLEEP_TIMEOUT" ] && sleep 2
-            __rm_file "$file"
-          elif [ -L "$file" ]; then
-            printf_green "Unlinking the file: $file"
-            unlink "$file" &>/dev/null
-          elif [ -e "$file" ]; then
-            printf_green "Deleting the file: $file"
-            __rm_file "$file" &>/dev/null
-          else
-            printf_red "Failed to delete non-existant file/folder: $file"
-            local exitCode=$(($exitCode + 1))
-          fi
-        fi
-      fi
-      [ -e "$file" ] && exitCode=$(($exitCode + 1)) || true
-    done
+__rmd_delete_one() {
+  local file="$1"
+  if [ -d "$file" ]; then
+    printf_green "Deleting folder and all files within: $file - this is unsafe "
+    [ -z "$RMD_SLEEP_TIMEOUT" ] && sleep 2
+    __rm_file "$file"
+    return $?
+  elif [ -L "$file" ]; then
+    printf_green "Unlinking the file: $file"
+    unlink "$file" &>/dev/null
+    return $?
+  elif [ -e "$file" ]; then
+    printf_green "Deleting the file: $file"
+    __rm_file "$file" &>/dev/null
+    return $?
   else
-    printf_red "Must provide path to file or folder for deletion"
+    printf_red "Failed to delete non-existent file/folder: $file"
     return 1
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Validate a single literal arg (pre-expansion) and process it. Handles
+# the '/' prompt, runs __test_dir against the literal (so soft-wildcard
+# blocks like /etc/* still fire), then expands tilde+glob and validates
+# each expanded path before delegating to __rmd_delete_one. Returns the
+# count of failures.
+__rmd_process_one() {
+  local raw="$1"
+  local fail=0
+
+  # Strip dangling -* options that didn't get consumed by getopt
+  if [[ "$raw" = -* ]] && [ ! -e "$raw" ]; then
+    return 0
+  fi
+
+  [ -n "$raw" ] || return 0
+
+  case "$raw" in
+    "*" | "**")
+      printf_red "SECURITY: Refusing dangerous pattern: $raw"
+      return 1
+      ;;
+  esac
+
+  # Literal '/' or '/*' goes through prompt handler. Yes substitutes
+  # $PWD; no / non-tty refuses outright.
+  if [ "$raw" = "/" ] || [ "$raw" = "/*" ]; then
+    local replacement
+    if replacement="$(__rmd_handle_root_request)" && [ -n "$replacement" ]; then
+      raw="$replacement"
+    else
+      return 1
+    fi
+  fi
+
+  # Pre-expansion check: catches /etc/* style soft blocks while the
+  # glob meta chars are still in the literal.
+  if ! __test_dir "$raw"; then
+    return 1
+  fi
+
+  # Now expand tilde + glob. Output is one path per line; empty if the
+  # pattern matched nothing.
+  local -a expanded
+  mapfile -t expanded < <(__rmd_expand_arg "$raw")
+
+  if [ "${#expanded[@]}" -eq 0 ]; then
+    printf_red "No files matched pattern: $raw"
+    return 1
+  fi
+
+  local item
+  for item in "${expanded[@]}"; do
+    [ -n "$item" ] || continue
+    if ! __test_dir "$item"; then
+      fail=$((fail + 1))
+      continue
+    fi
+    if ! __rmd_delete_one "$item"; then
+      fail=$((fail + 1))
+    fi
+    # Confirm deletion actually occurred (parity with the original logic
+    # which checked -e after the rm).
+    [ -e "$item" ] && fail=$((fail + 1)) || true
+  done
+  return $fail
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__execute_rmd() {
+  local exitCode=0
+  local -a inputs=()
+
+  if [ $# -gt 0 ]; then
+    inputs=("$@")
+  fi
+
+  # Read paths from stdin when stdin is not a tty (find . | rmd, or
+  # rmd < paths.txt). Merges with positional args; user picked the
+  # "always merge args + stdin if non-tty" policy.
+  if [ ! -t 0 ]; then
+    local line
+    while IFS= read -r line; do
+      [ -n "$line" ] && inputs+=("$line")
+    done
+  fi
+
+  if [ "${#inputs[@]}" -eq 0 ]; then
+    printf_red "Must provide path to file or folder for deletion (positional or via stdin)"
+    return 1
+  fi
+
+  local raw rc
+  for raw in "${inputs[@]}"; do
+    __rmd_process_one "$raw"
+    rc=$?
+    exitCode=$((exitCode + rc))
+  done
   return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -

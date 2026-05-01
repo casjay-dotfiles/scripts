@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605011124-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -51,7 +51,7 @@ _rmd_completion() {
   SHORTOPTS+=""
   #####################################################################
   LONGOPTS="--completions --debug --raw --options --config --version --help --silent --dir "
-  LONGOPTS+="--yes"
+  LONGOPTS+="--yes --force"
   #####################################################################
   ARRAY=""
   ARRAY+=""

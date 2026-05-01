@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605011124-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 12, 2022 20:51 EDT
 # @@File             :  rmd
 # @@Description      :  remove files and directories recursively
-# @@Changelog        :  Fixed critical security issue - prevent wildcard deletions at root
+# @@Changelog        :  Hard blocks for /, /etc, /bin, /usr/bin, $HOME and /etc/{passwd,group,shadow}* even with --force. Interactive prompt for / asking if user meant $PWD
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202602020740-git"
+VERSION="202605011124-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -191,10 +191,28 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "rmd: remove files and directories recursively - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: rmd [options] [commands]"
-  __printf_line " - "
-  __printf_line " - "
-  __printf_line "--dir                           - Sets the working directory"
+  __printf_line "Usage: rmd [options] [paths...]"
+  __printf_line ""
+  __printf_line "Removes files and directories recursively with safety guards."
+  __printf_line ""
+  __printf_line "--force                         - Override soft system-wildcard blocks"
+  __printf_line "--yes                           - Skip the 2 second cancel delay"
+  __printf_line "--dir <path>                    - Sets the working directory"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Safety Guards"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Always blocked, even with --force:"
+  __printf_line "  /                             - root filesystem"
+  __printf_line "  /etc, /bin, /usr/bin, \$HOME   - protected parent directories"
+  __printf_line "  /etc/passwd*, /etc/group*,    - system identity files"
+  __printf_line "  /etc/shadow*, /etc/gshadow*"
+  __printf_line ""
+  __printf_line "When asked to delete '/' from a tty, you'll be prompted whether"
+  __printf_line "you meant the current directory (\$PWD). Non-interactive callers"
+  __printf_line "are refused outright."
+  __printf_line ""
+  __printf_line "Specific named paths under protected parents are allowed, e.g."
+  __printf_line "/etc/myfile.bak, /etc/nginx/*, ~/MyDir, ~/Test/*"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -288,18 +306,115 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Resolve to a canonical absolute path even if the target doesn't exist.
+# realpath -m + readlink -f + raw arg fallback covers the busybox/coreutils
+# variation we run into in production.
+__rmd_resolve() {
+  local in="$1" out
+  out="$(realpath -m -- "$in" 2>/dev/null)"
+  [ -n "$out" ] && { printf '%s' "$out"; return 0; }
+  out="$(readlink -f -- "$in" 2>/dev/null)"
+  [ -n "$out" ] && { printf '%s' "$out"; return 0; }
+  printf '%s' "$in"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Hard-block: protected parent directories that may never be deleted as a
+# whole, ever, even with --force. Children (e.g. /etc/nginx/foo) are NOT
+# matched here.
+__rmd_is_hard_blocked_dir() {
+  local p="$1"
+  case "$p" in
+    /etc | /bin | /usr/bin) return 0 ;;
+  esac
+  if [ -n "$HOME" ] && [ "$p" = "$HOME" ]; then
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Hard-block: system identity files. Matches /etc/passwd*, /etc/group*,
+# /etc/shadow*, /etc/gshadow* exactly (parent must be /etc, not a
+# sub-directory like /etc/old/passwd).
+__rmd_is_identity_file() {
+  local p="$1" parent base
+  parent="${p%/*}"
+  base="${p##*/}"
+  [ "$parent" = "/etc" ] || return 1
+  case "$base" in
+    passwd* | group* | shadow* | gshadow*) return 0 ;;
+  esac
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Other system dirs to refuse by default. These are still soft-ish — we
+# refuse the directory itself, but specific files inside are allowed.
+__rmd_is_protected_system_dir() {
+  case "$1" in
+    / | /home | /tmp | /usr | /etc | /var | /bin | /sbin | /lib | /lib64 | /boot | /sys | /proc | /dev) return 0 ;;
+  esac
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Handle a request to delete '/' itself. Always refuses the literal '/'
+# delete (even with --force). Interactive callers (tty on stdin and
+# stdout) get prompted "did you mean $PWD?" — answering yes prints the
+# replacement path on stdout for the caller to substitute in. Anything
+# non-interactive prints a hint and returns 1.
+__rmd_handle_root_request() {
+  local pwd_now="${PWD:-$(pwd 2>/dev/null)}"
+  printf_red "SECURITY: refusing to delete '/' (always blocked, even with --force)" >&2
+  if [ -t 0 ] && [ -t 1 ] && [ -n "$pwd_now" ] && [ "$pwd_now" != "/" ]; then
+    printf_yellow "Did you mean the current directory: $pwd_now ?" >&2
+    printf "[y/N]: " >&2
+    local answer=""
+    read -r answer
+    case "$answer" in
+      [Yy] | [Yy][Ee][Ss])
+        printf_cyan "Targeting $pwd_now instead..." >&2
+        printf '%s' "$pwd_now"
+        return 0
+        ;;
+    esac
+    printf_yellow "Aborted" >&2
+    return 1
+  fi
+  printf_yellow "If you meant the current directory, run: rmd \"\$PWD\"" >&2
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __test_dir() {
   local tmp="${TMP:-$HOME/.local/tmp}"
-  local dir="$(realpath "$1" 2>/dev/null)"
   local original_arg="$1"
+  local dir
+  dir="$(__rmd_resolve "$1")"
 
-  # Block absolute dangerous wildcards (but allow ./* for current directory)
-  if [[ "$original_arg" == "/*" ]] || [[ "$original_arg" == "/" ]]; then
-    printf_red "SECURITY: Refusing to delete root or root wildcard: $original_arg"
+  # --- HARD BLOCKS (always refuse, even with --force) ---
+  # Caller is expected to have already routed literal '/' through
+  # __rmd_handle_root_request before calling us; if it slips through,
+  # refuse here too as a backstop.
+  if [ "$dir" = "/" ] || [ "$original_arg" = "/" ] || [ "$original_arg" = "/*" ]; then
+    printf_red "SECURITY: refusing to delete root '/' (always blocked, even with --force)"
+    return 1
+  fi
+  if __rmd_is_identity_file "$dir"; then
+    printf_red "SECURITY: refusing to delete system identity file: $dir (always blocked, even with --force)"
+    return 1
+  fi
+  if __rmd_is_hard_blocked_dir "$dir"; then
+    printf_red "SECURITY: refusing to delete protected directory: $dir (always blocked, even with --force)"
     return 1
   fi
 
-  # Block wildcards in critical system paths (check for actual wildcard characters)
+  # --- SOFT BLOCKS (refuse by default, --force overrides where noted) ---
+  # Other system dirs themselves (children are still allowed).
+  if __rmd_is_protected_system_dir "$dir"; then
+    printf_red "SECURITY: Refusing to delete protected directory: $dir"
+    return 1
+  fi
+
+  # Literal wildcards in the un-expanded arg under system paths. Useful
+  # when the arg arrives quoted (e.g. via a script wrapper).
   if [[ "$original_arg" == *"*"* ]]; then
     if [[ "$original_arg" == /bin/* ]] || [[ "$original_arg" == /sbin/* ]] ||
       [[ "$original_arg" == /usr/* ]] || [[ "$original_arg" == /etc/* ]] ||
@@ -312,17 +427,6 @@ __test_dir() {
         return 1
       fi
     fi
-  fi
-
-  # Check resolved path for protected directories
-  if [ "$dir" = "/" ] || [ "$dir" = "$HOME" ] || [ "$dir" = "/home" ] ||
-    [ "$dir" = "/tmp" ] || [ "$dir" = "$tmp" ] || [ "$dir" = "/usr" ] ||
-    [ "$dir" = "/etc" ] || [ "$dir" = "/var" ] || [ "$dir" = "/bin" ] ||
-    [ "$dir" = "/sbin" ] || [ "$dir" = "/lib" ] || [ "$dir" = "/lib64" ] ||
-    [ "$dir" = "/boot" ] || [ "$dir" = "/sys" ] || [ "$dir" = "/proc" ] ||
-    [ "$dir" = "/dev" ]; then
-    printf_red "SECURITY: Refusing to delete protected directory: $dir"
-    return 1
   fi
 
   return 0
@@ -350,8 +454,22 @@ __execute_rmd() {
         fi
       fi
       if [ -n "$file" ]; then
-        # Early check for dangerous patterns before processing
-        if [[ "$file" == "/*" ]] || [[ "$file" == "/" ]] || [[ "$file" == "*" ]] || [[ "$file" == "**" ]]; then
+        # Literal '/' or '/*' gets the special "did you mean $PWD?" prompt
+        # before any other check. Yes -> path is replaced with $PWD and
+        # falls through to __test_dir for normal validation. No / non-tty
+        # -> refused outright.
+        if [ "$file" = "/" ] || [ "$file" = "/*" ]; then
+          local replacement
+          if replacement="$(__rmd_handle_root_request)" && [ -n "$replacement" ]; then
+            file="$replacement"
+          else
+            exitCode=$((exitCode + 1))
+            continue
+          fi
+        fi
+
+        # Early check for other dangerous bare patterns
+        if [[ "$file" == "*" ]] || [[ "$file" == "**" ]]; then
           printf_red "SECURITY: Refusing dangerous pattern: $file"
           exitCode=$((exitCode + 1))
           continue

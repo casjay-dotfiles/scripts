@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605011214-git
+##@Version           :  202605011221-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:22 EDT
 # @@File             :  gitadmin
 # @@Description      :  push/clone/pull from github/gitlab/private/bitbucket/codeberg/forgejo/gitea/gogs/azure/aws repos
-# @@Changelog        :  Fix `gitadmin org all [username/org]` dispatcher (was falling through to default and treating "all" as a username); all org subcommands now fall back to GITADMIN_DEFAULT_USERNAME when no username/org given
+# @@Changelog        :  Top-level `gitadmin clone` now accepts multiple repos in one call and auto-detects format (URL, ssh shorthand, host/owner/repo, owner/repo, owner+repo word pair, bare word with default user); per-provider clone) cases are unchanged
 # @@TODO             :  Continue local variable cleanup
 # @@Other            :  Somethings may be broken due to variable changes
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605011214-git"
+VERSION="202605011221-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -277,7 +277,10 @@ __help() {
   __printf_line "repos [userName]                - Show all your public repo"
   __printf_line "push [directory]                - Push a project to a remote repo"
   __printf_line "pull [directory]                - Update a local git repo"
-  __printf_line "clone [repo] [directory]        - Clone a git repo"
+  __printf_line "clone <repo> [<repo>...]        - Clone one or more git repos"
+  __printf_line "                                  Each <repo> may be a URL, ssh shorthand,"
+  __printf_line "                                  host/owner/repo, owner/repo, owner repo,"
+  __printf_line "                                  or a bare repo name (uses default user)"
   __printf_line "modify [user/repo|.]            - Modify repo settings [--platform] [--description] [--homepage]"
   __printf_line "create [user/repo] [desc]       - Create a new repo [--platform] [--private|--public]"
   __printf_line "delete [user/repo|.]            - Delete a repo [--platform github|gitlab|gitea]"
@@ -7676,11 +7679,102 @@ merge-resolve)
 # Clone repo from url
 clone)
   shift 1
-  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME clone MyURL"
-  GITADMIN_REPO_URL="$(__strip_git_url "$1")" && shift 1
-  __if_is_url "$GITADMIN_REPO_URL" || GITADMIN_REPO_URL="https://github.com/$GITADMIN_REPO_URL"
-  __create_dirs "${1:-}"
-  __git_clone_single "$GITADMIN_REPO_URL" "${1:-}"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME clone <repo> [<repo>...]
+  Each <repo> may be:
+    https://host/owner/repo[.git] | git://... | ssh://...
+    git@host:owner/repo[.git]
+    host.tld/owner/repo            (https:// is prepended)
+    owner/repo                     (-> github.com/owner/repo)
+    owner repo                     (two bare words -> github.com/owner/repo)
+    repo                           (single bare word -> uses GITADMIN_DEFAULT_USERNAME)"
+
+  # Translate a single arg into a clone URL when the arg is fully
+  # qualified on its own (URL, ssh shorthand, host/owner/repo, or
+  # owner/repo). Returns 0 + URL on stdout when recognized, 1 with
+  # no output when the arg is a bare word (caller decides what to
+  # do with it).
+  __clone_to_url() {
+    local input="$1"
+    case "$input" in
+      http://* | https://* | git://* | ssh://*)
+        printf '%s' "$input"
+        return 0
+        ;;
+    esac
+    if [[ "$input" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:.+/.+$ ]]; then
+      printf '%s' "$input"
+      return 0
+    fi
+    case "$input" in
+      */*/*)
+        local first="${input%%/*}"
+        case "$first" in
+          *.*) printf 'https://%s' "$input" ;;
+          *)   printf 'https://github.com/%s' "$input" ;;
+        esac
+        return 0
+        ;;
+      */*)
+        printf 'https://github.com/%s' "$input"
+        return 0
+        ;;
+    esac
+    return 1
+  }
+
+  __clone_run_one() {
+    local url
+    url="$(__strip_git_url "$1")"
+    __create_dirs "" >/dev/null 2>&1 || true
+    __git_clone_single "$url"
+  }
+
+  __clone_dispatch() {
+    local -a args=("$@")
+    local n=${#args[@]} i=0 exit_code=0
+    local arg next url next_url
+    while [ "$i" -lt "$n" ]; do
+      arg="${args[$i]}"
+      if url="$(__clone_to_url "$arg")"; then
+        __clone_run_one "$url" || exit_code=1
+        i=$((i + 1))
+        continue
+      fi
+      # Bare word: try to consume the next arg as a sibling so that
+      # `clone foo bar` clones github.com/foo/bar.
+      if [ $((i + 1)) -lt "$n" ]; then
+        next="${args[$((i + 1))]}"
+        if next_url="$(__clone_to_url "$next")"; then
+          # Next arg is fully qualified, so the bare word stands alone
+          # and needs the default username to mean anything.
+          if [ -n "$GITADMIN_DEFAULT_USERNAME" ]; then
+            __clone_run_one "https://github.com/$GITADMIN_DEFAULT_USERNAME/$arg" || exit_code=1
+          else
+            printf_red "Cannot resolve standalone '$arg' (set GITADMIN_DEFAULT_USERNAME or pass owner/repo)"
+            exit_code=1
+          fi
+          i=$((i + 1))
+        else
+          # Both bare -> treat as owner + repo pair on github.com.
+          __clone_run_one "https://github.com/$arg/$next" || exit_code=1
+          i=$((i + 2))
+        fi
+      else
+        # Last arg, bare. Needs default username.
+        if [ -n "$GITADMIN_DEFAULT_USERNAME" ]; then
+          __clone_run_one "https://github.com/$GITADMIN_DEFAULT_USERNAME/$arg" || exit_code=1
+        else
+          printf_red "Cannot resolve standalone '$arg' (set GITADMIN_DEFAULT_USERNAME or pass owner/repo)"
+          exit_code=1
+        fi
+        i=$((i + 1))
+      fi
+    done
+    return $exit_code
+  }
+
+  __clone_dispatch "$@"
+  exit $?
   ;;
 
   # rebase options

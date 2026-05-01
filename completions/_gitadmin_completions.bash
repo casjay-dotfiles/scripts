@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605011214-git
+##@Version           :  202605011221-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -79,7 +79,7 @@ _gitadmin() {
     setup) COMPREPLY=($(compgen -W '${automatedOpts}' -- "$cur")) && prev="setup" ;;
     update) COMPREPLY=($(compgen -W '${updateOpts}' -- "$cur")) && prev="update" ;;
     gist) COMPREPLY=($(compgen -W '${GIST}' -- '[a..z]' "$cur")) && compopt +o nospace && prev="gist" ;;
-    clone) COMPREPLY=($(compgen -W '/ http:// https:// git://' -- "$cur")) && compopt +o nospace && prev="clone" ;;
+    clone) COMPREPLY=($(compgen -W '/ http:// https:// git:// ssh:// git@' -- "$cur")) && compopt +o nospace && prev="clone" ;;
     shorten) COMPREPLY=($(compgen -W 'https://' -- "$cur")) && compopt +o nospace && prev=shorten ;;
     project) [ $COMP_CWORD -ge 2 ] && COMPREPLY=($(compgen -W '' -- "$cur")) || COMPREPLY=($(compgen -W '${repos}' -- "$cur")) ;;
     --type)

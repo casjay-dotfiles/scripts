@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202604200045-git
+##@Version           :  202605011110-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -27,7 +27,7 @@ _tmux-new() {
   local OPTS=""
   local LONGOPTS="--completions --config --debug --dir --help --options --raw --version --silent --kill --name --socket"
   local SHORTOPTS=""
-  local ARRAY="kill clean list attach switch rename status clone nested single shell server web docker dev go rust python devops monitoring database rpm node bun deno build ssh productivity test default edit create update save restore boot cleanup"
+  local ARRAY="kill clean list attach switch rename status show clone nested single shell server web docker dev go rust python devops monitoring database rpm node bun deno build ssh productivity test default edit create update save restore boot cleanup"
   local LAUNCH="nested single shell server web docker dev go rust python devops monitoring database rpm node bun deno build ssh productivity test default"
   local tmux_ls="$(tmux ls 2>/dev/null | awk -F':' '{print $1}' | grep -vE '^$|no session|no server running on' | grep '^')"
   local socket_dir="$HOME/.config/tmux/sessions"
@@ -96,6 +96,9 @@ _tmux-new() {
     list | ls)
       shift 1
       local prev="ls"
+      COMPREPLY=($(compgen -W '' -- "${cur}"))
+      ;;
+    show | status | info)
       COMPREPLY=($(compgen -W '' -- "${cur}"))
       ;;
     attach | a)

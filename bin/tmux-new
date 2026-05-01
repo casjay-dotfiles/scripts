@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202604200045-git
+##@Version           :  202605011110-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  Add snapshot retention - cleanup keeps newest TMUX_NEW_SNAPSHOT_KEEP files, runs after every save plus a manual cleanup subcommand
+# @@Changelog        :  Cache scoped per socket, new show subcommand grouped by socket, show honors --socket and --name filters, fix eval bug that swallowed -F format
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202604200045-git"
+VERSION="202605011110-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -234,6 +234,9 @@ __help() {
   __printf_line "tmux-new rename <old> <new>     - rename session"
   __printf_line "tmux-new clone <src> <dest>     - clone session"
   __printf_line "tmux-new status                 - show session status"
+  __printf_line "tmux-new show                   - show all sockets with full attach commands"
+  __printf_line "tmux-new --socket <s> show      - show only sessions on socket <s>"
+  __printf_line "tmux-new --name <n> show        - show only session <n> across sockets"
   __printf_line "tmux-new nested [name]          - nested tmux with single status bar"
   __printf_line "tmux-new save                   - manual snapshot (tmux-resurrect)"
   __printf_line "tmux-new restore                - restore last snapshot"
@@ -387,10 +390,31 @@ __cache_valid() {
   return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Resolve the socket name we should use for socket-scoped cache files.
+# Priority: explicit --socket flag, then $TMUX env (status-bar invocations
+# inherit it), then "default". Without this the caches were per-PID and
+# never reused across invocations.
+__current_socket() {
+  if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
+    printf '%s' "$TMUX_NEW_SOCKET_FILE"
+    return 0
+  fi
+  if [ -n "$TMUX" ]; then
+    local sock_path="${TMUX%%,*}"
+    local sock_name="${sock_path##*/}"
+    if [ -n "$sock_name" ]; then
+      printf '%s' "$sock_name"
+      return 0
+    fi
+  fi
+  printf '%s' "default"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Weather function with caching
 __exec_weather() {
   local cache_dir="${TMUX_CACHE_DIR:-$HOME/.cache/tmux}"
-  local cache_file="$cache_dir/weather-$$"
+  local socket="$(__current_socket)"
+  local cache_file="$cache_dir/weather-$socket"
   local cache_ttl="${TMUX_WEATHER_INTERVAL:-3600}"
   local weather_server="${TMUX_WEATHER_SERVER:-https://wthr.top}"
   local weather_location="${MYLOCATION_NAME:-${TMUX_WEATHER_LOCATION:-New York, NY}}"
@@ -398,7 +422,6 @@ __exec_weather() {
   weather_url="${weather_location// /%20}"
   [ -d "$cache_dir" ] || mkdir -p "$cache_dir" 2>/dev/null
   if __cache_valid "$cache_file" "$cache_ttl"; then
-    # Display cached weather data
     printf '%s\n' "$(<"$cache_file")" 2>/dev/null || echo "No Weather"
   else
     local weather
@@ -411,7 +434,8 @@ __exec_weather() {
 # Uptime function with caching
 __exec_uptime() {
   local cache_dir="${TMUX_CACHE_DIR:-$HOME/.cache/tmux}"
-  local cache_file="$cache_dir/uptime-$$"
+  local socket="$(__current_socket)"
+  local cache_file="$cache_dir/uptime-$socket"
   local cache_ttl="${TMUX_UPTIME_INTERVAL:-60}"
   [ -d "$cache_dir" ] || mkdir -p "$cache_dir" 2>/dev/null
   if __cache_valid "$cache_file" "$cache_ttl"; then
@@ -951,6 +975,108 @@ __tmux_status() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Build the exact tmux command needed to attach to a given socket+session.
+# Uses -L for sockets in the default tmux tmpdir, -S for absolute socket paths
+# elsewhere (e.g. our custom $TMUX_NEW_SOCKET_DIR).
+__tmux_attach_command() {
+  local socket_ref="$1" session="$2" tmpdir
+  tmpdir="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)"
+  if [ "${socket_ref#/}" != "$socket_ref" ]; then
+    if [ "${socket_ref%/*}" = "$tmpdir" ]; then
+      local sock_name="${socket_ref##*/}"
+      if [ "$sock_name" = "default" ]; then
+        printf 'tmux attach -t %s' "$session"
+      else
+        printf 'tmux -L %s attach -t %s' "$sock_name" "$session"
+      fi
+    else
+      printf 'tmux -S %s attach -t %s' "$socket_ref" "$session"
+    fi
+  else
+    if [ "$socket_ref" = "default" ] || [ -z "$socket_ref" ]; then
+      printf 'tmux attach -t %s' "$session"
+    else
+      printf 'tmux -L %s attach -t %s' "$socket_ref" "$session"
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Print sessions for one socket, indented under its header. Returns 1 if
+# the socket had no matching sessions (caller decides whether anything was
+# printed). $1 = display label, $2 = socket reference passed to
+# __tmux_attach_command, remaining args = tmux invocation flags as a list
+# (e.g. -L default, or -S /path/to/sock). The session name filter comes
+# from the global TMUX_NEW_SHOW_NAME_FILTER (set by --name).
+__tmux_show_socket() {
+  local label="$1" socket_ref="$2"
+  shift 2
+  local filter="${TMUX_NEW_SHOW_NAME_FILTER:-}"
+  local sessions session pad cmd max_len=0 matched=()
+  sessions="$(command tmux "$@" list-sessions -F '#{session_name}' 2>/dev/null)"
+  [ -n "$sessions" ] || return 1
+  while IFS= read -r session; do
+    [ -n "$session" ] || continue
+    if [ -n "$filter" ] && [ "$session" != "$filter" ]; then
+      continue
+    fi
+    matched+=("$session")
+    [ "${#session}" -gt "$max_len" ] && max_len=${#session}
+  done <<<"$sessions"
+  [ "${#matched[@]}" -gt 0 ] || return 1
+  printf_blue "[$label]"
+  for session in "${matched[@]}"; do
+    cmd="$(__tmux_attach_command "$socket_ref" "$session")"
+    pad=$((max_len - ${#session}))
+    printf "  "
+    printf_green "$session:$(printf '%*s' "$pad" '')  $cmd"
+  done
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Discover every reachable tmux server (default tmpdir + custom socket dir)
+# and print sessions grouped by socket with the attach command for each.
+# Honors --socket (filters to one socket name) and --name (filters to one
+# session name). Without filters, shows everything.
+__tmux_show() {
+  local tmpdir uid found=0 sock sock_name
+  local socket_filter="${TMUX_NEW_SHOW_SOCKET_FILTER:-}"
+  uid="$(id -u)"
+  tmpdir="${TMUX_TMPDIR:-/tmp}/tmux-$uid"
+  if [ -d "$tmpdir" ]; then
+    for sock in "$tmpdir"/*; do
+      [ -S "$sock" ] || continue
+      sock_name="${sock##*/}"
+      if [ -n "$socket_filter" ] && [ "$sock_name" != "$socket_filter" ]; then
+        continue
+      fi
+      if __tmux_show_socket "$sock_name" "$sock_name" -L "$sock_name"; then
+        found=1
+      fi
+    done
+  fi
+  if [ -d "$TMUX_NEW_SOCKET_DIR" ]; then
+    for sock in "$TMUX_NEW_SOCKET_DIR"/*; do
+      [ -S "$sock" ] || continue
+      sock_name="${sock##*/}"
+      if [ -n "$socket_filter" ] && [ "$sock_name" != "$socket_filter" ]; then
+        continue
+      fi
+      if __tmux_show_socket "$sock_name (custom)" "$sock" -S "$sock"; then
+        found=1
+      fi
+    done
+  fi
+  if [ "$found" -eq 0 ]; then
+    if [ -n "$socket_filter" ] || [ -n "$TMUX_NEW_SHOW_NAME_FILTER" ]; then
+      printf_yellow "No tmux sessions match the given filters"
+    else
+      printf_yellow "No active tmux servers found"
+    fi
+    return 1
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_clone() {
   local source="$1"
   local target="$2"
@@ -1160,7 +1286,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",kill,name:,socket:,exec:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="liskill,clean,list,attach,single,shell,server,web,docker,dev,rpm,node,bun,deno,build,ssh,productivity,test,default,edit,create,save,restore,boot,cleanup"
+ARRAY="liskill,clean,list,attach,single,shell,server,web,docker,dev,rpm,node,bun,deno,build,ssh,productivity,test,default,edit,create,save,restore,boot,cleanup,show,status,switch,rename,clone,nested,kill,update"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -1275,10 +1401,12 @@ while :; do
     ;;
   --name)
     TMUX_NEW_SET_NAME="$2"
+    TMUX_NEW_SHOW_NAME_FILTER="$2"
     shift 2
     ;;
   --socket)
     TMUX_NEW_SOCKET_FILE="$2"
+    TMUX_NEW_SHOW_SOCKET_FILTER="$2"
     shift 2
     ;;
   --)
@@ -1429,6 +1557,11 @@ cleanup)
 status | info)
   shift 1
   __tmux_status
+  exit $?
+  ;;
+show)
+  shift 1
+  __tmux_show
   exit $?
   ;;
 clone | copy)

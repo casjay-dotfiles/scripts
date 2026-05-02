@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021452-git
+##@Version           :  202605021500-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Release actions (list/get/create/delete) for github + gitea + gitlab. New --tag flag.
+# @@Changelog        :  Bitbucket Cloud provider — verify/user/org/repo/issue/pr (release flagged unsupported, platform has no release API).
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021452-git"
+VERSION="202605021500-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -205,7 +205,7 @@ __help() {
   __printf_line "forgejo                         - Forgejo (Gitea API). FORGEJO_API_URL + FORGEJO_ACCESS_TOKEN"
   __printf_line "codeberg                        - Codeberg (Gitea API). CODEBERG_API_URL + CODEBERG_ACCESS_TOKEN"
   __printf_line "gitlab                          - GitLab. GITLAB_API_URL + GITLAB_ACCESS_TOKEN"
-  __printf_line "bitbucket                       - Bitbucket. BITBUCKET_API_URL + BITBUCKET_ACCESS_TOKEN          [stub]"
+  __printf_line "bitbucket                       - Bitbucket Cloud. BITBUCKET_API_URL + BITBUCKET_ACCESS_TOKEN (Bearer)"
   __printf_line "docker                          - Docker Hub / private. DOCKER_API_URL + DOCKER_HUB_API_KEY      [stub]"
   __printf_line "harbor                          - Harbor. HARBOR_API_URL + HARBOR_ACCESS_TOKEN                   [stub]"
   __printf_line "quay                            - Quay. QUAY_API_URL + QUAY_ACCESS_TOKEN                         [stub]"
@@ -579,12 +579,25 @@ __apimgr_print_issue() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Translate apimgr's --state values to provider-specific state names. github/gitea use open|closed|all;
-# gitlab uses opened|closed|merged|all. Normalizing here means the user-facing flag stays uniform.
+# gitlab uses opened|closed|merged|all; bitbucket-PRs use UPPERCASE (OPEN|MERGED|DECLINED|SUPERSEDED);
+# bitbucket-issues use a wholly different vocabulary so we fall through to pass-through there.
+# The optional second arg ("issue"|"pr") lets the caller hint which surface they're targeting since
+# bitbucket diverges between the two; default is "pr".
 __apimgr_state_for() {
-  local provider="$1" state="${APIMGR_STATE:-open}"
+  local provider="$1" surface="${2:-pr}" state="${APIMGR_STATE:-open}"
   case "$provider" in
     gitlab)
       case "$state" in open) printf 'opened' ;; closed) printf 'closed' ;; merged) printf 'merged' ;; all) printf 'all' ;; *) printf '%s' "$state" ;; esac ;;
+    bitbucket)
+      if [ "$surface" = "pr" ]; then
+        case "$state" in
+          open) printf 'OPEN' ;; closed) printf 'DECLINED' ;; merged) printf 'MERGED' ;;
+          all) printf 'OPEN,MERGED,DECLINED,SUPERSEDED' ;; *) printf '%s' "$state" ;;
+        esac
+      else
+        # Bitbucket issues: new/open/resolved/closed/invalid/duplicate/wontfix/on hold. Pass through.
+        case "$state" in all) printf '' ;; *) printf '%s' "$state" ;; esac
+      fi ;;
     *) printf '%s' "$state" ;;
   esac
 }
@@ -1288,6 +1301,214 @@ __gitlab_release_delete() {
   __gitlab_api DELETE "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/releases/$(__gitlab_urlenc "$key")" >/dev/null && printf_green "Deleted release '$key' from $APIMGR_REPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# ============== Bitbucket Cloud provider (api v2.0 — workspaces/repositories/{slug}, paginated {values:[]} wrappers) ==============
+# Auth: Bearer token (workspace/repo access tokens or OAuth). Basic auth with app passwords also works
+# but the resolver chain doesn't expose username — users wanting Basic auth should pre-encode and pass via --token.
+__bitbucket_curl() {
+  local token; token="$(__apimgr_provider_token bitbucket)" || return 1
+  __apimgr_curl -H "Authorization: Bearer $token" -H "Accept: application/json" "$@"
+}
+__bitbucket_api() {
+  local method="$1" path="$2" data="$3"
+  local base; base="$(__apimgr_provider_url bitbucket)" || return 1
+  if [ -n "$data" ]; then
+    __bitbucket_curl -X "$method" -H "Content-Type: application/json" --data "$data" "$base$path"
+  else
+    __bitbucket_curl -X "$method" "$base$path"
+  fi
+}
+# Bitbucket list responses wrap data in {values:[]}; this unwraps so the shared formatters see a bare array.
+__bitbucket_unwrap() { __apimgr_jq '.values // .'; }
+__bitbucket_repo_check() { __apimgr_resolve_repo || __apimgr_die "bitbucket: --repo WORKSPACE/REPO required"; }
+# Bitbucket-shaped repo formatters (different field names: full_name, is_private, links.html.href, mainbranch).
+__bitbucket_print_repo_list() {
+  __apimgr_jq -r '.[] | "\(.full_name)\t\(.description // "")\t\(.is_private)"' |
+    awk -F'\t' '{printf "%-45s %-50s %s\n", $1, substr($2,1,48), ($3=="true"?"private":"public")}'
+}
+__bitbucket_print_repo() {
+  __apimgr_jq -r '
+    "Name:        \(.full_name)",
+    "URL:         \(.links.html.href // "")",
+    "Description: \(.description // "")",
+    "Visibility:  \(if .is_private then "private" else "public" end)",
+    "Default:     \(.mainbranch.name // "")",
+    "Size:        \(.size // 0) bytes",
+    "Language:    \(.language // "")"
+  '
+}
+# Issue/PR formatters work on Bitbucket because the shared formatters fall back via // chains, but
+# Bitbucket issues use .reporter.display_name and .content.raw — we add an unwrap in the issue/PR list paths.
+__bitbucket_print_issue_list() {
+  __apimgr_jq -r '.[] | "#\(.id)\t\(.state)\t\(.reporter.display_name // "")\t\(.title)"' |
+    awk -F'\t' '{printf "%-7s %-12s %-20s %s\n", $1, substr($2,1,12), substr($3,1,20), $4}'
+}
+__bitbucket_print_pr_list() {
+  __apimgr_jq -r '.[] | "#\(.id)\t\(.state)\t\(.author.display_name // "")\t\(.source.branch.name)→\(.destination.branch.name)\t\(.title)"' |
+    awk -F'\t' '{printf "%-7s %-10s %-18s %-30s %s\n", $1, substr($2,1,10), substr($3,1,18), substr($4,1,30), $5}'
+}
+__bitbucket_verify() {
+  __apimgr_require_creds bitbucket
+  local resp; resp="$(__bitbucket_api GET /user)" || __apimgr_die "Bitbucket /user call failed"
+  __apimgr_jq -r '"Authenticated as \(.username) (\(.display_name // "no name")) — \(.links.html.href // "")"' <<<"$resp"
+}
+__bitbucket_user_get() {
+  __apimgr_require_creds bitbucket
+  if [ -n "$APIMGR_USER" ]; then
+    # Bitbucket /users/{name} was deprecated in 2019; the canonical lookup is by UUID (impractical) or
+    # via the legacy workspace endpoint. Document the limitation and surface what we can — workspace info.
+    __bitbucket_api GET "/workspaces/$APIMGR_USER" | __apimgr_jq .
+  else
+    __bitbucket_api GET /user | __apimgr_jq .
+  fi
+}
+__bitbucket_org_get() {
+  __apimgr_require_creds bitbucket
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "bitbucket org get: --org WORKSPACE required"
+  __bitbucket_api GET "/workspaces/$APIMGR_ORG" | __apimgr_jq .
+}
+__bitbucket_org_all() {
+  __apimgr_require_creds bitbucket
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "bitbucket org all: --org WORKSPACE required"
+  __bitbucket_api GET "/repositories/$APIMGR_ORG?pagelen=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __bitbucket_unwrap | __bitbucket_print_repo_list
+}
+__bitbucket_repo_list() {
+  __apimgr_require_creds bitbucket
+  local path="/repositories?role=member&pagelen=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}"
+  [ -n "$APIMGR_USER" ] && path="/repositories/$APIMGR_USER?pagelen=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}"
+  __bitbucket_api GET "$path" | __bitbucket_unwrap | __bitbucket_print_repo_list
+}
+__bitbucket_repo_get() {
+  __apimgr_require_creds bitbucket
+  __bitbucket_repo_check
+  __bitbucket_api GET "/repositories/$APIMGR_REPO" | __bitbucket_print_repo
+}
+__bitbucket_repo_create() {
+  __apimgr_require_creds bitbucket
+  local name="${APIMGR_REPO##*/}" owner="${APIMGR_REPO%/*}"
+  [ -n "$name" ] && [ -n "$owner" ] && [ "$owner" != "$name" ] || __apimgr_die "bitbucket repo create: --repo WORKSPACE/REPO required"
+  local visibility="${APIMGR_VISIBILITY:-public}" privflag="false"
+  [ "$visibility" = "private" ] && privflag="true"
+  local payload; payload="$(__apimgr_jq -n --arg d "${APIMGR_BODY:-}" --argjson p "$privflag" '{scm:"git", description:$d, is_private:$p}')"
+  __bitbucket_api POST "/repositories/$APIMGR_REPO" "$payload" | __bitbucket_print_repo
+}
+__bitbucket_repo_delete() {
+  __apimgr_require_creds bitbucket
+  __bitbucket_repo_check
+  __apimgr_confirm "Delete $APIMGR_REPO from Bitbucket? This is irreversible." || { printf_yellow "Aborted"; return 1; }
+  __bitbucket_api DELETE "/repositories/$APIMGR_REPO" >/dev/null && printf_green "Deleted $APIMGR_REPO"
+}
+__bitbucket_repo_all() {
+  if [ -n "$APIMGR_ORG" ]; then __bitbucket_org_all; else __bitbucket_repo_list; fi
+}
+__bitbucket_issue_list() {
+  __apimgr_require_creds bitbucket
+  __bitbucket_repo_check
+  local state; state="$(__apimgr_state_for bitbucket issue)"
+  local q=""; [ -n "$state" ] && q="?q=state%3D%22$state%22&"
+  __bitbucket_api GET "/repositories/$APIMGR_REPO/issues${q}pagelen=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __bitbucket_unwrap | __bitbucket_print_issue_list
+}
+__bitbucket_issue_get() {
+  local n="$1"
+  __apimgr_require_creds bitbucket
+  __bitbucket_repo_check
+  [ -n "$n" ] || __apimgr_die "bitbucket issue get: issue ID required"
+  __bitbucket_api GET "/repositories/$APIMGR_REPO/issues/$n" | __apimgr_jq -r '
+    "ID:        #\(.id)",
+    "Title:     \(.title)",
+    "State:     \(.state)",
+    "Reporter:  \(.reporter.display_name // "")",
+    "URL:       \(.links.html.href // "")",
+    "Created:   \(.created_on)",
+    "",
+    "\(.content.raw // "")"
+  '
+}
+__bitbucket_issue_create() {
+  __apimgr_require_creds bitbucket
+  __bitbucket_repo_check
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "bitbucket issue create: --title required"
+  local payload; payload="$(__apimgr_jq -n --arg t "$APIMGR_TITLE" --arg b "${APIMGR_BODY:-}" '{title:$t, content:{raw:$b}, kind:"task", priority:"minor"}')"
+  __bitbucket_api POST "/repositories/$APIMGR_REPO/issues" "$payload" | __apimgr_jq -r '"Created issue #\(.id) — \(.links.html.href)"'
+}
+__bitbucket_issue_close() {
+  local n="$1"
+  __apimgr_require_creds bitbucket
+  __bitbucket_repo_check
+  [ -n "$n" ] || __apimgr_die "bitbucket issue close: issue ID required"
+  # Bitbucket issue close = state="resolved". Use PUT with full state field.
+  __bitbucket_api PUT "/repositories/$APIMGR_REPO/issues/$n" '{"state":"resolved"}' | __apimgr_jq -r '"Closed issue #\(.id) — \(.links.html.href)"'
+}
+__bitbucket_issue_comment() {
+  local n="$1"
+  __apimgr_require_creds bitbucket
+  __bitbucket_repo_check
+  [ -n "$n" ] || __apimgr_die "bitbucket issue comment: issue ID required"
+  [ -n "$APIMGR_BODY" ] || __apimgr_die "bitbucket issue comment: --body required"
+  local payload; payload="$(__apimgr_jq -n --arg b "$APIMGR_BODY" '{content:{raw:$b}}')"
+  __bitbucket_api POST "/repositories/$APIMGR_REPO/issues/$n/comments" "$payload" >/dev/null && printf_green "Commented on issue #$n"
+}
+# PR/MR actions for bitbucket. State vocabulary differs (UPPERCASE), and "close" is "decline".
+__bitbucket_resolve_base() {
+  if [ -n "$APIMGR_BASE" ]; then printf '%s' "$APIMGR_BASE"; return 0; fi
+  if [ -n "$APIMGR_BASE_RESOLVED" ]; then printf '%s' "$APIMGR_BASE_RESOLVED"; return 0; fi
+  APIMGR_BASE_RESOLVED="$(__bitbucket_api GET "/repositories/$APIMGR_REPO" | __apimgr_jq -r '.mainbranch.name // "main"')"
+  printf '%s' "$APIMGR_BASE_RESOLVED"
+}
+__bitbucket_pr_list() {
+  __apimgr_require_creds bitbucket
+  __bitbucket_repo_check
+  local state; state="$(__apimgr_state_for bitbucket pr)"
+  __bitbucket_api GET "/repositories/$APIMGR_REPO/pullrequests?state=$state&pagelen=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __bitbucket_unwrap | __bitbucket_print_pr_list
+}
+__bitbucket_pr_get() {
+  local n="$1"
+  __apimgr_require_creds bitbucket
+  __bitbucket_repo_check
+  [ -n "$n" ] || __apimgr_die "bitbucket pr get: PR ID required"
+  __bitbucket_api GET "/repositories/$APIMGR_REPO/pullrequests/$n" | __apimgr_jq -r '
+    "ID:        #\(.id)",
+    "Title:     \(.title)",
+    "State:     \(.state)",
+    "Author:    \(.author.display_name // "")",
+    "Branches:  \(.source.branch.name) → \(.destination.branch.name)",
+    "URL:       \(.links.html.href // "")",
+    "Created:   \(.created_on)",
+    "",
+    "\(.description // "")"
+  '
+}
+__bitbucket_pr_create() {
+  __apimgr_require_creds bitbucket
+  __bitbucket_repo_check
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "bitbucket pr create: --title required"
+  [ -n "$APIMGR_BRANCH" ] || __apimgr_die "bitbucket pr create: --branch SOURCE required"
+  local base; base="$(__bitbucket_resolve_base)"
+  local payload; payload="$(__apimgr_jq -n --arg t "$APIMGR_TITLE" --arg d "${APIMGR_BODY:-}" --arg s "$APIMGR_BRANCH" --arg ta "$base" \
+    '{title:$t, description:$d, source:{branch:{name:$s}}, destination:{branch:{name:$ta}}}')"
+  __bitbucket_api POST "/repositories/$APIMGR_REPO/pullrequests" "$payload" | __apimgr_jq -r '"Created PR #\(.id) (\(.source.branch.name) → \(.destination.branch.name)) — \(.links.html.href)"'
+}
+__bitbucket_pr_merge() {
+  local n="$1"
+  __apimgr_require_creds bitbucket
+  __bitbucket_repo_check
+  [ -n "$n" ] || __apimgr_die "bitbucket pr merge: PR ID required"
+  __apimgr_confirm "Merge PR #$n in $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __bitbucket_api POST "/repositories/$APIMGR_REPO/pullrequests/$n/merge" '{"merge_strategy":"merge_commit"}' | __apimgr_jq -r 'if .state == "MERGED" then "Merged PR #'"$n"'" else "Merge state: \(.state)" end'
+}
+__bitbucket_pr_close() {
+  local n="$1"
+  __apimgr_require_creds bitbucket
+  __bitbucket_repo_check
+  [ -n "$n" ] || __apimgr_die "bitbucket pr close: PR ID required"
+  # Bitbucket: close = decline. Separate endpoint, not a state PATCH.
+  __bitbucket_api POST "/repositories/$APIMGR_REPO/pullrequests/$n/decline" '{}' | __apimgr_jq -r '"Declined PR #\(.id) — \(.links.html.href)"'
+}
+# Bitbucket Cloud has no first-class release object — releases are just git tags. Surface a friendly stub
+# rather than a generic "not implemented" so the user knows it's a platform limitation, not a missing feature.
+__bitbucket_release_unsupported() {
+  __apimgr_die "bitbucket has no release API (releases are plain git tags). Use 'apimgr bitbucket api /repositories/$APIMGR_REPO/refs/tags' for tags."
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Stub providers — print a clear "not yet implemented" so the dispatch surface is honest about what works.
 __apimgr_stub_provider() {
   __apimgr_die "Provider '$1' is not implemented yet. Architecture is in place; add __${1}_<action> functions to enable. See bin/apimgr __github_* / __gitea_* for templates."
@@ -1446,7 +1667,50 @@ __apimgr_dispatch_provider() {
           __gitlab_api GET "$sub" ;;
         *)                    __apimgr_die "gitlab: unknown action '$action'. Try: verify|user|org|repo|issue|pr|release|api" ;;
       esac ;;
-    bitbucket|docker|harbor|quay)
+    bitbucket)
+      case "$action" in
+        verify)               __bitbucket_verify ;;
+        user)                 __bitbucket_user_get ;;
+        org|workspace)
+          case "$sub" in
+            all)              __bitbucket_org_all ;;
+            *)                __bitbucket_org_get ;;
+          esac ;;
+        repo)
+          case "$sub" in
+            list)             __bitbucket_repo_list ;;
+            get|"")           __bitbucket_repo_get ;;
+            create)           __bitbucket_repo_create ;;
+            delete|rm)        __bitbucket_repo_delete ;;
+            all)              __bitbucket_repo_all ;;
+            *)                __apimgr_die "bitbucket repo: unknown sub '$sub' (try list|get|create|delete|all)" ;;
+          esac ;;
+        issue)
+          case "$sub" in
+            list|"")          __bitbucket_issue_list ;;
+            get|show)         __bitbucket_issue_get "$1" ;;
+            create|new)       __bitbucket_issue_create ;;
+            close)            __bitbucket_issue_close "$1" ;;
+            comment)          __bitbucket_issue_comment "$1" ;;
+            *)                __apimgr_die "bitbucket issue: unknown sub '$sub' (try list|get|create|close|comment)" ;;
+          esac ;;
+        pr|pull|pulls|mr)
+          case "$sub" in
+            list|"")          __bitbucket_pr_list ;;
+            get|show)         __bitbucket_pr_get "$1" ;;
+            create|new)       __bitbucket_pr_create ;;
+            merge)            __bitbucket_pr_merge "$1" ;;
+            close|decline)    __bitbucket_pr_close "$1" ;;
+            *)                __apimgr_die "bitbucket pr: unknown sub '$sub' (try list|get|create|merge|close)" ;;
+          esac ;;
+        release|releases|rel)
+          __bitbucket_release_unsupported ;;
+        api)
+          [ -n "$sub" ] || __apimgr_die "bitbucket api: PATH required (e.g. apimgr bitbucket api /user)"
+          __bitbucket_api GET "$sub" ;;
+        *)                    __apimgr_die "bitbucket: unknown action '$action'. Try: verify|user|org|repo|issue|pr|api" ;;
+      esac ;;
+    docker|harbor|quay)
       __apimgr_stub_provider "$provider" ;;
     "")
       __apimgr_die "no provider specified — try: apimgr <provider> <action>, or run apimgr --help" ;;

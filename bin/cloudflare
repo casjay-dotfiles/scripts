@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605011817-git
+##@Version           :  202605012145-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 22:58 EDT
 # @@File             :  cloudflare
 # @@Description      :  cloudflare api script
-# @@Changelog        :  Add curl timeouts so cloudflare can no longer hang when API or IP-detect endpoints are slow.
+# @@Changelog        :  Skip v6 probes on v4-only hosts; create/update silently purge stale AAAA when host loses v6.
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :  https://gist.github.com/benkulbertis/fff10759c2391b6618dd
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605011817-git"
+VERSION="202605012145-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -351,6 +351,18 @@ __jq() { \jq "$@" 2>/dev/null; }
 __rm_rf() { rm -Rf "$@" 2>/dev/null; }
 __curl_ip4() { curl -q -LSsf -4 --connect-timeout "${CLOUDFLARE_IP_CONNECT_TIMEOUT:-2}" --max-time "${CLOUDFLARE_IP_TIMEOUT:-3}" "$1" 2>/dev/null || return 1; }
 __curl_ip6() { curl -q -LSsf -6 --connect-timeout "${CLOUDFLARE_IP_CONNECT_TIMEOUT:-2}" --max-time "${CLOUDFLARE_IP_TIMEOUT:-3}" "$1" 2>/dev/null || return 1; }
+# Returns 0 iff host has a publicly-routable IPv6 (2000::/3, scope=global). Skips link-local/ULA/loopback.
+# Linux: reads /proc/net/if_inet6 (always available). Other OS: returns 0 so curl can probe and fail fast.
+__has_ipv6() {
+  if [ -r /proc/net/if_inet6 ]; then
+    awk 'BEGIN{f=0} /^[23][0-9a-f]+ [0-9a-f]+ [0-9a-f]+ 00 / {f=1;exit} END{exit !f}' /proc/net/if_inet6
+    return $?
+  fi
+  return 0
+}
+# Startup IP probes: ifcfg.us first, ifconfig.co fallback. Each curl capped at 3s so script load can never block.
+__curl_get_ip4() { curl -q -LSsf -4 --max-time 3 --retry 0 "https://ifcfg.us" 2>/dev/null || curl -q -LSsf -4 --max-time 3 --retry 0 "https://ifconfig.co" 2>/dev/null || return 1; }
+__curl_get_ip6() { __has_ipv6 || return 1; curl -q -LSsf -6 --max-time 3 --retry 0 "https://ifcfg.us" 2>/dev/null || curl -q -LSsf -6 --max-time 3 --retry 0 "https://ifconfig.co" 2>/dev/null || return 1; }
 # Wrapper for Cloudflare API curl: pins connect/max timeouts and standard auth/content headers; aborts if creds unset.
 __cf_curl() {
   if [ -z "$CLOUDFLARE_EMAIL" ] || [ -z "$CLOUDFLARE_API_KEY" ]; then return 1; fi
@@ -374,7 +386,7 @@ __cf_require_zone() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_ip4() { __curl_ip4 "https://ifcfg.us" || __curl_ip4 "https://ifconfig.co" || __curl_ip4 "https://api.ipify.org" || __curl_ip4 "https://ipv4.icanhazip.com" || return 1; }
-__get_ip6() { __curl_ip6 "https://ifcfg.us" || __curl_ip6 "https://ifconfig.co" || __curl_ip6 "https://api.ipify.org" || __curl_ip6 "https://ipv6.icanhazip.com" || return 1; }
+__get_ip6() { __has_ipv6 || return 1; __curl_ip6 "https://ifcfg.us" || __curl_ip6 "https://ifconfig.co" || __curl_ip6 "https://api.ipify.org" || __curl_ip6 "https://ipv6.icanhazip.com" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __message() {
   local exitStatus=0
@@ -711,6 +723,18 @@ __cf_upsert() {
   __curl_record_create "$host" "$type" "$content" && return 0
   __curl_record_update "$host" "$type" "$content"
 }
+# Delete every record for (host) of a given type. Silent + rc=0 even when no records exist — used to purge
+# stale AAAA records when a host loses public IPv6, so DNS reconciles with the host's current network state.
+__cf_purge_records_by_type() {
+  local host="$1" want_type="$2"
+  local id type
+  while IFS=' ' read -r id type; do
+    [ -n "$id" ] || continue
+    [ "$type" = "$want_type" ] || continue
+    __cf_curl -X DELETE "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$id" >/dev/null 2>&1
+  done < <(__cf_records_for_host "$host" 2>/dev/null)
+  return 0
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_record() {
   local exitStatus=0
@@ -720,6 +744,12 @@ __create_record() {
   [ -n "$CLOUDFLARE_HOSTNAME" ] || CLOUDFLARE_HOSTNAME="$(hostname -s)"
   [ "$CLOUDFLARE_PROXY_ENABLED" = "yes" ] && CLOUDFLARE_PROXY_ENABLED=true
   [ "$CLOUDFLARE_PROXY_ENABLED" = "no" ] && CLOUDFLARE_PROXY_ENABLED=false
+  # Explicit --record AAAA on a v4-only host: silently purge any stale AAAA for this host, return 0.
+  # Installer pipelines call this in a loop and shouldn't break when one host happens to be v4-only.
+  if [ "$CLOUDFLARE_DNS_TYPE" = "AAAA" ] && [ -z "$CLOUDFLARE_ADDR_IPv6" ]; then
+    __cf_purge_records_by_type "$CLOUDFLARE_HOSTNAME" "AAAA"
+    return 0
+  fi
   printf_blue "Attempting to create $CLOUDFLARE_HOSTNAME ($CLOUDFLARE_DNS_TYPE) for zone: ${CLOUDFLARE_ZONE_NAME:-$CLOUDFLARE_ZONE_ID}"
   if [ "$CLOUDFLARE_DNS_TYPE" = "CNAME" ]; then
     # Single CNAME; content was set by __cloudflare_zone to $CLOUDFLARE_ZONE_NAME (or what the user passed via --ip).
@@ -731,18 +761,24 @@ __create_record() {
     __cf_upsert "@" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
       __cf_upsert "@" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
+    else
+      __cf_purge_records_by_type "@" "AAAA"
     fi
     __message "Successfully created the record @" || exitStatus=1
   elif [ "$CLOUDFLARE_HOSTNAME" = '*' ]; then
     __cf_upsert "*" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
       __cf_upsert "*" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
+    else
+      __cf_purge_records_by_type "*" "AAAA"
     fi
     __message "Successfully created the record *" || exitStatus=2
   elif [ -n "$CLOUDFLARE_HOSTNAME" ]; then
     __cf_upsert "$CLOUDFLARE_HOSTNAME" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
       __cf_upsert "$CLOUDFLARE_HOSTNAME" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
+    else
+      __cf_purge_records_by_type "$CLOUDFLARE_HOSTNAME" "AAAA"
     fi
     __message "Successfully created ${CLOUDFLARE_HOSTNAME}" || exitStatus=3
   else
@@ -758,6 +794,11 @@ __update_record() {
   CLOUDFLARE_PROXY_ENABLED="${2:-$CLOUDFLARE_PROXY_ENABLED}"
   [ "$CLOUDFLARE_PROXY_ENABLED" = "yes" ] && CLOUDFLARE_PROXY_ENABLED=true
   [ "$CLOUDFLARE_PROXY_ENABLED" = "no" ] && CLOUDFLARE_PROXY_ENABLED=false
+  # Explicit --record AAAA on a v4-only host: silently purge any stale AAAA for this host, return 0.
+  if [ "$CLOUDFLARE_DNS_TYPE" = "AAAA" ] && [ -z "$CLOUDFLARE_ADDR_IPv6" ]; then
+    __cf_purge_records_by_type "$CLOUDFLARE_HOSTNAME" "AAAA"
+    return 0
+  fi
   printf_blue "Attempting to update host for zone: ${CLOUDFLARE_ZONE_NAME:-$CLOUDFLARE_ZONE_ID}"
   if [ "$CLOUDFLARE_DNS_TYPE" = "CNAME" ]; then
     __curl_record_update "$CLOUDFLARE_HOSTNAME" "CNAME" "$CLOUDFLARE_ADDR_IPv4"
@@ -766,18 +807,24 @@ __update_record() {
     __curl_record_update "@" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
       __curl_record_update "@" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
+    else
+      __cf_purge_records_by_type "@" "AAAA"
     fi
     __message "Successfully updated the record @" || exitStatus=1
   elif [ "$CLOUDFLARE_HOSTNAME" = '*' ]; then
     __curl_record_update "*" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
       __curl_record_update "*" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
+    else
+      __cf_purge_records_by_type "*" "AAAA"
     fi
     __message "Successfully updated the record *" || exitStatus=1
   else
     __curl_record_update "$CLOUDFLARE_HOSTNAME" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
       __curl_record_update "$CLOUDFLARE_HOSTNAME" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
+    else
+      __cf_purge_records_by_type "$CLOUDFLARE_HOSTNAME" "AAAA"
     fi
     __message "Successfully updated ${CLOUDFLARE_HOSTNAME}" || exitStatus=1
   fi
@@ -1146,8 +1193,8 @@ export CLOUDFLARE_CWD
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-CLOUDFLARE_ADDR_IPv4="${CLOUDFLARE_ADDR_IPv4:-$(curl -q -LSsf -4 "https://ifcfg.us" --max-time 2 --retry 0 2>/dev/null || false)}"
-CLOUDFLARE_ADDR_IPv6="${CLOUDFLARE_ADDR_IPv6:-$(curl -q -LSsf -6 "https://ifcfg.us" --max-time 2 --retry 0 2>/dev/null || false)}"
+CLOUDFLARE_ADDR_IPv4="${CLOUDFLARE_ADDR_IPv4:-$(__curl_get_ip4)}"
+CLOUDFLARE_ADDR_IPv6="${CLOUDFLARE_ADDR_IPv6:-$(__curl_get_ip6)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env (per-subcommand creds/zone checks live in __cf_require_creds and __cf_require_zone below).
 # - - - - - - - - - - - - - - - - - - - - - - - - -

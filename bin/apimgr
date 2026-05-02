@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021709-git
+##@Version           :  202605021719-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Add gitee.com provider (10th total). Full forge surface — verify/user/org/repo/issue/pr/release/tag.
+# @@Changelog        :  Add Pagure (pagure.io / Fedora) — 11th provider. Form-encoded create, capitalized statuses.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021709-git"
+VERSION="202605021719-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -205,6 +205,7 @@ __help() {
   __printf_line "forgejo                         - Forgejo (Gitea API). FORGEJO_API_URL + FORGEJO_ACCESS_TOKEN"
   __printf_line "codeberg                        - Codeberg (Gitea API). CODEBERG_API_URL + CODEBERG_ACCESS_TOKEN"
   __printf_line "gitee                           - Gitee (gitee.com — github-shaped API). GITEE_API_URL + GITEE_ACCESS_TOKEN"
+  __printf_line "pagure                          - Pagure (pagure.io — Fedora's forge). PAGURE_API_URL + PAGURE_ACCESS_TOKEN"
   __printf_line "gitlab                          - GitLab. GITLAB_API_URL + GITLAB_ACCESS_TOKEN"
   __printf_line "bitbucket                       - Bitbucket Cloud. BITBUCKET_API_URL + BITBUCKET_ACCESS_TOKEN (Bearer)"
   __printf_line "docker                          - Docker Hub. DOCKER_API_URL + DOCKER_USERNAME + DOCKER_HUB_API_KEY (login → JWT)"
@@ -504,6 +505,7 @@ __apimgr_detect_provider_from_git() {
     *codeberg.org*)      provider="codeberg" ;;
     *bitbucket.org*)     provider="bitbucket";;
     *gitee.com*)         provider="gitee"    ;;
+    *pagure.io*)         provider="pagure"   ;;
     *gitea*)             provider="gitea"    ;;
     *forgejo*)           provider="forgejo"  ;;
     *)
@@ -1853,6 +1855,205 @@ __gitee_tag_delete() {
   __gitee_api DELETE "/repos/$APIMGR_REPO/tags/$tag" >/dev/null && printf_green "Deleted tag '$tag' from $APIMGR_REPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# ============== Pagure provider (pagure.io/api/0 — Fedora's forge) ==============
+# URL paths differ from gitea/github: no /repos/ prefix; project lives at /{namespace}/{repo} directly.
+# Issues use /issue/{id} (singular), PRs use /pull-request/{id} (singular, dashed). Auth: Authorization: token X.
+__pagure_curl() {
+  local token; token="$(__apimgr_provider_token pagure)" || return 1
+  __apimgr_curl -H "Authorization: token $token" -H "Accept: application/json" "$@"
+}
+__pagure_api() {
+  local method="$1" path="$2" data="$3"
+  local base; base="$(__apimgr_provider_url pagure)" || return 1
+  if [ -n "$data" ]; then
+    __pagure_curl -X "$method" -H "Content-Type: application/json" --data "$data" "$base$path"
+  else
+    __pagure_curl -X "$method" "$base$path"
+  fi
+}
+__pagure_repo_check() { __apimgr_resolve_repo || __apimgr_die "pagure: --repo NAMESPACE/REPO required"; }
+# Pagure-shaped formatters — different field names: .fullname, .description, .last_updated.
+__pagure_print_repo_list() {
+  __apimgr_jq -r '.projects[]? // .[]? | "\(.fullname // .name)\t\(.description // "")\t\(.access_users.owner | length // 0)"' |
+    awk -F'\t' '{printf "%-45s %-50s %d owner(s)\n", $1, substr($2,1,48), $3}'
+}
+__pagure_print_repo() {
+  __apimgr_jq -r '
+    "Name:        \(.fullname // .name)",
+    "URL:         \(.url_path // "")",
+    "Description: \(.description // "")",
+    "Default:     \(.default_branch // "")",
+    "Tags:        \((.tags // []) | length) tag(s)",
+    "Created:     \(.date_created // "")",
+    "Updated:     \(.date_modified // "")"
+  '
+}
+__pagure_print_issue_list() {
+  __apimgr_jq -r '.issues[]? // .[]? | "#\(.id)\t\(.status)\t\(.user.name // "")\t\(.title)"' |
+    awk -F'\t' '{printf "%-7s %-8s %-20s %s\n", $1, substr($2,1,8), substr($3,1,20), $4}'
+}
+__pagure_print_pr_list() {
+  __apimgr_jq -r '.requests[]? // .[]? | "#\(.id)\t\(.status)\t\(.user.name // "")\t\(.branch_from)→\(.branch)\t\(.title)"' |
+    awk -F'\t' '{printf "%-7s %-8s %-18s %-30s %s\n", $1, substr($2,1,8), substr($3,1,18), substr($4,1,30), $5}'
+}
+__pagure_verify() {
+  __apimgr_require_creds pagure
+  local resp; resp="$(__pagure_api GET /-/whoami)" || __apimgr_die "Pagure /-/whoami call failed"
+  __apimgr_jq -r '"Authenticated as \(.username)"' <<<"$resp"
+}
+__pagure_user_get() {
+  __apimgr_require_creds pagure
+  local who="${APIMGR_USER:-}"
+  if [ -z "$who" ]; then
+    who="$(__pagure_api GET /-/whoami | __apimgr_jq -r '.username // empty')"
+  fi
+  [ -n "$who" ] || __apimgr_die "pagure user get: --user NAME required"
+  __pagure_api GET "/user/$who" | __apimgr_jq .
+}
+__pagure_org_get() {
+  __apimgr_require_creds pagure
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "pagure org get: --org GROUP required"
+  __pagure_api GET "/group/$APIMGR_ORG" | __apimgr_jq .
+}
+__pagure_org_all() {
+  __apimgr_require_creds pagure
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "pagure org all: --org GROUP required"
+  # Pagure: /projects?username=X&owner=group lists projects owned by group.
+  __pagure_api GET "/projects?owner=$APIMGR_ORG&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __pagure_print_repo_list
+}
+__pagure_repo_list() {
+  __apimgr_require_creds pagure
+  local who="${APIMGR_USER:-${APIMGR_ORG:-}}"
+  [ -n "$who" ] || who="$(__pagure_api GET /-/whoami | __apimgr_jq -r '.username // empty')"
+  [ -n "$who" ] || __apimgr_die "pagure repo list: --user or --org required"
+  __pagure_api GET "/projects?username=$who&fork=false&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __pagure_print_repo_list
+}
+__pagure_repo_get() {
+  __apimgr_require_creds pagure
+  __pagure_repo_check
+  __pagure_api GET "/$APIMGR_REPO" | __pagure_print_repo
+}
+__pagure_repo_create() {
+  __apimgr_require_creds pagure
+  local name="${APIMGR_REPO##*/}" ns="${APIMGR_REPO%/*}"
+  [ -n "$name" ] && [ -n "$ns" ] && [ "$ns" != "$name" ] || __apimgr_die "pagure repo create: --repo NAMESPACE/NAME required"
+  # Pagure /new takes form-encoded fields, not JSON. Use --data-urlencode for safety.
+  local base; base="$(__apimgr_provider_url pagure)" || return 1
+  local token; token="$(__apimgr_provider_token pagure)" || return 1
+  __apimgr_curl -X POST -H "Authorization: token $token" -H "Accept: application/json" \
+    --data-urlencode "name=$name" \
+    --data-urlencode "namespace=$ns" \
+    --data-urlencode "description=${APIMGR_BODY:-}" \
+    "$base/new" | __apimgr_jq -r '.message // "Created \(.fullname // "")"'
+}
+__pagure_repo_delete() {
+  __apimgr_die "pagure: project deletion is not supported via API. Use the web UI: https://pagure.io/$APIMGR_REPO/settings"
+}
+__pagure_repo_all() { if [ -n "$APIMGR_ORG" ]; then __pagure_org_all; else __pagure_repo_list; fi; }
+__pagure_issue_repo() { __apimgr_resolve_repo || __apimgr_die "pagure issue: --repo NAMESPACE/REPO required"; }
+__pagure_issue_list() {
+  __apimgr_require_creds pagure
+  __pagure_issue_repo
+  local state="${APIMGR_STATE:-Open}"
+  # Pagure uses Open/Closed (capitalized) for status. Translate apimgr's open/closed.
+  case "$state" in open|Open) state="Open" ;; closed|Closed) state="Closed" ;; all|All) state="All" ;; esac
+  __pagure_api GET "/$APIMGR_REPO/issues?status=$state&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __pagure_print_issue_list
+}
+__pagure_issue_get() {
+  local n="$1"
+  __apimgr_require_creds pagure
+  __pagure_issue_repo
+  [ -n "$n" ] || __apimgr_die "pagure issue get: issue ID required"
+  __pagure_api GET "/$APIMGR_REPO/issue/$n" | __apimgr_jq -r '
+    "ID:        #\(.id)",
+    "Title:     \(.title)",
+    "Status:    \(.status)",
+    "Reporter:  \(.user.name // "")",
+    "Created:   \(.date_created)",
+    "",
+    "\(.content // "")"
+  '
+}
+__pagure_issue_create() {
+  __apimgr_require_creds pagure
+  __pagure_issue_repo
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "pagure issue create: --title required"
+  local base; base="$(__apimgr_provider_url pagure)" || return 1
+  local token; token="$(__apimgr_provider_token pagure)" || return 1
+  __apimgr_curl -X POST -H "Authorization: token $token" -H "Accept: application/json" \
+    --data-urlencode "title=$APIMGR_TITLE" \
+    --data-urlencode "issue_content=${APIMGR_BODY:-}" \
+    "$base/$APIMGR_REPO/new_issue" | __apimgr_jq -r '"Created issue #\(.issue.id // "?") — \(.message // "")"'
+}
+__pagure_issue_close() {
+  local n="$1"
+  __apimgr_require_creds pagure
+  __pagure_issue_repo
+  [ -n "$n" ] || __apimgr_die "pagure issue close: issue ID required"
+  local base; base="$(__apimgr_provider_url pagure)" || return 1
+  local token; token="$(__apimgr_provider_token pagure)" || return 1
+  __apimgr_curl -X POST -H "Authorization: token $token" -H "Accept: application/json" \
+    --data-urlencode "status=Closed" \
+    "$base/$APIMGR_REPO/issue/$n/status" | __apimgr_jq -r '.message // "Closed issue #'"$n"'"'
+}
+__pagure_issue_comment() {
+  local n="$1"
+  __apimgr_require_creds pagure
+  __pagure_issue_repo
+  [ -n "$n" ] || __apimgr_die "pagure issue comment: issue ID required"
+  [ -n "$APIMGR_BODY" ] || __apimgr_die "pagure issue comment: --body required"
+  local base; base="$(__apimgr_provider_url pagure)" || return 1
+  local token; token="$(__apimgr_provider_token pagure)" || return 1
+  __apimgr_curl -X POST -H "Authorization: token $token" -H "Accept: application/json" \
+    --data-urlencode "comment=$APIMGR_BODY" \
+    "$base/$APIMGR_REPO/issue/$n/comment" >/dev/null && printf_green "Commented on issue #$n"
+}
+__pagure_pr_list() {
+  __apimgr_require_creds pagure
+  __pagure_issue_repo
+  local state="${APIMGR_STATE:-Open}"
+  case "$state" in open|Open) state="Open" ;; closed|Closed) state="Closed" ;; merged|Merged) state="Merged" ;; all|All) state="All" ;; esac
+  __pagure_api GET "/$APIMGR_REPO/pull-requests?status=$state&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __pagure_print_pr_list
+}
+__pagure_pr_get() {
+  local n="$1"
+  __apimgr_require_creds pagure
+  __pagure_issue_repo
+  [ -n "$n" ] || __apimgr_die "pagure pr get: PR ID required"
+  __pagure_api GET "/$APIMGR_REPO/pull-request/$n" | __apimgr_jq -r '
+    "ID:        #\(.id)",
+    "Title:     \(.title)",
+    "Status:    \(.status)",
+    "Author:    \(.user.name // "")",
+    "Branches:  \(.branch_from) → \(.branch)",
+    "Created:   \(.date_created)",
+    "",
+    "\(.initial_comment // "")"
+  '
+}
+__pagure_pr_merge() {
+  local n="$1"
+  __apimgr_require_creds pagure
+  __pagure_issue_repo
+  [ -n "$n" ] || __apimgr_die "pagure pr merge: PR ID required"
+  __apimgr_confirm "Merge PR #$n in $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __pagure_api POST "/$APIMGR_REPO/pull-request/$n/merge" '{}' >/dev/null && printf_green "Merged PR #$n"
+}
+__pagure_pr_close() {
+  local n="$1"
+  __apimgr_require_creds pagure
+  __pagure_issue_repo
+  [ -n "$n" ] || __apimgr_die "pagure pr close: PR ID required"
+  __pagure_api POST "/$APIMGR_REPO/pull-request/$n/close" '{}' >/dev/null && printf_green "Closed PR #$n"
+}
+__pagure_tag_list() {
+  __apimgr_require_creds pagure
+  __pagure_repo_check
+  __pagure_api GET "/$APIMGR_REPO/git/tags" | __apimgr_jq '.tags // []' |
+    __apimgr_jq -r '.[] | .' |
+    awk '{printf "%s\n", $0}'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== Docker Hub provider (hub.docker.com/v2 — JWT auth via login flow) ==============
 # Auth model: POST /users/login with {username, password} returns {token: <jwt>}; subsequent calls send
 # `Authorization: JWT <token>`. The "password" is your Personal Access Token (DOCKER_HUB_API_KEY).
@@ -2478,6 +2679,54 @@ __apimgr_dispatch_provider() {
           __gitee_api GET "$sub" ;;
         *)                    __apimgr_die "gitee: unknown action '$action'. Try: verify|user|org|repo|issue|pr|release|tag|api" ;;
       esac ;;
+    pagure)
+      case "$action" in
+        verify)               __pagure_verify ;;
+        user)                 __pagure_user_get ;;
+        org|group)
+          case "$sub" in
+            all)              __pagure_org_all ;;
+            *)                __pagure_org_get ;;
+          esac ;;
+        repo)
+          case "$sub" in
+            list)             __pagure_repo_list ;;
+            get|"")           __pagure_repo_get ;;
+            create)           __pagure_repo_create ;;
+            delete|rm)        __pagure_repo_delete ;;
+            all)              __pagure_repo_all ;;
+            *)                __apimgr_die "pagure repo: unknown sub '$sub' (try list|get|create|delete|all)" ;;
+          esac ;;
+        issue)
+          case "$sub" in
+            list|"")          __pagure_issue_list ;;
+            get|show)         __pagure_issue_get "$1" ;;
+            create|new)       __pagure_issue_create ;;
+            close)            __pagure_issue_close "$1" ;;
+            comment)          __pagure_issue_comment "$1" ;;
+            *)                __apimgr_die "pagure issue: unknown sub '$sub' (try list|get|create|close|comment)" ;;
+          esac ;;
+        pr|pull|pulls|mr)
+          case "$sub" in
+            list|"")          __pagure_pr_list ;;
+            get|show)         __pagure_pr_get "$1" ;;
+            merge)            __pagure_pr_merge "$1" ;;
+            close)            __pagure_pr_close "$1" ;;
+            create|new)       __apimgr_die "pagure pr create: not yet implemented (Pagure's PR-create has a complex form payload — use the web UI or apimgr pagure api)" ;;
+            *)                __apimgr_die "pagure pr: unknown sub '$sub' (try list|get|merge|close)" ;;
+          esac ;;
+        tag|tags)
+          case "$sub" in
+            list|"")          __pagure_tag_list ;;
+            *)                __apimgr_die "pagure tag: only 'list' supported via API (create/delete are not exposed)" ;;
+          esac ;;
+        release|releases|rel)
+          __apimgr_die "pagure has no release API surface; releases are tracked as git tags. Use 'apimgr pagure tag list'." ;;
+        api)
+          [ -n "$sub" ] || __apimgr_die "pagure api: PATH required (e.g. apimgr pagure api /-/whoami)"
+          __pagure_api GET "$sub" ;;
+        *)                    __apimgr_die "pagure: unknown action '$action'. Try: verify|user|org|repo|issue|pr|tag|api" ;;
+      esac ;;
     docker)
       case "$action" in
         verify)               __docker_verify ;;
@@ -2637,7 +2886,7 @@ GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,force,"
 LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,tag:,format:,visibility:,api,provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="github gitlab gitea forgejo codeberg gitee bitbucket docker harbor quay verify user org repo issue pr release tag image api"
+ARRAY="github gitlab gitea forgejo codeberg gitee pagure bitbucket docker harbor quay verify user org repo issue pr release tag image api"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -2821,7 +3070,7 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 # Top-level form: `apimgr <action> [sub]` auto-detects provider from git remote / APIMGR_DEFAULT_PROVIDER.
 # Provider form:  `apimgr <provider> <action> [sub]` is explicit.
 case "$1" in
-github|gitlab|gitea|forgejo|codeberg|gitee|bitbucket|docker|harbor|quay)
+github|gitlab|gitea|forgejo|codeberg|gitee|pagure|bitbucket|docker|harbor|quay)
   provider="$1"; action="${2:-}"; sub="${3:-}"
   [ -n "$action" ] || __apimgr_die "apimgr $provider: action required (verify|user|org|repo|issue|api). See --help."
   shift 3 2>/dev/null || shift 2 2>/dev/null || shift 1 2>/dev/null || true

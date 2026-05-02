@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021740-git
+##@Version           :  202605021747-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Add GHCR (GitHub Container Registry) — 12th provider. Uses GitHub Packages API for container images.
+# @@Changelog        :  Add Sourcehut (sr.ht) — 13th provider. Multi-service architecture, repo+tag surface only.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021740-git"
+VERSION="202605021747-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -206,6 +206,7 @@ __help() {
   __printf_line "codeberg                        - Codeberg (Gitea API). CODEBERG_API_URL + CODEBERG_ACCESS_TOKEN"
   __printf_line "gitee                           - Gitee (gitee.com — github-shaped API). GITEE_API_URL + GITEE_ACCESS_TOKEN"
   __printf_line "pagure                          - Pagure (pagure.io — Fedora's forge). PAGURE_API_URL + PAGURE_ACCESS_TOKEN"
+  __printf_line "sourcehut                       - Sourcehut (sr.ht). SOURCEHUT_API_URL (=meta) + SOURCEHUT_ACCESS_TOKEN. repo+tag only."
   __printf_line "gitlab                          - GitLab. GITLAB_API_URL + GITLAB_ACCESS_TOKEN"
   __printf_line "bitbucket                       - Bitbucket Cloud. BITBUCKET_API_URL + BITBUCKET_ACCESS_TOKEN (Bearer)"
   __printf_line "docker                          - Docker Hub. DOCKER_API_URL + DOCKER_USERNAME + DOCKER_HUB_API_KEY (login → JWT)"
@@ -507,6 +508,7 @@ __apimgr_detect_provider_from_git() {
     *bitbucket.org*)     provider="bitbucket";;
     *gitee.com*)         provider="gitee"    ;;
     *pagure.io*)         provider="pagure"   ;;
+    *sr.ht*|*sourcehut*) provider="sourcehut";;
     *gitea*)             provider="gitea"    ;;
     *forgejo*)           provider="forgejo"  ;;
     *)
@@ -2055,6 +2057,124 @@ __pagure_tag_list() {
     awk '{printf "%s\n", $0}'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# ============== Sourcehut provider (sr.ht — multi-service: meta/git/todo/lists/builds at separate subdomains) ==============
+# The user sets SOURCEHUT_API_URL to the meta service (e.g. https://meta.sr.ht/api). For repo ops the script
+# swaps the subdomain to git.sr.ht. Self-host instances using the same `<service>.<host>` pattern work unchanged;
+# anything else needs to set per-service URLs (SOURCEHUT_GIT_URL, SOURCEHUT_TODO_URL, SOURCEHUT_LISTS_URL).
+# Issues (tickets) live in todo.sr.ht and PRs are mailing-list patches in lists.sr.ht — both have very different
+# data models from github/gitea-style forges and aren't covered here. Use `apimgr sourcehut api PATH` for raw access.
+__sourcehut_curl() {
+  local token; token="$(__apimgr_provider_token sourcehut)" || return 1
+  __apimgr_curl -H "Authorization: Bearer $token" -H "Accept: application/json" "$@"
+}
+# Resolve the per-service URL. For service "meta" (default), returns SOURCEHUT_API_URL as-is.
+# For service "git"/"todo"/"lists", checks SOURCEHUT_<SERVICE>_URL first, else swaps the subdomain in
+# SOURCEHUT_API_URL (assumes <service>.<rest> pattern, which holds for sr.ht and most self-host setups).
+__sourcehut_service_url() {
+  local service="$1"
+  local explicit=""
+  case "$service" in
+    git)   eval "explicit=\${SOURCEHUT_GIT_URL:-\${APIMGR_SOURCEHUT_GIT_URL:-}}" ;;
+    todo)  eval "explicit=\${SOURCEHUT_TODO_URL:-\${APIMGR_SOURCEHUT_TODO_URL:-}}" ;;
+    lists) eval "explicit=\${SOURCEHUT_LISTS_URL:-\${APIMGR_SOURCEHUT_LISTS_URL:-}}" ;;
+    meta|"") explicit="" ;;
+  esac
+  if [ -n "$explicit" ]; then printf '%s' "${explicit%/}"; return 0; fi
+  local base; base="$(__apimgr_provider_url sourcehut)" || return 1
+  if [ "$service" = "meta" ] || [ -z "$service" ]; then
+    printf '%s' "$base"; return 0
+  fi
+  # Swap the subdomain. URL form: protocol://<sub>.<rest>
+  local proto="${base%%://*}"
+  local rest="${base#*://}"
+  local sub="${rest%%.*}"
+  local tail="${rest#"$sub"}"
+  printf '%s://%s%s' "$proto" "$service" "$tail"
+}
+__sourcehut_api() {
+  local service="$1" method="$2" path="$3" data="$4"
+  local base; base="$(__sourcehut_service_url "$service")" || return 1
+  if [ -n "$data" ]; then
+    __sourcehut_curl -X "$method" -H "Content-Type: application/json" --data "$data" "$base$path"
+  else
+    __sourcehut_curl -X "$method" "$base$path"
+  fi
+}
+__sourcehut_print_repo_list() {
+  __apimgr_jq -r '.results[]? // .[]? | "~\(.owner.canonical_name // .owner.name)/\(.name)\t\(.description // "")\t\(.visibility)"' |
+    awk -F'\t' '{printf "%-45s %-50s %s\n", $1, substr($2,1,48), $3}'
+}
+__sourcehut_print_repo() {
+  __apimgr_jq -r '
+    "Name:        ~\(.owner.canonical_name // .owner.name)/\(.name)",
+    "Description: \(.description // "")",
+    "Visibility:  \(.visibility // "")",
+    "Created:     \(.created // "")",
+    "Updated:     \(.updated // "")"
+  '
+}
+__sourcehut_verify() {
+  __apimgr_require_creds sourcehut
+  local resp; resp="$(__sourcehut_api meta GET /user/profile)" || __apimgr_die "Sourcehut /user/profile call failed"
+  __apimgr_jq -r '"Authenticated as ~\(.canonical_name // .name) (\(.email // "no email"))"' <<<"$resp"
+}
+__sourcehut_user_get() {
+  __apimgr_require_creds sourcehut
+  if [ -n "$APIMGR_USER" ]; then
+    # sr.ht usernames carry a leading ~; strip it if present so the user can pass either form.
+    __sourcehut_api meta GET "/user/${APIMGR_USER#~}/profile" | __apimgr_jq .
+  else
+    __sourcehut_api meta GET /user/profile | __apimgr_jq .
+  fi
+}
+__sourcehut_repo_list() {
+  __apimgr_require_creds sourcehut
+  if [ -n "$APIMGR_USER" ]; then
+    __sourcehut_api git GET "/${APIMGR_USER#~}/repos" | __sourcehut_print_repo_list
+  else
+    __sourcehut_api git GET "/repos" | __sourcehut_print_repo_list
+  fi
+}
+__sourcehut_repo_get() {
+  __apimgr_require_creds sourcehut
+  __apimgr_resolve_repo || __apimgr_die "sourcehut repo get: --repo USER/REPO required"
+  # APIMGR_REPO is "user/repo" (with or without leading ~). Strip ~ if present.
+  local owner="${APIMGR_REPO%/*}"; owner="${owner#~}"
+  local name="${APIMGR_REPO##*/}"
+  __sourcehut_api git GET "/~$owner/repos/$name" | __sourcehut_print_repo
+}
+__sourcehut_repo_create() {
+  __apimgr_require_creds sourcehut
+  local name="${APIMGR_REPO##*/}"
+  [ -n "$name" ] || __apimgr_die "sourcehut repo create: --repo NAME (or USER/NAME — owner is always you) required"
+  local visibility="${APIMGR_VISIBILITY:-unlisted}"
+  case "$visibility" in public|unlisted|private) ;; *) __apimgr_die "sourcehut: --visibility must be public|unlisted|private" ;; esac
+  local payload; payload="$(__apimgr_jq -n --arg n "$name" --arg d "${APIMGR_BODY:-}" --arg v "$visibility" '{name:$n, description:$d, visibility:$v}')"
+  __sourcehut_api git POST "/repos" "$payload" | __apimgr_jq -r '"Created ~\(.owner.canonical_name // .owner.name)/\(.name)"'
+}
+__sourcehut_repo_delete() {
+  __apimgr_require_creds sourcehut
+  __apimgr_resolve_repo || __apimgr_die "sourcehut repo delete: --repo NAME required"
+  local name="${APIMGR_REPO##*/}"
+  __apimgr_confirm "Delete ~$(__sourcehut_api meta GET /user/profile | __apimgr_jq -r '.canonical_name // .name')/$name from Sourcehut? Irreversible." || { printf_yellow "Aborted"; return 1; }
+  __sourcehut_api git DELETE "/repos/$name" >/dev/null && printf_green "Deleted $name"
+}
+__sourcehut_tag_list() {
+  __apimgr_require_creds sourcehut
+  __apimgr_resolve_repo || __apimgr_die "sourcehut tag list: --repo USER/REPO required"
+  local owner="${APIMGR_REPO%/*}"; owner="${owner#~}"
+  local name="${APIMGR_REPO##*/}"
+  __sourcehut_api git GET "/~$owner/repos/$name/refs" |
+    __apimgr_jq -r '.results[]? | select(.name | startswith("refs/tags/")) | {name: (.name | sub("refs/tags/"; "")), target: .target} | "\(.name)\t\(.target[0:12])"' |
+    awk -F'\t' '{printf "%-30s %-12s\n", $1, $2}'
+}
+__sourcehut_issue_unsupported() {
+  __apimgr_die "sourcehut: tickets live in todo.sr.ht (a separate service decoupled from repos). Use 'apimgr sourcehut api /trackers' for raw access."
+}
+__sourcehut_pr_unsupported() {
+  __apimgr_die "sourcehut: pull requests are mailing-list patches in lists.sr.ht — incompatible with apimgr's PR model. Use git send-email or 'apimgr sourcehut api /lists/...' for raw access."
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== Docker Hub provider (hub.docker.com/v2 — JWT auth via login flow) ==============
 # Auth model: POST /users/login with {username, password} returns {token: <jwt>}; subsequent calls send
 # `Authorization: JWT <token>`. The "password" is your Personal Access Token (DOCKER_HUB_API_KEY).
@@ -2870,6 +2990,33 @@ __apimgr_dispatch_provider() {
           __pagure_api GET "$sub" ;;
         *)                    __apimgr_die "pagure: unknown action '$action'. Try: verify|user|org|repo|issue|pr|tag|api" ;;
       esac ;;
+    sourcehut|sr.ht|srht)
+      case "$action" in
+        verify)               __sourcehut_verify ;;
+        user)                 __sourcehut_user_get ;;
+        repo)
+          case "$sub" in
+            list)             __sourcehut_repo_list ;;
+            get|"")           __sourcehut_repo_get ;;
+            create)           __sourcehut_repo_create ;;
+            delete|rm)        __sourcehut_repo_delete ;;
+            *)                __apimgr_die "sourcehut repo: unknown sub '$sub' (try list|get|create|delete)" ;;
+          esac ;;
+        tag|tags)
+          case "$sub" in
+            list|"")          __sourcehut_tag_list ;;
+            *)                __apimgr_die "sourcehut tag: only 'list' supported (sourcehut's API doesn't expose create/delete/get for tags)" ;;
+          esac ;;
+        issue)                __sourcehut_issue_unsupported ;;
+        pr|pull|pulls|mr)     __sourcehut_pr_unsupported ;;
+        release|releases|rel) __apimgr_die "sourcehut has no release API — releases are git tags. Use 'apimgr sourcehut tag list'." ;;
+        org)                  __apimgr_die "sourcehut has no orgs (~user is the only namespace). Use 'apimgr sourcehut repo list --user NAME' instead." ;;
+        api)
+          local service="${APIMGR_SERVICE:-meta}"
+          [ -n "$sub" ] || __apimgr_die "sourcehut api: PATH required (e.g. apimgr sourcehut api /repos). Use APIMGR_SERVICE=git|todo|lists to switch services."
+          __sourcehut_api "$service" GET "$sub" ;;
+        *)                    __apimgr_die "sourcehut: unknown action '$action'. Try: verify|user|repo|tag|api" ;;
+      esac ;;
     docker)
       case "$action" in
         verify)               __docker_verify ;;
@@ -3059,7 +3206,7 @@ GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,force,"
 LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,tag:,format:,visibility:,api,provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="github gitlab gitea forgejo codeberg gitee pagure bitbucket docker ghcr harbor quay verify user org repo issue pr release tag image api"
+ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay verify user org repo issue pr release tag image api"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -3243,7 +3390,7 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 # Top-level form: `apimgr <action> [sub]` auto-detects provider from git remote / APIMGR_DEFAULT_PROVIDER.
 # Provider form:  `apimgr <provider> <action> [sub]` is explicit.
 case "$1" in
-github|gitlab|gitea|forgejo|codeberg|gitee|pagure|bitbucket|docker|ghcr|harbor|quay)
+github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|bitbucket|docker|ghcr|harbor|quay)
   provider="$1"; action="${2:-}"; sub="${3:-}"
   [ -n "$action" ] || __apimgr_die "apimgr $provider: action required (verify|user|org|repo|issue|api). See --help."
   shift 3 2>/dev/null || shift 2 2>/dev/null || shift 1 2>/dev/null || true

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605012356-git
+##@Version           :  202605020006-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -28,7 +28,7 @@ _cloudflare() {
   local FILEDIR=""
   local OPTS=""
   local SHORTOPTS=""
-  local LONGOPTS="--completions --config --debug --help --options --raw --version --silent "
+  local LONGOPTS="--completions --config --debug --help --options --raw --version "
   local LONGOPTS+="--ip --zone --proxy --record --api --key --delete-all --id --bulk"
   local ARRAY="create update delete list verify tunnel zones cron"
 

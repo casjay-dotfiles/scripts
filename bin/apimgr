@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021806-git
+##@Version           :  202605021813-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Add Cloudsmith — 14th provider. Multi-format SaaS registry. X-Api-Key auth.
+# @@Changelog        :  Add JFrog Artifactory — 15th provider. Bearer auth, flat repo keys, dual /api + root paths.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021806-git"
+VERSION="202605021813-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -214,6 +214,7 @@ __help() {
   __printf_line "harbor                          - Harbor. HARBOR_API_URL + HARBOR_USERNAME + HARBOR_ACCESS_TOKEN (Basic auth)"
   __printf_line "quay                            - Quay. QUAY_API_URL + QUAY_ACCESS_TOKEN (Bearer)"
   __printf_line "cloudsmith                      - Cloudsmith (multi-format SaaS). CLOUDSMITH_API_URL + CLOUDSMITH_API_KEY"
+  __printf_line "artifactory                     - JFrog Artifactory (alias: jfrog). ARTIFACTORY_API_URL + ARTIFACTORY_ACCESS_TOKEN"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Actions (per provider)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -2771,6 +2772,112 @@ __cloudsmith_tag_delete() {
   __cloudsmith_api DELETE "/packages/$APIMGR_REPO/$slug/" >/dev/null && printf_green "Deleted package '$slug' from $APIMGR_REPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# ============== JFrog Artifactory provider (per-instance .jfrog.io/artifactory/api or self-host) ==============
+# Auth: Bearer token (JFrog Access tokens / OAuth). Legacy X-JFrog-Art-Api header still works against older
+# Artifactory installs but Bearer is the modern default. URL is per-instance — set ARTIFACTORY_API_URL to your
+# org's instance (e.g. https://acme.jfrog.io/artifactory/api). Aliased as 'jfrog' for muscle memory.
+__artifactory_curl() {
+  local token; token="$(__apimgr_provider_token artifactory)" || return 1
+  __apimgr_curl -H "Authorization: Bearer $token" -H "Accept: application/json" "$@"
+}
+__artifactory_api() {
+  local method="$1" path="$2" data="$3"
+  local base; base="$(__apimgr_provider_url artifactory)" || return 1
+  if [ -n "$data" ]; then
+    __artifactory_curl -X "$method" -H "Content-Type: application/json" --data "$data" "$base$path"
+  else
+    __artifactory_curl -X "$method" "$base$path"
+  fi
+}
+# Artifactory's repo metadata: .key, .description, .type (LOCAL/REMOTE/VIRTUAL), .packageType, .url.
+__artifactory_print_repo_list() {
+  __apimgr_jq -r '.[] | "\(.key)\t\(.description // "")\t\(.type // "")\t\(.packageType // "")"' |
+    awk -F'\t' '{printf "%-35s %-40s %-9s %s\n", $1, substr($2,1,40), $3, $4}'
+}
+__artifactory_print_repo() {
+  __apimgr_jq -r '
+    "Key:         \(.key)",
+    "Type:        \(.type // "")",
+    "Format:      \(.packageType // "")",
+    "Description: \(.description // "")",
+    "URL:         \(.url // "")",
+    "Notes:       \(.notes // "")"
+  '
+}
+__artifactory_verify() {
+  __apimgr_require_creds artifactory
+  # /system/ping returns "OK" as text/plain when reachable, regardless of auth. /system/version returns JSON
+  # only with valid auth, so use that for verify so an invalid token actually fails.
+  local resp; resp="$(__artifactory_api GET /system/version)" || __apimgr_die "Artifactory /system/version call failed (token invalid or insufficient scope)"
+  __apimgr_jq -r '"Authenticated against Artifactory \(.version) (rev \(.revision // "?"))"' <<<"$resp"
+}
+__artifactory_user_get() {
+  __apimgr_require_creds artifactory
+  if [ -n "$APIMGR_USER" ]; then
+    # /security/users/{name} requires admin scope. Surface the error rather than failing silently.
+    __artifactory_api GET "/security/users/$APIMGR_USER" | __apimgr_jq .
+  else
+    # No /me endpoint in Artifactory; the closest signal is the version-info call we used in verify.
+    __apimgr_die "artifactory user get: --user NAME required (Artifactory has no /me equivalent)"
+  fi
+}
+__artifactory_repo_list() {
+  __apimgr_require_creds artifactory
+  # Optional ?type=local|remote|virtual filter via APIMGR_TAG (overloaded for now since there's no --type flag).
+  local q=""; [ -n "$APIMGR_VISIBILITY" ] && q="?type=$APIMGR_VISIBILITY"
+  __artifactory_api GET "/repositories$q" | __artifactory_print_repo_list
+}
+__artifactory_repo_get() {
+  __apimgr_require_creds artifactory
+  __apimgr_resolve_repo || __apimgr_die "artifactory repo get: --repo KEY required (Artifactory uses single-segment repo keys; pass it via --repo, e.g. --repo my-docker-local)"
+  # APIMGR_REPO might be passed as KEY or NS/KEY; we use the last segment as the key since Artifactory has no namespace.
+  local key="${APIMGR_REPO##*/}"
+  __artifactory_api GET "/repositories/$key" | __artifactory_print_repo
+}
+__artifactory_repo_delete() {
+  __apimgr_require_creds artifactory
+  __apimgr_resolve_repo || __apimgr_die "artifactory repo delete: --repo KEY required"
+  local key="${APIMGR_REPO##*/}"
+  __apimgr_confirm "Delete Artifactory repo '$key'? Requires admin and is irreversible." || { printf_yellow "Aborted"; return 1; }
+  __artifactory_api DELETE "/repositories/$key" >/dev/null && printf_green "Deleted Artifactory repo '$key'"
+}
+__artifactory_repo_create() {
+  __apimgr_die "artifactory repo create: requires a per-format JSON spec (rclass, packageType, etc.) that doesn't fit a generic --visibility flag. Use 'apimgr artifactory api /repositories/<key>' with PUT and a hand-crafted body, or the JFrog UI."
+}
+# Tag listing for Artifactory's docker repos. Path: /api/docker/<repo-key>/v2/<image>/tags/list — different
+# from the generic /repositories/.../tags pattern. Requires --repo REPOKEY/IMAGE (slash-split).
+__artifactory_tag_list() {
+  __apimgr_require_creds artifactory
+  __apimgr_resolve_repo || __apimgr_die "artifactory tag list: --repo REPOKEY/IMAGE required (e.g. --repo docker-local/myapp)"
+  local repokey="${APIMGR_REPO%%/*}" image="${APIMGR_REPO#*/}"
+  # The /docker endpoint sits at the artifactory root, not /api — so we go a level up.
+  local base; base="$(__apimgr_provider_url artifactory)" || return 1
+  local root="${base%/api}"
+  __artifactory_curl -H "Accept: application/json" "$root/api/docker/$repokey/v2/$image/tags/list" | __apimgr_jq -r '.tags[]? // empty'
+}
+__artifactory_tag_get() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds artifactory
+  __apimgr_resolve_repo || __apimgr_die "artifactory tag get: --repo REPOKEY/IMAGE required"
+  [ -n "$tag" ] || __apimgr_die "artifactory tag get: --tag NAME or positional TAG required"
+  local repokey="${APIMGR_REPO%%/*}" image="${APIMGR_REPO#*/}"
+  local base; base="$(__apimgr_provider_url artifactory)" || return 1
+  local root="${base%/api}"
+  __artifactory_curl -H "Accept: application/json" "$root/api/docker/$repokey/v2/$image/manifests/$tag" | __apimgr_jq .
+}
+__artifactory_tag_delete() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds artifactory
+  __apimgr_resolve_repo || __apimgr_die "artifactory tag delete: --repo REPOKEY/IMAGE required"
+  [ -n "$tag" ] || __apimgr_die "artifactory tag delete: --tag NAME or positional TAG required"
+  local repokey="${APIMGR_REPO%%/*}" image="${APIMGR_REPO#*/}"
+  __apimgr_confirm "Delete tag '$tag' from $repokey/$image?" || { printf_yellow "Aborted"; return 1; }
+  # Artifactory deletes tags by removing the tag's path under the docker repo storage.
+  local base; base="$(__apimgr_provider_url artifactory)" || return 1
+  local root="${base%/api}"
+  __artifactory_curl -X DELETE "$root/$repokey/$image/$tag" >/dev/null && printf_green "Deleted tag '$tag' from $repokey/$image"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Stub providers — print a clear "not yet implemented" so the dispatch surface is honest about what works.
 __apimgr_stub_provider() {
   __apimgr_die "Provider '$1' is not implemented yet. Architecture is in place; add __${1}_<action> functions to enable. See bin/apimgr __github_* / __gitea_* for templates."
@@ -3252,6 +3359,31 @@ __apimgr_dispatch_provider() {
           __quay_api GET "$sub" ;;
         *)                    __apimgr_die "quay: unknown action '$action'. Try: verify|user|org|repo|tag|api" ;;
       esac ;;
+    artifactory|jfrog)
+      case "$action" in
+        verify)               __artifactory_verify ;;
+        user)                 __artifactory_user_get ;;
+        repo|repos|repositories)
+          case "$sub" in
+            list)             __artifactory_repo_list ;;
+            get|"")           __artifactory_repo_get ;;
+            create)           __artifactory_repo_create ;;
+            delete|rm)        __artifactory_repo_delete ;;
+            *)                __apimgr_die "artifactory repo: unknown sub '$sub' (try list|get|delete — create needs raw api)" ;;
+          esac ;;
+        tag|tags)
+          case "$sub" in
+            list|"")          __artifactory_tag_list ;;
+            get|show)         __artifactory_tag_get "$1" ;;
+            delete|rm)        __artifactory_tag_delete "$1" ;;
+            *)                __apimgr_die "artifactory tag: unknown sub '$sub' (try list|get|delete)" ;;
+          esac ;;
+        org)                  __apimgr_die "artifactory has no orgs/namespaces — repo keys are flat. Use 'repo list' instead." ;;
+        api)
+          [ -n "$sub" ] || __apimgr_die "artifactory api: PATH required (e.g. apimgr artifactory api /system/version)"
+          __artifactory_api GET "$sub" ;;
+        *)                    __apimgr_die "artifactory: unknown action '$action'. Try: verify|user|repo|tag|api" ;;
+      esac ;;
     cloudsmith)
       case "$action" in
         verify)               __cloudsmith_verify ;;
@@ -3285,7 +3417,7 @@ __apimgr_dispatch_provider() {
     "")
       __apimgr_die "no provider specified — try: apimgr <provider> <action>, or run apimgr --help" ;;
     *)
-      __apimgr_die "unknown provider '$provider'. Supported: github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay cloudsmith" ;;
+      __apimgr_die "unknown provider '$provider'. Supported: github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay cloudsmith artifactory" ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3354,7 +3486,7 @@ GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,force,"
 LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,tag:,format:,visibility:,api,provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay cloudsmith verify user org repo issue pr release tag image api"
+ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay cloudsmith artifactory verify user org repo issue pr release tag image api"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -3538,7 +3670,7 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 # Top-level form: `apimgr <action> [sub]` auto-detects provider from git remote / APIMGR_DEFAULT_PROVIDER.
 # Provider form:  `apimgr <provider> <action> [sub]` is explicit.
 case "$1" in
-github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|bitbucket|docker|ghcr|harbor|quay|cloudsmith)
+github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|bitbucket|docker|ghcr|harbor|quay|cloudsmith|artifactory|jfrog)
   provider="$1"; action="${2:-}"; sub="${3:-}"
   [ -n "$action" ] || __apimgr_die "apimgr $provider: action required (verify|user|org|repo|issue|api). See --help."
   shift 3 2>/dev/null || shift 2 2>/dev/null || shift 1 2>/dev/null || true

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021747-git
+##@Version           :  202605021806-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Add Sourcehut (sr.ht) — 13th provider. Multi-service architecture, repo+tag surface only.
+# @@Changelog        :  Add Cloudsmith — 14th provider. Multi-format SaaS registry. X-Api-Key auth.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021747-git"
+VERSION="202605021806-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -213,6 +213,7 @@ __help() {
   __printf_line "ghcr                            - GitHub Container Registry. GHCR_API_URL + GHCR_ACCESS_TOKEN (read/write/delete:packages scope)"
   __printf_line "harbor                          - Harbor. HARBOR_API_URL + HARBOR_USERNAME + HARBOR_ACCESS_TOKEN (Basic auth)"
   __printf_line "quay                            - Quay. QUAY_API_URL + QUAY_ACCESS_TOKEN (Bearer)"
+  __printf_line "cloudsmith                      - Cloudsmith (multi-format SaaS). CLOUDSMITH_API_URL + CLOUDSMITH_API_KEY"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Actions (per provider)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -473,6 +474,7 @@ __apimgr_provider_token() {
   [ -n "$token" ] || eval "token=\${${provider}_ACCESS_TOKEN:-}"
   [ -n "$token" ] || eval "token=\${${provider}_TOKEN:-}"
   if [ -z "$token" ] && [ "$provider" = "DOCKER" ]; then token="${DOCKER_HUB_API_KEY:-}"; fi
+  if [ -z "$token" ] && [ "$provider" = "CLOUDSMITH" ]; then token="${CLOUDSMITH_API_KEY:-}"; fi
   [ -n "$token" ] || return 1
   printf '%s' "$token"
 }
@@ -2653,6 +2655,122 @@ __quay_tag_delete() {
   __quay_api DELETE "/repository/$APIMGR_REPO/tag/$tag" >/dev/null && printf_green "Deleted tag '$tag' from $APIMGR_REPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# ============== Cloudsmith provider (api.cloudsmith.io/v1 — multi-format SaaS registry) ==============
+# Auth: X-Api-Key header (Cloudsmith's canonical scheme; Authorization: Token also accepted but X-Api-Key is
+# the documented form). Token resolver picks up CLOUDSMITH_API_KEY in addition to the standard chain.
+# Cloudsmith's "tag" maps to package versions: each repo holds many packages, each package has a slug_perm
+# that uniquely identifies it. apimgr's tag actions list/get/delete by package slug.
+__cloudsmith_curl() {
+  local token; token="$(__apimgr_provider_token cloudsmith)" || return 1
+  __apimgr_curl -H "X-Api-Key: $token" -H "Accept: application/json" "$@"
+}
+__cloudsmith_api() {
+  local method="$1" path="$2" data="$3"
+  local base; base="$(__apimgr_provider_url cloudsmith)" || return 1
+  if [ -n "$data" ]; then
+    __cloudsmith_curl -X "$method" -H "Content-Type: application/json" --data "$data" "$base$path"
+  else
+    __cloudsmith_curl -X "$method" "$base$path"
+  fi
+}
+# Cloudsmith-shaped formatters — repos have .name, .namespace, .description, .repository_type_str, .num_packages.
+__cloudsmith_print_repo_list() {
+  __apimgr_jq -r '.[] | "\(.namespace)/\(.name)\t\(.description // "")\t\(.repository_type_str // "")\t\(.num_packages // 0)"' |
+    awk -F'\t' '{printf "%-40s %-40s %-10s %d pkg\n", $1, substr($2,1,40), $3, $4}'
+}
+__cloudsmith_print_repo() {
+  __apimgr_jq -r '
+    "Name:        \(.namespace)/\(.name)",
+    "Description: \(.description // "")",
+    "Type:        \(.repository_type_str // "")",
+    "Packages:    \(.num_packages // 0)",
+    "Storage:     \(.size // 0) bytes",
+    "Created:     \(.created_at // "")"
+  '
+}
+# Cloudsmith packages → apimgr tags. Slug_perm is the addressing key; format is name@version-format.
+__cloudsmith_print_tag_list() {
+  __apimgr_jq -r '.[] | "\(.name)@\(.version)\t\(.slug_perm)\t\(.format)\t\(.size // 0)\t\(.uploaded_at // "")"' |
+    awk -F'\t' '{ size = $4 / 1024 / 1024; printf "%-30s %-22s %-8s %8.1f MB  %s\n", $1, $2, $3, size, substr($5, 1, 19) }'
+}
+__cloudsmith_repo_check() { __apimgr_resolve_repo || __apimgr_die "cloudsmith: --repo NAMESPACE/REPO required"; }
+__cloudsmith_verify() {
+  __apimgr_require_creds cloudsmith
+  local resp; resp="$(__cloudsmith_api GET /user/self/)" || __apimgr_die "Cloudsmith /user/self/ call failed"
+  __apimgr_jq -r '"Authenticated as \(.slug) (\(.name // "no name")) — \(.email // "")"' <<<"$resp"
+}
+__cloudsmith_user_get() {
+  __apimgr_require_creds cloudsmith
+  if [ -n "$APIMGR_USER" ]; then
+    # Cloudsmith doesn't expose arbitrary-user lookup; fall back to listing their repos.
+    __apimgr_die "cloudsmith user get --user X: not exposed by API. Use 'apimgr cloudsmith repo list --user X' instead."
+  fi
+  __cloudsmith_api GET /user/self/ | __apimgr_jq .
+}
+__cloudsmith_org_get() {
+  __apimgr_require_creds cloudsmith
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "cloudsmith org get: --org NAMESPACE required"
+  __cloudsmith_api GET "/orgs/$APIMGR_ORG/" | __apimgr_jq .
+}
+__cloudsmith_org_all() {
+  __apimgr_require_creds cloudsmith
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "cloudsmith org all: --org NAMESPACE required"
+  __cloudsmith_api GET "/repos/$APIMGR_ORG/?page_size=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __cloudsmith_print_repo_list
+}
+__cloudsmith_repo_list() {
+  __apimgr_require_creds cloudsmith
+  local ns="${APIMGR_USER:-${APIMGR_ORG:-}}"
+  if [ -z "$ns" ]; then
+    ns="$(__cloudsmith_api GET /user/self/ | __apimgr_jq -r '.slug // empty')"
+  fi
+  [ -n "$ns" ] || __apimgr_die "cloudsmith repo list: namespace unresolved"
+  __cloudsmith_api GET "/repos/$ns/?page_size=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __cloudsmith_print_repo_list
+}
+__cloudsmith_repo_get() {
+  __apimgr_require_creds cloudsmith
+  __cloudsmith_repo_check
+  __cloudsmith_api GET "/repos/$APIMGR_REPO/" | __cloudsmith_print_repo
+}
+__cloudsmith_repo_create() {
+  __apimgr_require_creds cloudsmith
+  local name="${APIMGR_REPO##*/}" ns="${APIMGR_REPO%/*}"
+  [ -n "$name" ] && [ -n "$ns" ] && [ "$ns" != "$name" ] || __apimgr_die "cloudsmith repo create: --repo NAMESPACE/NAME required"
+  local visibility="${APIMGR_VISIBILITY:-public}"
+  case "$visibility" in public) visibility="Public" ;; private) visibility="Private" ;; *) __apimgr_die "cloudsmith: --visibility must be public|private" ;; esac
+  local payload; payload="$(__apimgr_jq -n --arg n "$name" --arg d "${APIMGR_BODY:-}" --arg v "$visibility" '{name:$n, slug:$n, description:$d, repository_type_str:$v}')"
+  __cloudsmith_api POST "/repos/$ns/" "$payload" | __cloudsmith_print_repo
+}
+__cloudsmith_repo_delete() {
+  __apimgr_require_creds cloudsmith
+  __cloudsmith_repo_check
+  __apimgr_confirm "Delete $APIMGR_REPO from Cloudsmith? This is irreversible." || { printf_yellow "Aborted"; return 1; }
+  __cloudsmith_api DELETE "/repos/$APIMGR_REPO/" >/dev/null && printf_green "Deleted $APIMGR_REPO"
+}
+__cloudsmith_repo_all() {
+  if [ -n "$APIMGR_ORG" ]; then __cloudsmith_org_all; else __cloudsmith_repo_list; fi
+}
+__cloudsmith_tag_repo() { __apimgr_resolve_repo || __apimgr_die "cloudsmith tag: --repo NAMESPACE/REPO required"; }
+__cloudsmith_tag_list() {
+  __apimgr_require_creds cloudsmith
+  __cloudsmith_tag_repo
+  __cloudsmith_api GET "/packages/$APIMGR_REPO/?page_size=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __cloudsmith_print_tag_list
+}
+__cloudsmith_tag_get() {
+  local slug="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds cloudsmith
+  __cloudsmith_tag_repo
+  [ -n "$slug" ] || __apimgr_die "cloudsmith tag get: --tag SLUG_PERM or positional SLUG required (find via 'tag list')"
+  __cloudsmith_api GET "/packages/$APIMGR_REPO/$slug/" | __apimgr_jq .
+}
+__cloudsmith_tag_delete() {
+  local slug="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds cloudsmith
+  __cloudsmith_tag_repo
+  [ -n "$slug" ] || __apimgr_die "cloudsmith tag delete: --tag SLUG_PERM or positional SLUG required"
+  __apimgr_confirm "Delete package '$slug' from $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __cloudsmith_api DELETE "/packages/$APIMGR_REPO/$slug/" >/dev/null && printf_green "Deleted package '$slug' from $APIMGR_REPO"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Stub providers — print a clear "not yet implemented" so the dispatch surface is honest about what works.
 __apimgr_stub_provider() {
   __apimgr_die "Provider '$1' is not implemented yet. Architecture is in place; add __${1}_<action> functions to enable. See bin/apimgr __github_* / __gitea_* for templates."
@@ -3134,10 +3252,40 @@ __apimgr_dispatch_provider() {
           __quay_api GET "$sub" ;;
         *)                    __apimgr_die "quay: unknown action '$action'. Try: verify|user|org|repo|tag|api" ;;
       esac ;;
+    cloudsmith)
+      case "$action" in
+        verify)               __cloudsmith_verify ;;
+        user)                 __cloudsmith_user_get ;;
+        org|namespace)
+          case "$sub" in
+            all)              __cloudsmith_org_all ;;
+            *)                __cloudsmith_org_get ;;
+          esac ;;
+        repo|repos|repositories)
+          case "$sub" in
+            list)             __cloudsmith_repo_list ;;
+            get|"")           __cloudsmith_repo_get ;;
+            create)           __cloudsmith_repo_create ;;
+            delete|rm)        __cloudsmith_repo_delete ;;
+            all)              __cloudsmith_repo_all ;;
+            *)                __apimgr_die "cloudsmith repo: unknown sub '$sub' (try list|get|create|delete|all)" ;;
+          esac ;;
+        tag|tags|package|packages)
+          case "$sub" in
+            list|"")          __cloudsmith_tag_list ;;
+            get|show)         __cloudsmith_tag_get "$1" ;;
+            delete|rm)        __cloudsmith_tag_delete "$1" ;;
+            *)                __apimgr_die "cloudsmith tag/package: unknown sub '$sub' (try list|get|delete)" ;;
+          esac ;;
+        api)
+          [ -n "$sub" ] || __apimgr_die "cloudsmith api: PATH required (e.g. apimgr cloudsmith api /user/self/)"
+          __cloudsmith_api GET "$sub" ;;
+        *)                    __apimgr_die "cloudsmith: unknown action '$action'. Try: verify|user|org|repo|tag|api" ;;
+      esac ;;
     "")
       __apimgr_die "no provider specified — try: apimgr <provider> <action>, or run apimgr --help" ;;
     *)
-      __apimgr_die "unknown provider '$provider'. Supported: github gitlab gitea forgejo codeberg bitbucket docker harbor quay" ;;
+      __apimgr_die "unknown provider '$provider'. Supported: github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay cloudsmith" ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3206,7 +3354,7 @@ GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,force,"
 LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,tag:,format:,visibility:,api,provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay verify user org repo issue pr release tag image api"
+ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay cloudsmith verify user org repo issue pr release tag image api"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -3390,7 +3538,7 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 # Top-level form: `apimgr <action> [sub]` auto-detects provider from git remote / APIMGR_DEFAULT_PROVIDER.
 # Provider form:  `apimgr <provider> <action> [sub]` is explicit.
 case "$1" in
-github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|bitbucket|docker|ghcr|harbor|quay)
+github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|bitbucket|docker|ghcr|harbor|quay|cloudsmith)
   provider="$1"; action="${2:-}"; sub="${3:-}"
   [ -n "$action" ] || __apimgr_die "apimgr $provider: action required (verify|user|org|repo|issue|api). See --help."
   shift 3 2>/dev/null || shift 2 2>/dev/null || shift 1 2>/dev/null || true

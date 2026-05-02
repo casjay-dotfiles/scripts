@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605020012-git
+##@Version           :  202605020810-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -50,13 +50,13 @@ _apimgr_completion() {
   SHORTOPTS=""
   SHORTOPTS+=""
   #####################################################################
-  LONGOPTS="--completions --config --reset-config --debug --dir --help --options --raw --version --silent --force --no- --yes-"
-  LONGOPTS+=""
+  LONGOPTS="--completions --config --reset-config --debug --dir --help --options --raw --version --force --no- --yes-"
+  LONGOPTS+=" --repo --user --org --token --official --title --body --state --limit --branch --format --visibility --provider --api"
   #####################################################################
-  ARRAY=""
+  ARRAY="github gitlab gitea forgejo codeberg bitbucket docker harbor quay verify user org repo issue pr release api"
   ARRAY+=""
   #####################################################################
-  LIST=""
+  LIST="get list create delete all"
   LIST+=""
   #####################################################################
   OPTS_NO="--no-* "
@@ -105,10 +105,57 @@ _apimgr_completion() {
       COMPREPLY=($(compgen -W '${OPTS_YES}' -- "$cur"))
       return 0
       ;;
-    --all)
+    --repo|--user|--org|--token|--title|--body|--branch|--provider)
       COMPREPLY=($(compgen -W '' -- "$cur"))
+      return 0
+      ;;
+    --state)
+      COMPREPLY=($(compgen -W 'open closed all' -- "$cur"))
+      return 0
+      ;;
+    --visibility)
+      COMPREPLY=($(compgen -W 'public private' -- "$cur"))
+      return 0
+      ;;
+    --format)
+      COMPREPLY=($(compgen -W 'json table' -- "$cur"))
+      return 0
+      ;;
+    --limit)
+      COMPREPLY=($(compgen -W '5 10 20 30 50 100' -- "$cur"))
+      return 0
+      ;;
+    github|gitlab|gitea|forgejo|codeberg|bitbucket|docker|harbor|quay)
+      # After a provider, complete with actions.
+      COMPREPLY=($(compgen -W 'verify user org repo issue pr release api' -- "$cur"))
+      return 0
+      ;;
+    repo)
+      COMPREPLY=($(compgen -W 'list get create delete all' -- "$cur"))
+      return 0
+      ;;
+    org)
+      COMPREPLY=($(compgen -W 'get all' -- "$cur"))
+      return 0
+      ;;
+    user)
+      COMPREPLY=($(compgen -W 'get' -- "$cur"))
+      return 0
+      ;;
+    issue)
+      COMPREPLY=($(compgen -W 'list get create close comment' -- "$cur"))
+      return 0
+      ;;
+    pr)
+      COMPREPLY=($(compgen -W 'list get create merge close' -- "$cur"))
+      return 0
+      ;;
+    release)
+      COMPREPLY=($(compgen -W 'list create delete' -- "$cur"))
+      return 0
       ;;
     *)
+      # Position 1 = providers + top-level actions; deeper = sub-commands; flags surface always.
       [ $cword -gt 2 ] && COMPREPLY=($(compgen -W '${LIST}' -- "$cur")) ||
         COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))
       return 0

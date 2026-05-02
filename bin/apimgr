@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021423-git
+##@Version           :  202605021434-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Issue actions (list/get/create/close/comment) for github + gitea + gitlab. Dispatcher passes positionals through.
+# @@Changelog        :  PR/MR actions (list/get/create/merge/close) for github + gitea + gitlab. New --base flag for target branch.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021423-git"
+VERSION="202605021434-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -219,7 +219,8 @@ __help() {
   __printf_line "                                - Repo ops; --repo USER/REPO selects target (or auto-detect from cwd)"
   __printf_line "issue [list|get N|create|close N|comment N]"
   __printf_line "                                - Issue ops; --repo, --title, --body, --state, --limit"
-  __printf_line "pr     [list|get|create|merge]  - Pull-request ops                                              [planned]"
+  __printf_line "pr     [list|get N|create|merge N|close N]"
+  __printf_line "                                - PR/MR ops; --branch SOURCE, --base TARGET (default: repo's default_branch)"
   __printf_line "release [list|create|delete]    - Release/tag ops                                               [planned]"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Top-level shortcuts (no provider — auto-detect or default)"
@@ -240,7 +241,8 @@ __help() {
   __printf_line "--title TEXT, --body TEXT       - For create-issue / create-pr"
   __printf_line "--state open|closed|all         - Filter for list operations"
   __printf_line "--limit N                       - Cap result count (default 30)"
-  __printf_line "--branch NAME                   - For PR / branch ops"
+  __printf_line "--branch NAME                   - Source branch for `pr create` (the branch the PR is from)"
+  __printf_line "--base NAME                     - Target/base branch for `pr create` (defaults to repo's default_branch)"
   __printf_line "--format json|table             - Output format (default: table for terminals, json otherwise)"
   __printf_line "--api PATH                      - Raw GET against an arbitrary API path (debug / one-off use)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -576,14 +578,37 @@ __apimgr_print_issue() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Translate apimgr's --state values to provider-specific state names. github/gitea use open|closed|all;
-# gitlab uses opened|closed|all. Normalizing here means the user-facing flag stays uniform.
+# gitlab uses opened|closed|merged|all. Normalizing here means the user-facing flag stays uniform.
 __apimgr_state_for() {
   local provider="$1" state="${APIMGR_STATE:-open}"
   case "$provider" in
     gitlab)
-      case "$state" in open) printf 'opened' ;; closed) printf 'closed' ;; all) printf 'all' ;; *) printf '%s' "$state" ;; esac ;;
+      case "$state" in open) printf 'opened' ;; closed) printf 'closed' ;; merged) printf 'merged' ;; all) printf 'all' ;; *) printf '%s' "$state" ;; esac ;;
     *) printf '%s' "$state" ;;
   esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pretty-print a PR list. Schema-tolerant: github/gitea use .number / .head.ref / .base.ref / .user.login;
+# gitlab uses .iid / .source_branch / .target_branch / .author.username.
+__apimgr_print_pr_list() {
+  __apimgr_jq -r '.[] | "#\(.number // .iid)\t\(.state)\t\(.user.login // .author.username // "")\t\(.head.ref // .source_branch)→\(.base.ref // .target_branch)\t\(.title)"' |
+    awk -F'\t' '{printf "%-7s %-8s %-18s %-30s %s\n", $1, $2, substr($3,1,18), substr($4,1,30), $5}'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pretty-print a single PR (for `pr get`).
+__apimgr_print_pr() {
+  __apimgr_jq -r '
+    "Number:    #\(.number // .iid)",
+    "Title:     \(.title)",
+    "State:     \(.state)\(if (.merged // false) then " (merged)" else "" end)",
+    "Author:    \(.user.login // .author.username // "")",
+    "Branches:  \(.head.ref // .source_branch) → \(.base.ref // .target_branch)",
+    "Mergeable: \(.mergeable // .merge_status // "unknown")",
+    "URL:       \(.html_url // .web_url // "")",
+    "Created:   \(.created_at)",
+    "",
+    "\(.body // .description // "")"
+  '
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Confirmation prompt for destructive ops. Honors --force. Returns 0 if confirmed, 1 otherwise.
@@ -701,6 +726,54 @@ __github_issue_comment() {
   [ -n "$APIMGR_BODY" ] || __apimgr_die "github issue comment: --body required"
   local payload; payload="$(__apimgr_jq -n --arg b "$APIMGR_BODY" '{body:$b}')"
   __github_post POST "/repos/$APIMGR_REPO/issues/$n/comments" "$payload" | __apimgr_jq -r '"Commented on issue #'"$n"' — \(.html_url)"'
+}
+# Default base branch — read from the repo's metadata. Tiny GET, but cached per-invocation in APIMGR_BASE_RESOLVED
+# so a `pr create` doesn't pay for it twice. Honors --base if the user passed one.
+__github_resolve_base() {
+  if [ -n "$APIMGR_BASE" ]; then printf '%s' "$APIMGR_BASE"; return 0; fi
+  if [ -n "$APIMGR_BASE_RESOLVED" ]; then printf '%s' "$APIMGR_BASE_RESOLVED"; return 0; fi
+  APIMGR_BASE_RESOLVED="$(__github_api GET "/repos/$APIMGR_REPO" | __apimgr_jq -r '.default_branch // "main"')"
+  printf '%s' "$APIMGR_BASE_RESOLVED"
+}
+__github_pr_repo() {
+  __apimgr_resolve_repo || __apimgr_die "github pr: --repo USER/REPO required (or run inside the repo's worktree)"
+}
+__github_pr_list() {
+  __apimgr_require_creds github
+  __github_pr_repo
+  local state; state="$(__apimgr_state_for github)"
+  __github_api GET "/repos/$APIMGR_REPO/pulls?state=$state&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_pr_list
+}
+__github_pr_get() {
+  local n="$1"
+  __apimgr_require_creds github
+  __github_pr_repo
+  [ -n "$n" ] || __apimgr_die "github pr get: PR NUMBER required (e.g. apimgr github pr get 42)"
+  __github_api GET "/repos/$APIMGR_REPO/pulls/$n" | __apimgr_print_pr
+}
+__github_pr_create() {
+  __apimgr_require_creds github
+  __github_pr_repo
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "github pr create: --title required"
+  [ -n "$APIMGR_BRANCH" ] || __apimgr_die "github pr create: --branch SOURCE required (the branch the PR is from)"
+  local base; base="$(__github_resolve_base)"
+  local payload; payload="$(__apimgr_jq -n --arg t "$APIMGR_TITLE" --arg b "${APIMGR_BODY:-}" --arg h "$APIMGR_BRANCH" --arg ba "$base" '{title:$t, body:$b, head:$h, base:$ba}')"
+  __github_post POST "/repos/$APIMGR_REPO/pulls" "$payload" | __apimgr_jq -r '"Created PR #\(.number) (\(.head.ref) → \(.base.ref)) — \(.html_url)"'
+}
+__github_pr_merge() {
+  local n="$1"
+  __apimgr_require_creds github
+  __github_pr_repo
+  [ -n "$n" ] || __apimgr_die "github pr merge: PR NUMBER required"
+  __apimgr_confirm "Merge PR #$n in $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __github_post PUT "/repos/$APIMGR_REPO/pulls/$n/merge" '{}' | __apimgr_jq -r 'if .merged then "Merged PR #'"$n"' — \(.sha[0:7])" else "Merge refused: \(.message // "unknown")" end'
+}
+__github_pr_close() {
+  local n="$1"
+  __apimgr_require_creds github
+  __github_pr_repo
+  [ -n "$n" ] || __apimgr_die "github pr close: PR NUMBER required"
+  __github_post PATCH "/repos/$APIMGR_REPO/pulls/$n" '{"state":"closed"}' | __apimgr_jq -r '"Closed PR #\(.number) — \(.html_url)"'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== Gitea provider (covers Forgejo, Codeberg — same API surface) ==============
@@ -826,6 +899,57 @@ __gitea_issue_comment() {
   [ -n "$APIMGR_BODY" ] || __apimgr_die "$provider issue comment: --body required"
   local payload; payload="$(__apimgr_jq -n --arg b "$APIMGR_BODY" '{body:$b}')"
   __gitea_api "$provider" POST "/repos/$APIMGR_REPO/issues/$n/comments" "$payload" | __apimgr_jq -r '"Commented on issue #'"$n"' — \(.html_url)"'
+}
+# Gitea PR actions. Same path shape as github (/pulls), different merge endpoint (POST /pulls/N/merge with {Do:"merge"}).
+__gitea_resolve_base() {
+  local provider="$1"
+  if [ -n "$APIMGR_BASE" ]; then printf '%s' "$APIMGR_BASE"; return 0; fi
+  if [ -n "$APIMGR_BASE_RESOLVED" ]; then printf '%s' "$APIMGR_BASE_RESOLVED"; return 0; fi
+  APIMGR_BASE_RESOLVED="$(__gitea_api "$provider" GET "/repos/$APIMGR_REPO" | __apimgr_jq -r '.default_branch // "main"')"
+  printf '%s' "$APIMGR_BASE_RESOLVED"
+}
+__gitea_pr_repo() {
+  local provider="$1"
+  __apimgr_resolve_repo || __apimgr_die "$provider pr: --repo USER/REPO required"
+}
+__gitea_pr_list() {
+  local provider="$1"
+  __apimgr_require_creds "$provider"
+  __gitea_pr_repo "$provider"
+  local state; state="$(__apimgr_state_for "$provider")"
+  __gitea_api "$provider" GET "/repos/$APIMGR_REPO/pulls?state=$state&limit=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_pr_list
+}
+__gitea_pr_get() {
+  local provider="$1" n="$2"
+  __apimgr_require_creds "$provider"
+  __gitea_pr_repo "$provider"
+  [ -n "$n" ] || __apimgr_die "$provider pr get: PR NUMBER required"
+  __gitea_api "$provider" GET "/repos/$APIMGR_REPO/pulls/$n" | __apimgr_print_pr
+}
+__gitea_pr_create() {
+  local provider="$1"
+  __apimgr_require_creds "$provider"
+  __gitea_pr_repo "$provider"
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "$provider pr create: --title required"
+  [ -n "$APIMGR_BRANCH" ] || __apimgr_die "$provider pr create: --branch SOURCE required"
+  local base; base="$(__gitea_resolve_base "$provider")"
+  local payload; payload="$(__apimgr_jq -n --arg t "$APIMGR_TITLE" --arg b "${APIMGR_BODY:-}" --arg h "$APIMGR_BRANCH" --arg ba "$base" '{title:$t, body:$b, head:$h, base:$ba}')"
+  __gitea_api "$provider" POST "/repos/$APIMGR_REPO/pulls" "$payload" | __apimgr_jq -r '"Created PR #\(.number) (\(.head.ref) → \(.base.ref)) — \(.html_url)"'
+}
+__gitea_pr_merge() {
+  local provider="$1" n="$2"
+  __apimgr_require_creds "$provider"
+  __gitea_pr_repo "$provider"
+  [ -n "$n" ] || __apimgr_die "$provider pr merge: PR NUMBER required"
+  __apimgr_confirm "Merge PR #$n in $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __gitea_api "$provider" POST "/repos/$APIMGR_REPO/pulls/$n/merge" '{"Do":"merge"}' >/dev/null && printf_green "Merged PR #$n"
+}
+__gitea_pr_close() {
+  local provider="$1" n="$2"
+  __apimgr_require_creds "$provider"
+  __gitea_pr_repo "$provider"
+  [ -n "$n" ] || __apimgr_die "$provider pr close: PR NUMBER required"
+  __gitea_api "$provider" PATCH "/repos/$APIMGR_REPO/pulls/$n" '{"state":"closed"}' | __apimgr_jq -r '"Closed PR #\(.number) — \(.html_url)"'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== GitLab provider (api.v4 — uses PRIVATE-TOKEN header and URL-encoded namespace/path) ==============
@@ -966,6 +1090,52 @@ __gitlab_issue_comment() {
   local payload; payload="$(__apimgr_jq -n --arg b "$APIMGR_BODY" '{body:$b}')"
   __gitlab_api POST "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/issues/$n/notes" "$payload" | __apimgr_jq -r '"Commented on issue #'"$n"' — \(.web_url // "")"'
 }
+# GitLab merge-request actions. /merge_requests not /pulls; .iid not .number; source_branch/target_branch instead of head/base;
+# merge is PUT /merge_requests/N/merge; close is PUT with state_event=close (not PATCH state=closed).
+__gitlab_resolve_base() {
+  if [ -n "$APIMGR_BASE" ]; then printf '%s' "$APIMGR_BASE"; return 0; fi
+  if [ -n "$APIMGR_BASE_RESOLVED" ]; then printf '%s' "$APIMGR_BASE_RESOLVED"; return 0; fi
+  APIMGR_BASE_RESOLVED="$(__gitlab_api GET "/projects/$(__gitlab_urlenc "$APIMGR_REPO")" | __apimgr_jq -r '.default_branch // "main"')"
+  printf '%s' "$APIMGR_BASE_RESOLVED"
+}
+__gitlab_pr_repo() { __apimgr_resolve_repo || __apimgr_die "gitlab pr: --repo USER/REPO required"; }
+__gitlab_pr_list() {
+  __apimgr_require_creds gitlab
+  __gitlab_pr_repo
+  local state; state="$(__apimgr_state_for gitlab)"
+  __gitlab_api GET "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/merge_requests?state=$state&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_pr_list
+}
+__gitlab_pr_get() {
+  local n="$1"
+  __apimgr_require_creds gitlab
+  __gitlab_pr_repo
+  [ -n "$n" ] || __apimgr_die "gitlab pr get: MR IID required"
+  __gitlab_api GET "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/merge_requests/$n" | __apimgr_print_pr
+}
+__gitlab_pr_create() {
+  __apimgr_require_creds gitlab
+  __gitlab_pr_repo
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "gitlab pr create: --title required"
+  [ -n "$APIMGR_BRANCH" ] || __apimgr_die "gitlab pr create: --branch SOURCE required"
+  local base; base="$(__gitlab_resolve_base)"
+  local payload; payload="$(__apimgr_jq -n --arg t "$APIMGR_TITLE" --arg d "${APIMGR_BODY:-}" --arg s "$APIMGR_BRANCH" --arg ta "$base" '{title:$t, description:$d, source_branch:$s, target_branch:$ta}')"
+  __gitlab_api POST "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/merge_requests" "$payload" | __apimgr_jq -r '"Created MR #\(.iid) (\(.source_branch) → \(.target_branch)) — \(.web_url)"'
+}
+__gitlab_pr_merge() {
+  local n="$1"
+  __apimgr_require_creds gitlab
+  __gitlab_pr_repo
+  [ -n "$n" ] || __apimgr_die "gitlab pr merge: MR IID required"
+  __apimgr_confirm "Merge MR !$n in $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __gitlab_api PUT "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/merge_requests/$n/merge" '{}' | __apimgr_jq -r 'if .state == "merged" then "Merged MR !'"$n"' — \(.merge_commit_sha[0:7])" else "Merge refused: state=\(.state)" end'
+}
+__gitlab_pr_close() {
+  local n="$1"
+  __apimgr_require_creds gitlab
+  __gitlab_pr_repo
+  [ -n "$n" ] || __apimgr_die "gitlab pr close: MR IID required"
+  __gitlab_api PUT "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/merge_requests/$n" '{"state_event":"close"}' | __apimgr_jq -r '"Closed MR !\(.iid) — \(.web_url)"'
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Stub providers — print a clear "not yet implemented" so the dispatch surface is honest about what works.
 __apimgr_stub_provider() {
@@ -1005,10 +1175,19 @@ __apimgr_dispatch_provider() {
             comment)          __github_issue_comment "$1" ;;
             *)                __apimgr_die "github issue: unknown sub '$sub' (try list|get|create|close|comment)" ;;
           esac ;;
+        pr|pull|pulls|mr)
+          case "$sub" in
+            list|"")          __github_pr_list ;;
+            get|show)         __github_pr_get "$1" ;;
+            create|new)       __github_pr_create ;;
+            merge)            __github_pr_merge "$1" ;;
+            close)            __github_pr_close "$1" ;;
+            *)                __apimgr_die "github pr: unknown sub '$sub' (try list|get|create|merge|close)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "github api: PATH required (e.g. apimgr github api /user)"
           __github_api GET "$sub" ;;
-        *)                    __apimgr_die "github: unknown action '$action'. Try: verify|user|org|repo|issue|api" ;;
+        *)                    __apimgr_die "github: unknown action '$action'. Try: verify|user|org|repo|issue|pr|api" ;;
       esac ;;
     gitea|forgejo|codeberg)
       case "$action" in
@@ -1037,10 +1216,19 @@ __apimgr_dispatch_provider() {
             comment)          __gitea_issue_comment "$provider" "$1" ;;
             *)                __apimgr_die "$provider issue: unknown sub '$sub' (try list|get|create|close|comment)" ;;
           esac ;;
+        pr|pull|pulls|mr)
+          case "$sub" in
+            list|"")          __gitea_pr_list "$provider" ;;
+            get|show)         __gitea_pr_get "$provider" "$1" ;;
+            create|new)       __gitea_pr_create "$provider" ;;
+            merge)            __gitea_pr_merge "$provider" "$1" ;;
+            close)            __gitea_pr_close "$provider" "$1" ;;
+            *)                __apimgr_die "$provider pr: unknown sub '$sub' (try list|get|create|merge|close)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "$provider api: PATH required"
           __gitea_api "$provider" GET "$sub" ;;
-        *)                    __apimgr_die "$provider: unknown action '$action'. Try: verify|user|org|repo|issue|api" ;;
+        *)                    __apimgr_die "$provider: unknown action '$action'. Try: verify|user|org|repo|issue|pr|api" ;;
       esac ;;
     gitlab)
       case "$action" in
@@ -1069,10 +1257,19 @@ __apimgr_dispatch_provider() {
             comment)          __gitlab_issue_comment "$1" ;;
             *)                __apimgr_die "gitlab issue: unknown sub '$sub' (try list|get|create|close|comment)" ;;
           esac ;;
+        pr|pull|pulls|mr)
+          case "$sub" in
+            list|"")          __gitlab_pr_list ;;
+            get|show)         __gitlab_pr_get "$1" ;;
+            create|new)       __gitlab_pr_create ;;
+            merge)            __gitlab_pr_merge "$1" ;;
+            close)            __gitlab_pr_close "$1" ;;
+            *)                __apimgr_die "gitlab pr: unknown sub '$sub' (try list|get|create|merge|close)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "gitlab api: PATH required (e.g. apimgr gitlab api /version)"
           __gitlab_api GET "$sub" ;;
-        *)                    __apimgr_die "gitlab: unknown action '$action'. Try: verify|user|org|repo|issue|api" ;;
+        *)                    __apimgr_die "gitlab: unknown action '$action'. Try: verify|user|org|repo|issue|pr|api" ;;
       esac ;;
     bitbucket|docker|harbor|quay)
       __apimgr_stub_provider "$provider" ;;
@@ -1146,7 +1343,7 @@ SHORTOPTS+=""
 GET_OPTIONS_NO="no-*"
 GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,force,"
-LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,format:,visibility:,api,provider:"
+LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,format:,visibility:,api,provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="github gitlab gitea forgejo codeberg bitbucket docker harbor quay verify user org repo issue pr release api"
 ARRAY+=""
@@ -1247,6 +1444,7 @@ while :; do
   --state)       APIMGR_STATE="$2"; shift 2 ;;
   --limit)       APIMGR_LIMIT="$2"; shift 2 ;;
   --branch)      APIMGR_BRANCH="$2"; shift 2 ;;
+  --base)        APIMGR_BASE="$2"; shift 2 ;;
   --format)      APIMGR_FORMAT="$2"; shift 2 ;;
   --visibility)  APIMGR_VISIBILITY="$2"; shift 2 ;;
   --provider)    APIMGR_PROVIDER="$2"; shift 2 ;;

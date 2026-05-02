@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021423-git
+##@Version           :  202605021434-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -51,7 +51,7 @@ _apimgr_completion() {
   SHORTOPTS+=""
   #####################################################################
   LONGOPTS="--completions --config --reset-config --debug --dir --help --options --raw --version --force --no- --yes-"
-  LONGOPTS+=" --repo --user --org --token --official --title --body --state --limit --branch --format --visibility --provider --api"
+  LONGOPTS+=" --repo --user --org --token --official --title --body --state --limit --branch --base --format --visibility --provider --api"
   #####################################################################
   ARRAY="github gitlab gitea forgejo codeberg bitbucket docker harbor quay verify user org repo issue pr release api"
   ARRAY+=""
@@ -105,12 +105,12 @@ _apimgr_completion() {
       COMPREPLY=($(compgen -W '${OPTS_YES}' -- "$cur"))
       return 0
       ;;
-    --repo|--user|--org|--token|--title|--body|--branch|--provider)
+    --repo|--user|--org|--token|--title|--body|--branch|--base|--provider)
       COMPREPLY=($(compgen -W '' -- "$cur"))
       return 0
       ;;
     --state)
-      COMPREPLY=($(compgen -W 'open closed all' -- "$cur"))
+      COMPREPLY=($(compgen -W 'open closed merged all' -- "$cur"))
       return 0
       ;;
     --visibility)
@@ -146,7 +146,7 @@ _apimgr_completion() {
       COMPREPLY=($(compgen -W 'list get create close comment' -- "$cur"))
       return 0
       ;;
-    pr)
+    pr|pull|pulls|mr)
       COMPREPLY=($(compgen -W 'list get create merge close' -- "$cur"))
       return 0
       ;;

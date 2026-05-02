@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021652-git
+##@Version           :  202605021709-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -53,7 +53,7 @@ _apimgr_completion() {
   LONGOPTS="--completions --config --reset-config --debug --dir --help --options --raw --version --force --no- --yes-"
   LONGOPTS+=" --repo --user --org --token --official --title --body --state --limit --branch --base --tag --format --visibility --provider --api"
   #####################################################################
-  ARRAY="github gitlab gitea forgejo codeberg bitbucket docker harbor quay verify user org repo issue pr release tag image api"
+  ARRAY="github gitlab gitea forgejo codeberg gitee bitbucket docker harbor quay verify user org repo issue pr release tag image api"
   ARRAY+=""
   #####################################################################
   LIST="get list create delete all"
@@ -125,9 +125,9 @@ _apimgr_completion() {
       COMPREPLY=($(compgen -W '5 10 20 30 50 100' -- "$cur"))
       return 0
       ;;
-    github|gitlab|gitea|forgejo|codeberg|bitbucket|docker|harbor|quay)
+    github|gitlab|gitea|forgejo|codeberg|gitee|bitbucket|docker|harbor|quay)
       # After a provider, complete with actions.
-      COMPREPLY=($(compgen -W 'verify user org repo issue pr release api' -- "$cur"))
+      COMPREPLY=($(compgen -W 'verify user org repo issue pr release tag api' -- "$cur"))
       return 0
       ;;
     repo)

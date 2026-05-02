@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021652-git
+##@Version           :  202605021709-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Git-tag actions (list/get/create/delete) for github + gitea + gitlab + bitbucket.
+# @@Changelog        :  Add gitee.com provider (10th total). Full forge surface — verify/user/org/repo/issue/pr/release/tag.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021652-git"
+VERSION="202605021709-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -204,6 +204,7 @@ __help() {
   __printf_line "gitea                           - Gitea (self-host). GITEA_API_URL + GITEA_ACCESS_TOKEN"
   __printf_line "forgejo                         - Forgejo (Gitea API). FORGEJO_API_URL + FORGEJO_ACCESS_TOKEN"
   __printf_line "codeberg                        - Codeberg (Gitea API). CODEBERG_API_URL + CODEBERG_ACCESS_TOKEN"
+  __printf_line "gitee                           - Gitee (gitee.com — github-shaped API). GITEE_API_URL + GITEE_ACCESS_TOKEN"
   __printf_line "gitlab                          - GitLab. GITLAB_API_URL + GITLAB_ACCESS_TOKEN"
   __printf_line "bitbucket                       - Bitbucket Cloud. BITBUCKET_API_URL + BITBUCKET_ACCESS_TOKEN (Bearer)"
   __printf_line "docker                          - Docker Hub. DOCKER_API_URL + DOCKER_USERNAME + DOCKER_HUB_API_KEY (login → JWT)"
@@ -502,6 +503,7 @@ __apimgr_detect_provider_from_git() {
     *gitlab.com*)        provider="gitlab"   ;;
     *codeberg.org*)      provider="codeberg" ;;
     *bitbucket.org*)     provider="bitbucket";;
+    *gitee.com*)         provider="gitee"    ;;
     *gitea*)             provider="gitea"    ;;
     *forgejo*)           provider="forgejo"  ;;
     *)
@@ -1648,6 +1650,209 @@ __bitbucket_tag_delete() {
   __bitbucket_api DELETE "/repositories/$APIMGR_REPO/refs/tags/$tag" >/dev/null && printf_green "Deleted tag '$tag' from $APIMGR_REPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# ============== Gitee provider (gitee.com/api/v5 — github-shaped API with `Authorization: token` auth) ==============
+# Gitee is a separate forge (not gitea — the names differ by one letter). The API mirrors github's field names
+# and paths very closely, so the implementation parallels __github_* with a different curl wrapper.
+__gitee_curl() {
+  local token; token="$(__apimgr_provider_token gitee)" || return 1
+  __apimgr_curl -H "Authorization: token $token" -H "Accept: application/json" "$@"
+}
+__gitee_api()  { local base; base="$(__apimgr_provider_url gitee)" || return 1; __gitee_curl -X "${1:-GET}" "$base$2"; }
+__gitee_post() { local base; base="$(__apimgr_provider_url gitee)" || return 1; __gitee_curl -X "${1:-POST}" -H "Content-Type: application/json" --data "$3" "$base$2"; }
+__gitee_repo_check() { __apimgr_resolve_repo || __apimgr_die "gitee: --repo USER/REPO required"; }
+__gitee_verify() {
+  __apimgr_require_creds gitee
+  local resp; resp="$(__gitee_api GET /user)" || __apimgr_die "Gitee /user call failed"
+  __apimgr_jq -r '"Authenticated as \(.login) (\(.name // "no name")) — \(.html_url // "")"' <<<"$resp"
+}
+__gitee_user_get() {
+  __apimgr_require_creds gitee
+  if [ -n "$APIMGR_USER" ]; then __gitee_api GET "/users/$APIMGR_USER" | __apimgr_jq .
+  else __gitee_api GET /user | __apimgr_jq .
+  fi
+}
+__gitee_org_get() {
+  __apimgr_require_creds gitee
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "gitee org get: --org NAME required"
+  __gitee_api GET "/orgs/$APIMGR_ORG" | __apimgr_jq .
+}
+__gitee_org_all() {
+  __apimgr_require_creds gitee
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "gitee org all: --org NAME required"
+  __gitee_api GET "/orgs/$APIMGR_ORG/repos?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_repo_list
+}
+__gitee_repo_list() {
+  __apimgr_require_creds gitee
+  local path="/user/repos?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}"
+  [ -n "$APIMGR_USER" ] && path="/users/$APIMGR_USER/repos?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}"
+  __gitee_api GET "$path" | __apimgr_print_repo_list
+}
+__gitee_repo_get() {
+  __apimgr_require_creds gitee
+  __gitee_repo_check
+  __gitee_api GET "/repos/$APIMGR_REPO" | __apimgr_print_repo
+}
+__gitee_repo_create() {
+  __apimgr_require_creds gitee
+  local name="${APIMGR_REPO##*/}" owner="${APIMGR_REPO%/*}"
+  [ -n "$name" ] && [ -n "$owner" ] && [ "$owner" != "$name" ] || __apimgr_die "gitee repo create: --repo OWNER/NAME required"
+  local visibility="${APIMGR_VISIBILITY:-public}" privflag="false"
+  [ "$visibility" = "private" ] && privflag="true"
+  local payload; payload="$(__apimgr_jq -n --arg n "$name" --arg d "${APIMGR_BODY:-}" --argjson p "$privflag" '{name:$n, description:$d, private:$p}')"
+  local me; me="$(__gitee_api GET /user | __apimgr_jq -r '.login')"
+  if [ "$owner" = "$me" ]; then
+    __gitee_post POST "/user/repos" "$payload" | __apimgr_print_repo
+  else
+    __gitee_post POST "/orgs/$owner/repos" "$payload" | __apimgr_print_repo
+  fi
+}
+__gitee_repo_delete() {
+  __apimgr_require_creds gitee
+  __gitee_repo_check
+  __apimgr_confirm "Delete $APIMGR_REPO from Gitee? This is irreversible." || { printf_yellow "Aborted"; return 1; }
+  __gitee_api DELETE "/repos/$APIMGR_REPO" >/dev/null && printf_green "Deleted $APIMGR_REPO"
+}
+__gitee_repo_all() {
+  if [ -n "$APIMGR_ORG" ]; then __gitee_org_all; else __gitee_repo_list; fi
+}
+__gitee_issue_repo() { __apimgr_resolve_repo || __apimgr_die "gitee issue: --repo USER/REPO required"; }
+__gitee_issue_list() {
+  __apimgr_require_creds gitee
+  __gitee_issue_repo
+  local state; state="$(__apimgr_state_for gitee)"
+  __gitee_api GET "/repos/$APIMGR_REPO/issues?state=$state&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_issue_list
+}
+__gitee_issue_get() {
+  local n="$1"
+  __apimgr_require_creds gitee
+  __gitee_issue_repo
+  [ -n "$n" ] || __apimgr_die "gitee issue get: issue NUMBER required"
+  # Gitee's issue endpoint uses owner/repo/issues/NUMBER as separate fields in URL: /repos/OWNER/REPO/issues/NUMBER
+  __gitee_api GET "/repos/$APIMGR_REPO/issues/$n" | __apimgr_print_issue
+}
+__gitee_issue_create() {
+  __apimgr_require_creds gitee
+  __gitee_issue_repo
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "gitee issue create: --title required"
+  local owner="${APIMGR_REPO%/*}" repo="${APIMGR_REPO##*/}"
+  # Gitee's create-issue endpoint is /repos/OWNER/issues with {repo, title, body}.
+  local payload; payload="$(__apimgr_jq -n --arg r "$repo" --arg t "$APIMGR_TITLE" --arg b "${APIMGR_BODY:-}" '{repo:$r, title:$t, body:$b}')"
+  __gitee_post POST "/repos/$owner/issues" "$payload" | __apimgr_jq -r '"Created issue #\(.number) — \(.html_url)"'
+}
+__gitee_issue_close() {
+  local n="$1"
+  __apimgr_require_creds gitee
+  __gitee_issue_repo
+  [ -n "$n" ] || __apimgr_die "gitee issue close: issue NUMBER required"
+  local owner="${APIMGR_REPO%/*}"
+  __gitee_post PATCH "/repos/$owner/issues/$n" '{"state":"closed"}' | __apimgr_jq -r '"Closed issue #\(.number) — \(.html_url)"'
+}
+__gitee_issue_comment() {
+  local n="$1"
+  __apimgr_require_creds gitee
+  __gitee_issue_repo
+  [ -n "$n" ] || __apimgr_die "gitee issue comment: issue NUMBER required"
+  [ -n "$APIMGR_BODY" ] || __apimgr_die "gitee issue comment: --body required"
+  local payload; payload="$(__apimgr_jq -n --arg b "$APIMGR_BODY" '{body:$b}')"
+  __gitee_post POST "/repos/$APIMGR_REPO/issues/$n/comments" "$payload" | __apimgr_jq -r '"Commented on issue #'"$n"' — \(.html_url // "")"'
+}
+__gitee_resolve_base() {
+  if [ -n "$APIMGR_BASE" ]; then printf '%s' "$APIMGR_BASE"; return 0; fi
+  if [ -n "$APIMGR_BASE_RESOLVED" ]; then printf '%s' "$APIMGR_BASE_RESOLVED"; return 0; fi
+  APIMGR_BASE_RESOLVED="$(__gitee_api GET "/repos/$APIMGR_REPO" | __apimgr_jq -r '.default_branch // "master"')"
+  printf '%s' "$APIMGR_BASE_RESOLVED"
+}
+__gitee_pr_list() {
+  __apimgr_require_creds gitee
+  __gitee_issue_repo
+  local state; state="$(__apimgr_state_for gitee)"
+  __gitee_api GET "/repos/$APIMGR_REPO/pulls?state=$state&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_pr_list
+}
+__gitee_pr_get() {
+  local n="$1"
+  __apimgr_require_creds gitee
+  __gitee_issue_repo
+  [ -n "$n" ] || __apimgr_die "gitee pr get: PR NUMBER required"
+  __gitee_api GET "/repos/$APIMGR_REPO/pulls/$n" | __apimgr_print_pr
+}
+__gitee_pr_create() {
+  __apimgr_require_creds gitee
+  __gitee_issue_repo
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "gitee pr create: --title required"
+  [ -n "$APIMGR_BRANCH" ] || __apimgr_die "gitee pr create: --branch SOURCE required"
+  local base; base="$(__gitee_resolve_base)"
+  local payload; payload="$(__apimgr_jq -n --arg t "$APIMGR_TITLE" --arg b "${APIMGR_BODY:-}" --arg h "$APIMGR_BRANCH" --arg ba "$base" '{title:$t, body:$b, head:$h, base:$ba}')"
+  __gitee_post POST "/repos/$APIMGR_REPO/pulls" "$payload" | __apimgr_jq -r '"Created PR #\(.number) (\(.head.ref) → \(.base.ref)) — \(.html_url)"'
+}
+__gitee_pr_merge() {
+  local n="$1"
+  __apimgr_require_creds gitee
+  __gitee_issue_repo
+  [ -n "$n" ] || __apimgr_die "gitee pr merge: PR NUMBER required"
+  __apimgr_confirm "Merge PR #$n in $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __gitee_post PUT "/repos/$APIMGR_REPO/pulls/$n/merge" '{}' >/dev/null && printf_green "Merged PR #$n"
+}
+__gitee_pr_close() {
+  local n="$1"
+  __apimgr_require_creds gitee
+  __gitee_issue_repo
+  [ -n "$n" ] || __apimgr_die "gitee pr close: PR NUMBER required"
+  __gitee_post PATCH "/repos/$APIMGR_REPO/pulls/$n" '{"state":"closed"}' | __apimgr_jq -r '"Closed PR #\(.number) — \(.html_url)"'
+}
+__gitee_release_list() {
+  __apimgr_require_creds gitee
+  __gitee_repo_check
+  __gitee_api GET "/repos/$APIMGR_REPO/releases?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_release_list
+}
+__gitee_release_get() {
+  local key="$1"
+  __apimgr_require_creds gitee
+  __gitee_repo_check
+  [ -n "$key" ] || __apimgr_die "gitee release get: TAG or ID required"
+  case "$key" in
+    [0-9]*) __gitee_api GET "/repos/$APIMGR_REPO/releases/$key" | __apimgr_print_release ;;
+    *)      __gitee_api GET "/repos/$APIMGR_REPO/releases/tags/$key" | __apimgr_print_release ;;
+  esac
+}
+__gitee_release_create() {
+  __apimgr_require_creds gitee
+  __gitee_repo_check
+  [ -n "$APIMGR_TAG" ] || __apimgr_die "gitee release create: --tag NAME required"
+  local payload; payload="$(__apimgr_jq -n --arg tag "$APIMGR_TAG" --arg name "${APIMGR_TITLE:-$APIMGR_TAG}" --arg body "${APIMGR_BODY:-}" --arg target "${APIMGR_BRANCH:-master}" '{tag_name:$tag, name:$name, body:$body, target_commitish:$target}')"
+  __gitee_post POST "/repos/$APIMGR_REPO/releases" "$payload" | __apimgr_jq -r '"Created release \(.tag_name) — \(.html_url)"'
+}
+__gitee_release_delete() {
+  local key="$1"
+  __apimgr_require_creds gitee
+  __gitee_repo_check
+  [ -n "$key" ] || __apimgr_die "gitee release delete: TAG or ID required"
+  __apimgr_confirm "Delete release '$key' from $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  local id="$key"
+  case "$key" in [0-9]*) ;; *) id="$(__gitee_api GET "/repos/$APIMGR_REPO/releases/tags/$key" | __apimgr_jq -r '.id // empty')"; [ -n "$id" ] || __apimgr_die "gitee release delete: tag '$key' not found" ;; esac
+  __gitee_api DELETE "/repos/$APIMGR_REPO/releases/$id" >/dev/null && printf_green "Deleted release '$key'"
+}
+__gitee_tag_list() {
+  __apimgr_require_creds gitee
+  __gitee_repo_check
+  __gitee_api GET "/repos/$APIMGR_REPO/tags" | __apimgr_print_git_tag_list
+}
+__gitee_tag_create() {
+  __apimgr_require_creds gitee
+  __gitee_repo_check
+  [ -n "$APIMGR_TAG" ] || __apimgr_die "gitee tag create: --tag NAME required"
+  local ref; ref="$(__gitee_resolve_base)"; [ -n "$APIMGR_BRANCH" ] && ref="$APIMGR_BRANCH"
+  local payload; payload="$(__apimgr_jq -n --arg n "$APIMGR_TAG" --arg r "$ref" --arg m "${APIMGR_BODY:-}" '{tag_name:$n, refs:$r, tag_message:$m}')"
+  __gitee_post POST "/repos/$APIMGR_REPO/tags" "$payload" | __apimgr_jq -r '"Created tag \(.name)"'
+}
+__gitee_tag_delete() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds gitee
+  __gitee_repo_check
+  [ -n "$tag" ] || __apimgr_die "gitee tag delete: --tag NAME or positional TAG required"
+  __apimgr_confirm "Delete tag '$tag' from $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __gitee_api DELETE "/repos/$APIMGR_REPO/tags/$tag" >/dev/null && printf_green "Deleted tag '$tag' from $APIMGR_REPO"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== Docker Hub provider (hub.docker.com/v2 — JWT auth via login flow) ==============
 # Auth model: POST /users/login with {username, password} returns {token: <jwt>}; subsequent calls send
 # `Authorization: JWT <token>`. The "password" is your Personal Access Token (DOCKER_HUB_API_KEY).
@@ -2217,6 +2422,62 @@ __apimgr_dispatch_provider() {
           __bitbucket_api GET "$sub" ;;
         *)                    __apimgr_die "bitbucket: unknown action '$action'. Try: verify|user|org|repo|issue|pr|tag|api" ;;
       esac ;;
+    gitee)
+      case "$action" in
+        verify)               __gitee_verify ;;
+        user)                 __gitee_user_get ;;
+        org)
+          case "$sub" in
+            all)              __gitee_org_all ;;
+            *)                __gitee_org_get ;;
+          esac ;;
+        repo)
+          case "$sub" in
+            list)             __gitee_repo_list ;;
+            get|"")           __gitee_repo_get ;;
+            create)           __gitee_repo_create ;;
+            delete|rm)        __gitee_repo_delete ;;
+            all)              __gitee_repo_all ;;
+            *)                __apimgr_die "gitee repo: unknown sub '$sub' (try list|get|create|delete|all)" ;;
+          esac ;;
+        issue)
+          case "$sub" in
+            list|"")          __gitee_issue_list ;;
+            get|show)         __gitee_issue_get "$1" ;;
+            create|new)       __gitee_issue_create ;;
+            close)            __gitee_issue_close "$1" ;;
+            comment)          __gitee_issue_comment "$1" ;;
+            *)                __apimgr_die "gitee issue: unknown sub '$sub' (try list|get|create|close|comment)" ;;
+          esac ;;
+        pr|pull|pulls|mr)
+          case "$sub" in
+            list|"")          __gitee_pr_list ;;
+            get|show)         __gitee_pr_get "$1" ;;
+            create|new)       __gitee_pr_create ;;
+            merge)            __gitee_pr_merge "$1" ;;
+            close)            __gitee_pr_close "$1" ;;
+            *)                __apimgr_die "gitee pr: unknown sub '$sub' (try list|get|create|merge|close)" ;;
+          esac ;;
+        release|releases|rel)
+          case "$sub" in
+            list|"")          __gitee_release_list ;;
+            get|show)         __gitee_release_get "$1" ;;
+            create|new)       __gitee_release_create ;;
+            delete|rm)        __gitee_release_delete "$1" ;;
+            *)                __apimgr_die "gitee release: unknown sub '$sub' (try list|get|create|delete)" ;;
+          esac ;;
+        tag|tags)
+          case "$sub" in
+            list|"")          __gitee_tag_list ;;
+            create|new)       __gitee_tag_create ;;
+            delete|rm)        __gitee_tag_delete "$1" ;;
+            *)                __apimgr_die "gitee tag: unknown sub '$sub' (try list|create|delete — gitee has no get-tag endpoint)" ;;
+          esac ;;
+        api)
+          [ -n "$sub" ] || __apimgr_die "gitee api: PATH required (e.g. apimgr gitee api /user)"
+          __gitee_api GET "$sub" ;;
+        *)                    __apimgr_die "gitee: unknown action '$action'. Try: verify|user|org|repo|issue|pr|release|tag|api" ;;
+      esac ;;
     docker)
       case "$action" in
         verify)               __docker_verify ;;
@@ -2376,7 +2637,7 @@ GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,force,"
 LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,tag:,format:,visibility:,api,provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="github gitlab gitea forgejo codeberg bitbucket docker harbor quay verify user org repo issue pr release tag image api"
+ARRAY="github gitlab gitea forgejo codeberg gitee bitbucket docker harbor quay verify user org repo issue pr release tag image api"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -2560,7 +2821,7 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 # Top-level form: `apimgr <action> [sub]` auto-detects provider from git remote / APIMGR_DEFAULT_PROVIDER.
 # Provider form:  `apimgr <provider> <action> [sub]` is explicit.
 case "$1" in
-github|gitlab|gitea|forgejo|codeberg|bitbucket|docker|harbor|quay)
+github|gitlab|gitea|forgejo|codeberg|gitee|bitbucket|docker|harbor|quay)
   provider="$1"; action="${2:-}"; sub="${3:-}"
   [ -n "$action" ] || __apimgr_die "apimgr $provider: action required (verify|user|org|repo|issue|api). See --help."
   shift 3 2>/dev/null || shift 2 2>/dev/null || shift 1 2>/dev/null || true

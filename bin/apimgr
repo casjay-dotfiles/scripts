@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021813-git
+##@Version           :  202605021820-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Add JFrog Artifactory — 15th provider. Bearer auth, flat repo keys, dual /api + root paths.
+# @@Changelog        :  Add Sonatype Nexus — 16th provider. Multi-format enterprise registry (alias: sonatype).
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021813-git"
+VERSION="202605021820-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -215,6 +215,7 @@ __help() {
   __printf_line "quay                            - Quay. QUAY_API_URL + QUAY_ACCESS_TOKEN (Bearer)"
   __printf_line "cloudsmith                      - Cloudsmith (multi-format SaaS). CLOUDSMITH_API_URL + CLOUDSMITH_API_KEY"
   __printf_line "artifactory                     - JFrog Artifactory (alias: jfrog). ARTIFACTORY_API_URL + ARTIFACTORY_ACCESS_TOKEN"
+  __printf_line "nexus                           - Sonatype Nexus (alias: sonatype). NEXUS_API_URL + NEXUS_USERNAME + NEXUS_ACCESS_TOKEN"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Actions (per provider)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -2878,6 +2879,106 @@ __artifactory_tag_delete() {
   __artifactory_curl -X DELETE "$root/$repokey/$image/$tag" >/dev/null && printf_green "Deleted tag '$tag' from $repokey/$image"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# ============== Sonatype Nexus provider (per-instance /service/rest/v1 — multi-format enterprise registry) ==============
+# Auth: Basic (username:password) when both NEXUS_USERNAME and NEXUS_ACCESS_TOKEN are set; falls back to Bearer
+# when only the token is available (some Nexus deployments behind SSO/OAuth accept Bearer).
+# Aliased as 'sonatype' so muscle memory works either way. Tags map to components — Nexus's terminology for
+# format-specific artifacts (a docker image+tag, an npm name@version, a maven artifact, etc).
+__nexus_curl() {
+  local pass; pass="$(__apimgr_provider_token nexus)" || return 1
+  local user; user="$(__apimgr_provider_username nexus 2>/dev/null)"
+  if [ -n "$user" ]; then
+    local creds; creds="$(printf '%s:%s' "$user" "$pass" | base64 -w0)"
+    __apimgr_curl -H "Authorization: Basic $creds" -H "Accept: application/json" "$@"
+  else
+    __apimgr_curl -H "Authorization: Bearer $pass" -H "Accept: application/json" "$@"
+  fi
+}
+__nexus_api() {
+  local method="$1" path="$2" data="$3"
+  local base; base="$(__apimgr_provider_url nexus)" || return 1
+  if [ -n "$data" ]; then
+    __nexus_curl -X "$method" -H "Content-Type: application/json" --data "$data" "$base$path"
+  else
+    __nexus_curl -X "$method" "$base$path"
+  fi
+}
+# Nexus repo metadata: .name, .format, .type (hosted/proxy/group), .url, .online.
+__nexus_print_repo_list() {
+  __apimgr_jq -r '.[] | "\(.name)\t\(.format // "")\t\(.type // "")\t\(.url // "")"' |
+    awk -F'\t' '{printf "%-35s %-9s %-7s %s\n", $1, $2, $3, $4}'
+}
+__nexus_print_repo() {
+  __apimgr_jq -r '
+    "Name:        \(.name)",
+    "Format:      \(.format // "")",
+    "Type:        \(.type // "")",
+    "URL:         \(.url // "")",
+    "Online:      \(.online // false)"
+  '
+}
+# Components are the Nexus name for format-specific artifacts. Schema-tolerant for docker/npm/maven.
+__nexus_print_component_list() {
+  __apimgr_jq -r '.items[]? // .[]? | "\(.name)\t\(.version // "")\t\(.format // "")\t\(.id)"' |
+    awk -F'\t' '{printf "%-35s %-15s %-8s %s\n", $1, $2, $3, $4}'
+}
+__nexus_verify() {
+  __apimgr_require_creds nexus
+  # /status/writable returns 200 with auth, 401 without — better verify signal than /status which is open.
+  __nexus_api GET /status/writable >/dev/null || __apimgr_die "Nexus /status/writable call failed (token invalid or insufficient scope)"
+  # Print the version too if /status returns it.
+  __nexus_api GET /status | __apimgr_jq -r '"Authenticated against Nexus" + (if .data then " (version " + .data.version + ")" else "" end)' 2>/dev/null \
+    || printf 'Authenticated against Nexus\n'
+}
+__nexus_user_get() {
+  __apimgr_require_creds nexus
+  if [ -n "$APIMGR_USER" ]; then
+    __nexus_api GET "/security/users?userId=$APIMGR_USER" | __apimgr_jq '.[0] // empty'
+  else
+    __apimgr_die "nexus user get: --user NAME required (Nexus has no /me endpoint)"
+  fi
+}
+__nexus_repo_list() {
+  __apimgr_require_creds nexus
+  __nexus_api GET /repositories | __nexus_print_repo_list
+}
+__nexus_repo_get() {
+  __apimgr_require_creds nexus
+  __apimgr_resolve_repo || __apimgr_die "nexus repo get: --repo NAME required (Nexus repos have flat names; pass via --repo)"
+  local key="${APIMGR_REPO##*/}"
+  __nexus_api GET "/repositories/$key" | __nexus_print_repo
+}
+__nexus_repo_delete() {
+  __apimgr_require_creds nexus
+  __apimgr_resolve_repo || __apimgr_die "nexus repo delete: --repo NAME required"
+  local key="${APIMGR_REPO##*/}"
+  __apimgr_confirm "Delete Nexus repo '$key'? Requires admin and is irreversible." || { printf_yellow "Aborted"; return 1; }
+  __nexus_api DELETE "/repositories/$key" >/dev/null && printf_green "Deleted Nexus repo '$key'"
+}
+__nexus_repo_create() {
+  __apimgr_die "nexus repo create: requires a per-format JSON spec (rclass, format, storage config) that doesn't fit a generic --visibility flag. Use 'apimgr nexus api /repositories/<format>/hosted' with PUT and a hand-crafted body, or the Nexus UI."
+}
+# Components (the Nexus tag-equivalent). Listed via /components?repository=X.
+__nexus_tag_list() {
+  __apimgr_require_creds nexus
+  __apimgr_resolve_repo || __apimgr_die "nexus tag list: --repo NAME required"
+  local key="${APIMGR_REPO##*/}"
+  __nexus_api GET "/components?repository=$key" | __nexus_print_component_list
+}
+__nexus_tag_get() {
+  local cid="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds nexus
+  [ -n "$cid" ] || __apimgr_die "nexus tag get: --tag COMPONENT_ID or positional ID required (find via 'tag list')"
+  __nexus_api GET "/components/$cid" | __apimgr_jq .
+}
+__nexus_tag_delete() {
+  local cid="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds nexus
+  [ -n "$cid" ] || __apimgr_die "nexus tag delete: --tag COMPONENT_ID or positional ID required"
+  __apimgr_confirm "Delete Nexus component '$cid'?" || { printf_yellow "Aborted"; return 1; }
+  __nexus_api DELETE "/components/$cid" >/dev/null && printf_green "Deleted Nexus component '$cid'"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Stub providers — print a clear "not yet implemented" so the dispatch surface is honest about what works.
 __apimgr_stub_provider() {
   __apimgr_die "Provider '$1' is not implemented yet. Architecture is in place; add __${1}_<action> functions to enable. See bin/apimgr __github_* / __gitea_* for templates."
@@ -3359,6 +3460,31 @@ __apimgr_dispatch_provider() {
           __quay_api GET "$sub" ;;
         *)                    __apimgr_die "quay: unknown action '$action'. Try: verify|user|org|repo|tag|api" ;;
       esac ;;
+    nexus|sonatype)
+      case "$action" in
+        verify)               __nexus_verify ;;
+        user)                 __nexus_user_get ;;
+        repo|repos|repositories)
+          case "$sub" in
+            list)             __nexus_repo_list ;;
+            get|"")           __nexus_repo_get ;;
+            create)           __nexus_repo_create ;;
+            delete|rm)        __nexus_repo_delete ;;
+            *)                __apimgr_die "nexus repo: unknown sub '$sub' (try list|get|delete — create needs raw api)" ;;
+          esac ;;
+        tag|tags|component|components)
+          case "$sub" in
+            list|"")          __nexus_tag_list ;;
+            get|show)         __nexus_tag_get "$1" ;;
+            delete|rm)        __nexus_tag_delete "$1" ;;
+            *)                __apimgr_die "nexus tag/component: unknown sub '$sub' (try list|get|delete)" ;;
+          esac ;;
+        org)                  __apimgr_die "nexus has no orgs/namespaces — repo names are flat. Use 'repo list' instead." ;;
+        api)
+          [ -n "$sub" ] || __apimgr_die "nexus api: PATH required (e.g. apimgr nexus api /status)"
+          __nexus_api GET "$sub" ;;
+        *)                    __apimgr_die "nexus: unknown action '$action'. Try: verify|user|repo|tag|api" ;;
+      esac ;;
     artifactory|jfrog)
       case "$action" in
         verify)               __artifactory_verify ;;
@@ -3417,7 +3543,7 @@ __apimgr_dispatch_provider() {
     "")
       __apimgr_die "no provider specified — try: apimgr <provider> <action>, or run apimgr --help" ;;
     *)
-      __apimgr_die "unknown provider '$provider'. Supported: github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay cloudsmith artifactory" ;;
+      __apimgr_die "unknown provider '$provider'. Supported: github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay cloudsmith artifactory nexus" ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3486,7 +3612,7 @@ GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,force,"
 LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,tag:,format:,visibility:,api,provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay cloudsmith artifactory verify user org repo issue pr release tag image api"
+ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay cloudsmith artifactory nexus verify user org repo issue pr release tag image api"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -3670,7 +3796,7 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 # Top-level form: `apimgr <action> [sub]` auto-detects provider from git remote / APIMGR_DEFAULT_PROVIDER.
 # Provider form:  `apimgr <provider> <action> [sub]` is explicit.
 case "$1" in
-github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|bitbucket|docker|ghcr|harbor|quay|cloudsmith|artifactory|jfrog)
+github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|bitbucket|docker|ghcr|harbor|quay|cloudsmith|artifactory|jfrog|nexus|sonatype)
   provider="$1"; action="${2:-}"; sub="${3:-}"
   [ -n "$action" ] || __apimgr_die "apimgr $provider: action required (verify|user|org|repo|issue|api). See --help."
   shift 3 2>/dev/null || shift 2 2>/dev/null || shift 1 2>/dev/null || true

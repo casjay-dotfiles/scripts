@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605020832-git
+##@Version           :  202605021359-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Pure env-var mapping — read user's <P>_API_URL/<P>_ACCESS_TOKEN/<P>_USERNAME, no hardcoded endpoints.
+# @@Changelog        :  Implement gitlab provider (verify/user/org/repo + api raw GET) — uses PRIVATE-TOKEN auth, URL-encodes paths.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605020832-git"
+VERSION="202605021359-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -204,7 +204,7 @@ __help() {
   __printf_line "gitea                           - Gitea (self-host). GITEA_API_URL + GITEA_ACCESS_TOKEN"
   __printf_line "forgejo                         - Forgejo (Gitea API). FORGEJO_API_URL + FORGEJO_ACCESS_TOKEN"
   __printf_line "codeberg                        - Codeberg (Gitea API). CODEBERG_API_URL + CODEBERG_ACCESS_TOKEN"
-  __printf_line "gitlab                          - GitLab. GITLAB_API_URL + GITLAB_ACCESS_TOKEN                   [stub]"
+  __printf_line "gitlab                          - GitLab. GITLAB_API_URL + GITLAB_ACCESS_TOKEN"
   __printf_line "bitbucket                       - Bitbucket. BITBUCKET_API_URL + BITBUCKET_ACCESS_TOKEN          [stub]"
   __printf_line "docker                          - Docker Hub / private. DOCKER_API_URL + DOCKER_HUB_API_KEY      [stub]"
   __printf_line "harbor                          - Harbor. HARBOR_API_URL + HARBOR_ACCESS_TOKEN                   [stub]"
@@ -710,6 +710,103 @@ __gitea_repo_all() {
   if [ -n "$APIMGR_ORG" ]; then __gitea_org_all "$provider"; else __gitea_repo_list "$provider"; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# ============== GitLab provider (api.v4 — uses PRIVATE-TOKEN header and URL-encoded namespace/path) ==============
+# URL-encode a path segment (replace '/' with '%2F'). Used to address GitLab projects by their full path.
+__gitlab_urlenc() { printf '%s' "${1//\//%2F}"; }
+__gitlab_curl() {
+  local token; token="$(__apimgr_provider_token gitlab)" || return 1
+  __apimgr_curl -H "PRIVATE-TOKEN: $token" -H "Accept: application/json" "$@"
+}
+__gitlab_api() {
+  local method="$1" path="$2" data="$3"
+  local base; base="$(__apimgr_provider_url gitlab)" || return 1
+  if [ -n "$data" ]; then
+    __gitlab_curl -X "$method" -H "Content-Type: application/json" --data "$data" "$base$path"
+  else
+    __gitlab_curl -X "$method" "$base$path"
+  fi
+}
+__gitlab_verify() {
+  __apimgr_require_creds gitlab
+  local resp; resp="$(__gitlab_api GET /user)" || __apimgr_die "GitLab /user call failed"
+  __apimgr_jq -r '"Authenticated as \(.username) (\(.name // "no name")) — \(.web_url)"' <<<"$resp"
+}
+__gitlab_user_get() {
+  __apimgr_require_creds gitlab
+  if [ -n "$APIMGR_USER" ]; then
+    # GitLab's /users endpoint takes ?username= for lookup; returns an array of length 0 or 1.
+    __gitlab_api GET "/users?username=$APIMGR_USER" | __apimgr_jq '.[0] // empty'
+  else
+    __gitlab_api GET /user | __apimgr_jq .
+  fi
+}
+__gitlab_org_get() {
+  __apimgr_require_creds gitlab
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "gitlab org get: --org NAME required"
+  # GitLab "groups" are the equivalent of orgs; addressable by id or full path.
+  __gitlab_api GET "/groups/$(__gitlab_urlenc "$APIMGR_ORG")" | __apimgr_jq .
+}
+__gitlab_org_all() {
+  __apimgr_require_creds gitlab
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "gitlab org all: --org NAME required"
+  __gitlab_api GET "/groups/$(__gitlab_urlenc "$APIMGR_ORG")/projects?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}&include_subgroups=true" |
+    __apimgr_jq -r '.[] | "\(.path_with_namespace)\t\(.description // "")\t\(.visibility)"' |
+    awk -F'\t' 'BEGIN{OFS=" │ "} {printf "%-45s %-50s %s\n", $1, substr($2,1,48), $3}'
+}
+__gitlab_repo_list() {
+  __apimgr_require_creds gitlab
+  local path
+  if [ -n "$APIMGR_USER" ]; then
+    path="/users/$(__gitlab_urlenc "$APIMGR_USER")/projects?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}"
+  else
+    # /projects?membership=true returns all repos the authed user has any role in.
+    path="/projects?membership=true&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}"
+  fi
+  __gitlab_api GET "$path" |
+    __apimgr_jq -r '.[] | "\(.path_with_namespace)\t\(.description // "")\t\(.visibility)"' |
+    awk -F'\t' 'BEGIN{OFS=" │ "} {printf "%-45s %-50s %s\n", $1, substr($2,1,48), $3}'
+}
+__gitlab_repo_get() {
+  __apimgr_require_creds gitlab
+  __apimgr_resolve_repo || __apimgr_die "gitlab repo get: --repo USER/REPO required"
+  __gitlab_api GET "/projects/$(__gitlab_urlenc "$APIMGR_REPO")" | __apimgr_jq -r '
+    "Name:        \(.path_with_namespace)",
+    "URL:         \(.web_url)",
+    "Description: \(.description // "")",
+    "Visibility:  \(.visibility)",
+    "Default:     \(.default_branch // "")",
+    "Stars:       \(.star_count // 0)",
+    "Forks:       \(.forks_count // 0)",
+    "Issues:      \(.open_issues_count // 0)"
+  '
+}
+__gitlab_repo_create() {
+  __apimgr_require_creds gitlab
+  local name="${APIMGR_REPO##*/}" owner="${APIMGR_REPO%/*}"
+  [ -n "$name" ] && [ -n "$owner" ] && [ "$owner" != "$name" ] || __apimgr_die "gitlab repo create: --repo OWNER/NAME required"
+  local visibility="${APIMGR_VISIBILITY:-public}"
+  # GitLab's create-project requires a numeric namespace_id when the owner isn't the authed user.
+  local me_id me_username payload
+  me_username="$(__gitlab_api GET /user | __apimgr_jq -r '.username')"
+  if [ "$owner" = "$me_username" ]; then
+    payload="$(__apimgr_jq -n --arg n "$name" --arg d "${APIMGR_BODY:-}" --arg v "$visibility" '{name:$n, description:$d, visibility:$v, initialize_with_readme:true}')"
+  else
+    local ns_id; ns_id="$(__gitlab_api GET "/groups/$(__gitlab_urlenc "$owner")" | __apimgr_jq -r '.id // empty')"
+    [ -n "$ns_id" ] || __apimgr_die "gitlab repo create: group '$owner' not found or not visible"
+    payload="$(__apimgr_jq -n --arg n "$name" --arg d "${APIMGR_BODY:-}" --arg v "$visibility" --argjson nid "$ns_id" '{name:$n, description:$d, visibility:$v, namespace_id:$nid, initialize_with_readme:true}')"
+  fi
+  __gitlab_api POST /projects "$payload" | __apimgr_jq -r '"Created: \(.path_with_namespace) — \(.web_url)"'
+}
+__gitlab_repo_delete() {
+  __apimgr_require_creds gitlab
+  __apimgr_resolve_repo || __apimgr_die "gitlab repo delete: --repo USER/REPO required"
+  __apimgr_confirm "Delete $APIMGR_REPO from GitLab? This is irreversible (and on gitlab.com, queued for 7 days before hard delete)." || { printf_yellow "Aborted"; return 1; }
+  __gitlab_api DELETE "/projects/$(__gitlab_urlenc "$APIMGR_REPO")" >/dev/null && printf_green "Deleted $APIMGR_REPO"
+}
+__gitlab_repo_all() {
+  if [ -n "$APIMGR_ORG" ]; then __gitlab_org_all; else __gitlab_repo_list; fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Stub providers — print a clear "not yet implemented" so the dispatch surface is honest about what works.
 __apimgr_stub_provider() {
   __apimgr_die "Provider '$1' is not implemented yet. Architecture is in place; add __${1}_<action> functions to enable. See bin/apimgr __github_* / __gitea_* for templates."
@@ -765,7 +862,30 @@ __apimgr_dispatch_provider() {
           __gitea_api "$provider" GET "$sub" ;;
         *)                    __apimgr_die "$provider: unknown action '$action'" ;;
       esac ;;
-    gitlab|bitbucket|docker|harbor|quay)
+    gitlab)
+      case "$action" in
+        verify)               __gitlab_verify ;;
+        user)                 __gitlab_user_get ;;
+        org)
+          case "$sub" in
+            all)              __gitlab_org_all ;;
+            *)                __gitlab_org_get ;;
+          esac ;;
+        repo)
+          case "$sub" in
+            list)             __gitlab_repo_list ;;
+            get|"")           __gitlab_repo_get ;;
+            create)           __gitlab_repo_create ;;
+            delete|rm)        __gitlab_repo_delete ;;
+            all)              __gitlab_repo_all ;;
+            *)                __apimgr_die "gitlab repo: unknown sub '$sub' (try list|get|create|delete|all)" ;;
+          esac ;;
+        api)
+          [ -n "$sub" ] || __apimgr_die "gitlab api: PATH required (e.g. apimgr gitlab api /version)"
+          __gitlab_api GET "$sub" ;;
+        *)                    __apimgr_die "gitlab: unknown action '$action'. Try: verify|user|org|repo|api" ;;
+      esac ;;
+    bitbucket|docker|harbor|quay)
       __apimgr_stub_provider "$provider" ;;
     "")
       __apimgr_die "no provider specified — try: apimgr <provider> <action>, or run apimgr --help" ;;

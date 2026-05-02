@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021434-git
+##@Version           :  202605021452-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  PR/MR actions (list/get/create/merge/close) for github + gitea + gitlab. New --base flag for target branch.
+# @@Changelog        :  Release actions (list/get/create/delete) for github + gitea + gitlab. New --tag flag.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021434-git"
+VERSION="202605021452-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -221,7 +221,8 @@ __help() {
   __printf_line "                                - Issue ops; --repo, --title, --body, --state, --limit"
   __printf_line "pr     [list|get N|create|merge N|close N]"
   __printf_line "                                - PR/MR ops; --branch SOURCE, --base TARGET (default: repo's default_branch)"
-  __printf_line "release [list|create|delete]    - Release/tag ops                                               [planned]"
+  __printf_line "release [list|get TAG|create|delete TAG]"
+  __printf_line "                                - Release ops; --tag NAME (required for create), --title, --body, --branch (target ref)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Top-level shortcuts (no provider — auto-detect or default)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -611,6 +612,28 @@ __apimgr_print_pr() {
   '
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pretty-print a release list. github/gitea use .tag_name + .name + .draft + .prerelease;
+# gitlab uses .tag_name + .name + .upcoming_release. Single jq filter handles both.
+__apimgr_print_release_list() {
+  __apimgr_jq -r '.[] | "\(.tag_name)\t\(.name // .tag_name)\t\(if (.draft // false) then "draft" elif (.prerelease // false) then "prerelease" else "release" end)\t\(.published_at // .released_at // .created_at // "")"' |
+    awk -F'\t' '{printf "%-20s %-40s %-12s %s\n", $1, substr($2,1,40), $3, substr($4,1,10)}'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pretty-print a single release (for `release get`).
+__apimgr_print_release() {
+  __apimgr_jq -r '
+    "Tag:       \(.tag_name)",
+    "Name:      \(.name // .tag_name)",
+    "Type:      \(if (.draft // false) then "draft" elif (.prerelease // false) then "prerelease" else "release" end)",
+    "Author:    \(.author.login // .author.username // "")",
+    "Target:    \(.target_commitish // .commit.id // "")",
+    "URL:       \(.html_url // ._links.self // "")",
+    "Published: \(.published_at // .released_at // .created_at // "")",
+    "",
+    "\(.body // .description // "")"
+  '
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Confirmation prompt for destructive ops. Honors --force. Returns 0 if confirmed, 1 otherwise.
 __apimgr_confirm() {
   local prompt="$1" reply
@@ -774,6 +797,51 @@ __github_pr_close() {
   __github_pr_repo
   [ -n "$n" ] || __apimgr_die "github pr close: PR NUMBER required"
   __github_post PATCH "/repos/$APIMGR_REPO/pulls/$n" '{"state":"closed"}' | __apimgr_jq -r '"Closed PR #\(.number) — \(.html_url)"'
+}
+# Release actions for github. `get` accepts either a numeric id or a tag name (resolved via /releases/tags/X).
+__github_release_repo() { __apimgr_resolve_repo || __apimgr_die "github release: --repo USER/REPO required"; }
+__github_release_list() {
+  __apimgr_require_creds github
+  __github_release_repo
+  __github_api GET "/repos/$APIMGR_REPO/releases?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_release_list
+}
+__github_release_get() {
+  local key="$1"
+  __apimgr_require_creds github
+  __github_release_repo
+  [ -n "$key" ] || __apimgr_die "github release get: TAG or ID required (e.g. apimgr github release get v1.0.0)"
+  # Numeric → /releases/<id>; otherwise treat as a tag name.
+  case "$key" in
+    [0-9]*) __github_api GET "/repos/$APIMGR_REPO/releases/$key" | __apimgr_print_release ;;
+    *)      __github_api GET "/repos/$APIMGR_REPO/releases/tags/$key" | __apimgr_print_release ;;
+  esac
+}
+__github_release_create() {
+  __apimgr_require_creds github
+  __github_release_repo
+  [ -n "$APIMGR_TAG" ] || __apimgr_die "github release create: --tag NAME required (the git tag this release points to)"
+  local payload; payload="$(__apimgr_jq -n \
+    --arg tag "$APIMGR_TAG" \
+    --arg name "${APIMGR_TITLE:-$APIMGR_TAG}" \
+    --arg body "${APIMGR_BODY:-}" \
+    --arg target "${APIMGR_BRANCH:-}" \
+    '{tag_name:$tag, name:$name, body:$body} + (if $target == "" then {} else {target_commitish:$target} end)')"
+  __github_post POST "/repos/$APIMGR_REPO/releases" "$payload" | __apimgr_jq -r '"Created release \(.tag_name) — \(.html_url)"'
+}
+__github_release_delete() {
+  local key="$1"
+  __apimgr_require_creds github
+  __github_release_repo
+  [ -n "$key" ] || __apimgr_die "github release delete: TAG or ID required"
+  __apimgr_confirm "Delete release '$key' from $APIMGR_REPO? (Note: the underlying git tag is NOT removed.)" || { printf_yellow "Aborted"; return 1; }
+  # GitHub's DELETE only takes numeric id; resolve the tag first if needed.
+  local id="$key"
+  case "$key" in
+    [0-9]*) ;;
+    *)      id="$(__github_api GET "/repos/$APIMGR_REPO/releases/tags/$key" | __apimgr_jq -r '.id // empty')"
+            [ -n "$id" ] || __apimgr_die "github release delete: tag '$key' not found" ;;
+  esac
+  __github_api DELETE "/repos/$APIMGR_REPO/releases/$id" >/dev/null && printf_green "Deleted release '$key' from $APIMGR_REPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== Gitea provider (covers Forgejo, Codeberg — same API surface) ==============
@@ -950,6 +1018,51 @@ __gitea_pr_close() {
   __gitea_pr_repo "$provider"
   [ -n "$n" ] || __apimgr_die "$provider pr close: PR NUMBER required"
   __gitea_api "$provider" PATCH "/repos/$APIMGR_REPO/pulls/$n" '{"state":"closed"}' | __apimgr_jq -r '"Closed PR #\(.number) — \(.html_url)"'
+}
+# Release actions for gitea-family. Same paths as github (/releases, /releases/tags/X).
+__gitea_release_repo() { local provider="$1"; __apimgr_resolve_repo || __apimgr_die "$provider release: --repo USER/REPO required"; }
+__gitea_release_list() {
+  local provider="$1"
+  __apimgr_require_creds "$provider"
+  __gitea_release_repo "$provider"
+  __gitea_api "$provider" GET "/repos/$APIMGR_REPO/releases?limit=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_release_list
+}
+__gitea_release_get() {
+  local provider="$1" key="$2"
+  __apimgr_require_creds "$provider"
+  __gitea_release_repo "$provider"
+  [ -n "$key" ] || __apimgr_die "$provider release get: TAG or ID required"
+  case "$key" in
+    [0-9]*) __gitea_api "$provider" GET "/repos/$APIMGR_REPO/releases/$key" | __apimgr_print_release ;;
+    *)      __gitea_api "$provider" GET "/repos/$APIMGR_REPO/releases/tags/$key" | __apimgr_print_release ;;
+  esac
+}
+__gitea_release_create() {
+  local provider="$1"
+  __apimgr_require_creds "$provider"
+  __gitea_release_repo "$provider"
+  [ -n "$APIMGR_TAG" ] || __apimgr_die "$provider release create: --tag NAME required"
+  local payload; payload="$(__apimgr_jq -n \
+    --arg tag "$APIMGR_TAG" \
+    --arg name "${APIMGR_TITLE:-$APIMGR_TAG}" \
+    --arg body "${APIMGR_BODY:-}" \
+    --arg target "${APIMGR_BRANCH:-}" \
+    '{tag_name:$tag, name:$name, body:$body} + (if $target == "" then {} else {target_commitish:$target} end)')"
+  __gitea_api "$provider" POST "/repos/$APIMGR_REPO/releases" "$payload" | __apimgr_jq -r '"Created release \(.tag_name) — \(.html_url)"'
+}
+__gitea_release_delete() {
+  local provider="$1" key="$2"
+  __apimgr_require_creds "$provider"
+  __gitea_release_repo "$provider"
+  [ -n "$key" ] || __apimgr_die "$provider release delete: TAG or ID required"
+  __apimgr_confirm "Delete release '$key' from $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  local id="$key"
+  case "$key" in
+    [0-9]*) ;;
+    *)      id="$(__gitea_api "$provider" GET "/repos/$APIMGR_REPO/releases/tags/$key" | __apimgr_jq -r '.id // empty')"
+            [ -n "$id" ] || __apimgr_die "$provider release delete: tag '$key' not found" ;;
+  esac
+  __gitea_api "$provider" DELETE "/repos/$APIMGR_REPO/releases/$id" >/dev/null && printf_green "Deleted release '$key' from $APIMGR_REPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== GitLab provider (api.v4 — uses PRIVATE-TOKEN header and URL-encoded namespace/path) ==============
@@ -1136,6 +1249,44 @@ __gitlab_pr_close() {
   [ -n "$n" ] || __apimgr_die "gitlab pr close: MR IID required"
   __gitlab_api PUT "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/merge_requests/$n" '{"state_event":"close"}' | __apimgr_jq -r '"Closed MR !\(.iid) — \(.web_url)"'
 }
+# Release actions for gitlab. Releases are addressed by tag_name only (no numeric id), and the field is
+# `description` not `body`. The optional `ref` field on create lets you tag a non-default branch.
+__gitlab_release_repo() { __apimgr_resolve_repo || __apimgr_die "gitlab release: --repo USER/REPO required"; }
+__gitlab_release_list() {
+  __apimgr_require_creds gitlab
+  __gitlab_release_repo
+  __gitlab_api GET "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/releases?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_release_list
+}
+__gitlab_release_get() {
+  local key="$1"
+  __apimgr_require_creds gitlab
+  __gitlab_release_repo
+  [ -n "$key" ] || __apimgr_die "gitlab release get: TAG required"
+  __gitlab_api GET "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/releases/$(__gitlab_urlenc "$key")" | __apimgr_print_release
+}
+__gitlab_release_create() {
+  __apimgr_require_creds gitlab
+  __gitlab_release_repo
+  [ -n "$APIMGR_TAG" ] || __apimgr_die "gitlab release create: --tag NAME required"
+  # GitLab requires `ref` for tags that don't yet exist (it'll create the tag). If --branch is given use it,
+  # otherwise default to the project's default_branch via the same resolver used by pr-create.
+  local ref; ref="$(__gitlab_resolve_base)"
+  local payload; payload="$(__apimgr_jq -n \
+    --arg tag "$APIMGR_TAG" \
+    --arg name "${APIMGR_TITLE:-$APIMGR_TAG}" \
+    --arg desc "${APIMGR_BODY:-}" \
+    --arg ref "$ref" \
+    '{tag_name:$tag, name:$name, description:$desc, ref:$ref}')"
+  __gitlab_api POST "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/releases" "$payload" | __apimgr_jq -r '"Created release \(.tag_name) — \(._links.self // "")"'
+}
+__gitlab_release_delete() {
+  local key="$1"
+  __apimgr_require_creds gitlab
+  __gitlab_release_repo
+  [ -n "$key" ] || __apimgr_die "gitlab release delete: TAG required"
+  __apimgr_confirm "Delete release '$key' from $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __gitlab_api DELETE "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/releases/$(__gitlab_urlenc "$key")" >/dev/null && printf_green "Deleted release '$key' from $APIMGR_REPO"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Stub providers — print a clear "not yet implemented" so the dispatch surface is honest about what works.
 __apimgr_stub_provider() {
@@ -1184,10 +1335,18 @@ __apimgr_dispatch_provider() {
             close)            __github_pr_close "$1" ;;
             *)                __apimgr_die "github pr: unknown sub '$sub' (try list|get|create|merge|close)" ;;
           esac ;;
+        release|releases|rel)
+          case "$sub" in
+            list|"")          __github_release_list ;;
+            get|show)         __github_release_get "$1" ;;
+            create|new)       __github_release_create ;;
+            delete|rm)        __github_release_delete "$1" ;;
+            *)                __apimgr_die "github release: unknown sub '$sub' (try list|get|create|delete)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "github api: PATH required (e.g. apimgr github api /user)"
           __github_api GET "$sub" ;;
-        *)                    __apimgr_die "github: unknown action '$action'. Try: verify|user|org|repo|issue|pr|api" ;;
+        *)                    __apimgr_die "github: unknown action '$action'. Try: verify|user|org|repo|issue|pr|release|api" ;;
       esac ;;
     gitea|forgejo|codeberg)
       case "$action" in
@@ -1225,10 +1384,18 @@ __apimgr_dispatch_provider() {
             close)            __gitea_pr_close "$provider" "$1" ;;
             *)                __apimgr_die "$provider pr: unknown sub '$sub' (try list|get|create|merge|close)" ;;
           esac ;;
+        release|releases|rel)
+          case "$sub" in
+            list|"")          __gitea_release_list "$provider" ;;
+            get|show)         __gitea_release_get "$provider" "$1" ;;
+            create|new)       __gitea_release_create "$provider" ;;
+            delete|rm)        __gitea_release_delete "$provider" "$1" ;;
+            *)                __apimgr_die "$provider release: unknown sub '$sub' (try list|get|create|delete)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "$provider api: PATH required"
           __gitea_api "$provider" GET "$sub" ;;
-        *)                    __apimgr_die "$provider: unknown action '$action'. Try: verify|user|org|repo|issue|pr|api" ;;
+        *)                    __apimgr_die "$provider: unknown action '$action'. Try: verify|user|org|repo|issue|pr|release|api" ;;
       esac ;;
     gitlab)
       case "$action" in
@@ -1266,10 +1433,18 @@ __apimgr_dispatch_provider() {
             close)            __gitlab_pr_close "$1" ;;
             *)                __apimgr_die "gitlab pr: unknown sub '$sub' (try list|get|create|merge|close)" ;;
           esac ;;
+        release|releases|rel)
+          case "$sub" in
+            list|"")          __gitlab_release_list ;;
+            get|show)         __gitlab_release_get "$1" ;;
+            create|new)       __gitlab_release_create ;;
+            delete|rm)        __gitlab_release_delete "$1" ;;
+            *)                __apimgr_die "gitlab release: unknown sub '$sub' (try list|get|create|delete)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "gitlab api: PATH required (e.g. apimgr gitlab api /version)"
           __gitlab_api GET "$sub" ;;
-        *)                    __apimgr_die "gitlab: unknown action '$action'. Try: verify|user|org|repo|issue|pr|api" ;;
+        *)                    __apimgr_die "gitlab: unknown action '$action'. Try: verify|user|org|repo|issue|pr|release|api" ;;
       esac ;;
     bitbucket|docker|harbor|quay)
       __apimgr_stub_provider "$provider" ;;
@@ -1343,7 +1518,7 @@ SHORTOPTS+=""
 GET_OPTIONS_NO="no-*"
 GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,force,"
-LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,format:,visibility:,api,provider:"
+LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,tag:,format:,visibility:,api,provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="github gitlab gitea forgejo codeberg bitbucket docker harbor quay verify user org repo issue pr release api"
 ARRAY+=""
@@ -1445,6 +1620,7 @@ while :; do
   --limit)       APIMGR_LIMIT="$2"; shift 2 ;;
   --branch)      APIMGR_BRANCH="$2"; shift 2 ;;
   --base)        APIMGR_BASE="$2"; shift 2 ;;
+  --tag)         APIMGR_TAG="$2"; shift 2 ;;
   --format)      APIMGR_FORMAT="$2"; shift 2 ;;
   --visibility)  APIMGR_VISIBILITY="$2"; shift 2 ;;
   --provider)    APIMGR_PROVIDER="$2"; shift 2 ;;

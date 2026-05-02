@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021719-git
+##@Version           :  202605021740-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Add Pagure (pagure.io / Fedora) — 11th provider. Form-encoded create, capitalized statuses.
+# @@Changelog        :  Add GHCR (GitHub Container Registry) — 12th provider. Uses GitHub Packages API for container images.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021719-git"
+VERSION="202605021740-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -209,6 +209,7 @@ __help() {
   __printf_line "gitlab                          - GitLab. GITLAB_API_URL + GITLAB_ACCESS_TOKEN"
   __printf_line "bitbucket                       - Bitbucket Cloud. BITBUCKET_API_URL + BITBUCKET_ACCESS_TOKEN (Bearer)"
   __printf_line "docker                          - Docker Hub. DOCKER_API_URL + DOCKER_USERNAME + DOCKER_HUB_API_KEY (login → JWT)"
+  __printf_line "ghcr                            - GitHub Container Registry. GHCR_API_URL + GHCR_ACCESS_TOKEN (read/write/delete:packages scope)"
   __printf_line "harbor                          - Harbor. HARBOR_API_URL + HARBOR_USERNAME + HARBOR_ACCESS_TOKEN (Basic auth)"
   __printf_line "quay                            - Quay. QUAY_API_URL + QUAY_ACCESS_TOKEN (Bearer)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -2175,6 +2176,148 @@ __docker_tag_delete() {
   __docker_api DELETE "/repositories/$APIMGR_REPO/tags/$tag/" >/dev/null && printf_green "Deleted tag '$tag' from $APIMGR_REPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# ============== GitHub Container Registry (ghcr.io — uses GitHub Packages API, not Distribution v2) ==============
+# Conceptually a registry, but the management API is the regular GitHub one with /packages/container/* endpoints.
+# Resolver chain reuses GHCR_API_URL/GHCR_ACCESS_TOKEN if set; users typically alias to GitHub's:
+#   export GHCR_API_URL="$GITHUB_API_URL" GHCR_ACCESS_TOKEN="$GITHUB_ACCESS_TOKEN"
+# The token must have read:packages / write:packages / delete:packages scopes.
+__ghcr_curl() {
+  local token; token="$(__apimgr_provider_token ghcr)" || return 1
+  __apimgr_curl -H "Authorization: Bearer $token" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$@"
+}
+__ghcr_api()  { local base; base="$(__apimgr_provider_url ghcr)" || return 1; __ghcr_curl -X "${1:-GET}" "$base$2"; }
+__ghcr_post() { local base; base="$(__apimgr_provider_url ghcr)" || return 1; __ghcr_curl -X "${1:-POST}" -H "Content-Type: application/json" --data "$3" "$base$2"; }
+# ghcr-shaped formatters (different field names from Hub: .name, .owner.login, .visibility, .updated_at).
+__ghcr_print_repo_list() {
+  __apimgr_jq -r '.[] | "\(.owner.login)/\(.name)\t\(.visibility)\t\(.version_count // 0)\t\(.updated_at // "")"' |
+    awk -F'\t' '{printf "%-45s %-9s %3d versions  %s\n", $1, $2, $3, substr($4,1,19)}'
+}
+__ghcr_print_repo() {
+  __apimgr_jq -r '
+    "Name:        \(.owner.login)/\(.name)",
+    "URL:         \(.html_url // "")",
+    "Visibility:  \(.visibility)",
+    "Versions:    \(.version_count // 0)",
+    "Updated:     \(.updated_at // "")"
+  '
+}
+__ghcr_print_tag_list() {
+  __apimgr_jq -r '.[] | "\(.metadata.container.tags[0] // "untagged")\t\(.id)\t\(.name[0:12])\t\(.updated_at // "")"' |
+    awk -F'\t' '{printf "%-30s %12s  %-14s %s\n", $1, $2, $3, substr($4,1,19)}'
+}
+__ghcr_verify() {
+  __apimgr_require_creds ghcr
+  # /user works the same on github.com — confirms the token + checks read:packages by listing one container.
+  local resp; resp="$(__ghcr_api GET /user)" || __apimgr_die "GHCR /user call failed (token needs read:packages scope)"
+  __apimgr_jq -r '"Authenticated as \(.login) (\(.name // "no name")) — packages.scope verified via /user/packages"' <<<"$resp"
+}
+__ghcr_user_get() {
+  __apimgr_require_creds ghcr
+  local who="${APIMGR_USER:-}"
+  if [ -n "$who" ]; then __ghcr_api GET "/users/$who" | __apimgr_jq .
+  else __ghcr_api GET /user | __apimgr_jq .
+  fi
+}
+__ghcr_org_get() {
+  __apimgr_require_creds ghcr
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "ghcr org get: --org NAME required"
+  __ghcr_api GET "/orgs/$APIMGR_ORG" | __apimgr_jq .
+}
+__ghcr_org_all() {
+  __apimgr_require_creds ghcr
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "ghcr org all: --org NAME required"
+  __ghcr_api GET "/orgs/$APIMGR_ORG/packages?package_type=container&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __ghcr_print_repo_list
+}
+__ghcr_repo_list() {
+  __apimgr_require_creds ghcr
+  if [ -n "$APIMGR_ORG" ]; then
+    __ghcr_org_all
+  elif [ -n "$APIMGR_USER" ]; then
+    __ghcr_api GET "/users/$APIMGR_USER/packages?package_type=container&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __ghcr_print_repo_list
+  else
+    __ghcr_api GET "/user/packages?package_type=container&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __ghcr_print_repo_list
+  fi
+}
+# Resolve OWNER and NAME from --repo OWNER/NAME. Sets GHCR_OWNER and GHCR_NAME for action helpers.
+__ghcr_split_repo() {
+  __apimgr_resolve_repo || __apimgr_die "ghcr: --repo OWNER/NAME required (where NAME is the container package name)"
+  GHCR_OWNER="${APIMGR_REPO%/*}"
+  GHCR_NAME="${APIMGR_REPO##*/}"
+  [ -n "$GHCR_OWNER" ] && [ -n "$GHCR_NAME" ] && [ "$GHCR_OWNER" != "$GHCR_NAME" ] || __apimgr_die "ghcr: --repo OWNER/NAME required"
+}
+# Whether the repo owner matches the authed user — different endpoint paths for self-owned vs other.
+__ghcr_owner_is_self() {
+  local me; me="$(__ghcr_api GET /user | __apimgr_jq -r '.login // empty')"
+  [ -n "$me" ] && [ "$GHCR_OWNER" = "$me" ]
+}
+__ghcr_repo_get() {
+  __apimgr_require_creds ghcr
+  __ghcr_split_repo
+  if __ghcr_owner_is_self; then
+    __ghcr_api GET "/user/packages/container/$GHCR_NAME" | __ghcr_print_repo
+  else
+    # Try as user package, fall back to org. (GitHub's API differs based on whether owner is user or org.)
+    __ghcr_api GET "/users/$GHCR_OWNER/packages/container/$GHCR_NAME" 2>/dev/null | __ghcr_print_repo \
+      || __ghcr_api GET "/orgs/$GHCR_OWNER/packages/container/$GHCR_NAME" | __ghcr_print_repo
+  fi
+}
+__ghcr_repo_create() {
+  __apimgr_die "ghcr: container packages are created by 'docker push ghcr.io/OWNER/NAME:TAG'. There is no API to pre-create a package."
+}
+__ghcr_repo_delete() {
+  __apimgr_require_creds ghcr
+  __ghcr_split_repo
+  __apimgr_confirm "Delete container package $APIMGR_REPO from GHCR? This deletes ALL versions and is irreversible." || { printf_yellow "Aborted"; return 1; }
+  if __ghcr_owner_is_self; then
+    __ghcr_api DELETE "/user/packages/container/$GHCR_NAME" >/dev/null && printf_green "Deleted package $APIMGR_REPO"
+  else
+    # Org package delete uses /orgs path. The docs require admin permission.
+    __ghcr_api DELETE "/orgs/$GHCR_OWNER/packages/container/$GHCR_NAME" >/dev/null && printf_green "Deleted package $APIMGR_REPO"
+  fi
+}
+__ghcr_repo_all() {
+  if [ -n "$APIMGR_ORG" ]; then __ghcr_org_all; else __ghcr_repo_list; fi
+}
+__ghcr_tag_list() {
+  __apimgr_require_creds ghcr
+  __ghcr_split_repo
+  if __ghcr_owner_is_self; then
+    __ghcr_api GET "/user/packages/container/$GHCR_NAME/versions?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __ghcr_print_tag_list
+  else
+    __ghcr_api GET "/users/$GHCR_OWNER/packages/container/$GHCR_NAME/versions?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" 2>/dev/null | __ghcr_print_tag_list \
+      || __ghcr_api GET "/orgs/$GHCR_OWNER/packages/container/$GHCR_NAME/versions?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __ghcr_print_tag_list
+  fi
+}
+# GHCR addresses versions by numeric id, not by tag name. Resolve a tag → id via the versions list.
+__ghcr_resolve_version_id() {
+  local tag="$1" base_path="$2"
+  __ghcr_api GET "$base_path/versions?per_page=100" |
+    __apimgr_jq -r --arg t "$tag" '.[] | select((.metadata.container.tags // []) | index($t)) | .id' | head -n1
+}
+__ghcr_tag_get() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds ghcr
+  __ghcr_split_repo
+  [ -n "$tag" ] || __apimgr_die "ghcr tag get: --tag NAME or positional TAG required"
+  local path="/user/packages/container/$GHCR_NAME"
+  __ghcr_owner_is_self || path="/users/$GHCR_OWNER/packages/container/$GHCR_NAME"
+  local id; id="$(__ghcr_resolve_version_id "$tag" "$path")"
+  [ -n "$id" ] || __apimgr_die "ghcr tag get: tag '$tag' not found in $APIMGR_REPO"
+  __ghcr_api GET "$path/versions/$id" | __apimgr_jq .
+}
+__ghcr_tag_delete() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds ghcr
+  __ghcr_split_repo
+  [ -n "$tag" ] || __apimgr_die "ghcr tag delete: --tag NAME or positional TAG required"
+  __apimgr_confirm "Delete tag '$tag' from $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  local path="/user/packages/container/$GHCR_NAME"
+  __ghcr_owner_is_self || path="/orgs/$GHCR_OWNER/packages/container/$GHCR_NAME"
+  local id; id="$(__ghcr_resolve_version_id "$tag" "$path")"
+  [ -n "$id" ] || __apimgr_die "ghcr tag delete: tag '$tag' not found in $APIMGR_REPO"
+  __ghcr_api DELETE "$path/versions/$id" >/dev/null && printf_green "Deleted tag '$tag' from $APIMGR_REPO"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== Harbor provider (api/v2.0 — Basic auth or robot tokens; project + repository_name model) ==============
 # Auth: Basic <base64(username:password)> when both HARBOR_USERNAME and HARBOR_ACCESS_TOKEN are set;
 # falls back to Bearer when only the token is available (some Harbor deployments behind OIDC accept Bearer too).
@@ -2756,6 +2899,36 @@ __apimgr_dispatch_provider() {
           __docker_api GET "$sub" ;;
         *)                    __apimgr_die "docker: unknown action '$action'. Try: verify|user|org|repo|tag|api" ;;
       esac ;;
+    ghcr)
+      case "$action" in
+        verify)               __ghcr_verify ;;
+        user)                 __ghcr_user_get ;;
+        org)
+          case "$sub" in
+            all)              __ghcr_org_all ;;
+            *)                __ghcr_org_get ;;
+          esac ;;
+        repo|repos|repositories|image|images|package|packages)
+          case "$sub" in
+            list)             __ghcr_repo_list ;;
+            get|"")           __ghcr_repo_get ;;
+            create)           __ghcr_repo_create ;;
+            delete|rm)        __ghcr_repo_delete ;;
+            all)              __ghcr_repo_all ;;
+            *)                __apimgr_die "ghcr repo: unknown sub '$sub' (try list|get|delete|all — create is push-only)" ;;
+          esac ;;
+        tag|tags)
+          case "$sub" in
+            list|"")          __ghcr_tag_list ;;
+            get|show)         __ghcr_tag_get "$1" ;;
+            delete|rm)        __ghcr_tag_delete "$1" ;;
+            *)                __apimgr_die "ghcr tag: unknown sub '$sub' (try list|get|delete)" ;;
+          esac ;;
+        api)
+          [ -n "$sub" ] || __apimgr_die "ghcr api: PATH required (e.g. apimgr ghcr api /user/packages?package_type=container)"
+          __ghcr_api GET "$sub" ;;
+        *)                    __apimgr_die "ghcr: unknown action '$action'. Try: verify|user|org|repo|tag|api" ;;
+      esac ;;
     harbor)
       case "$action" in
         verify)               __harbor_verify ;;
@@ -2886,7 +3059,7 @@ GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,force,"
 LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,tag:,format:,visibility:,api,provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="github gitlab gitea forgejo codeberg gitee pagure bitbucket docker harbor quay verify user org repo issue pr release tag image api"
+ARRAY="github gitlab gitea forgejo codeberg gitee pagure bitbucket docker ghcr harbor quay verify user org repo issue pr release tag image api"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -3070,7 +3243,7 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 # Top-level form: `apimgr <action> [sub]` auto-detects provider from git remote / APIMGR_DEFAULT_PROVIDER.
 # Provider form:  `apimgr <provider> <action> [sub]` is explicit.
 case "$1" in
-github|gitlab|gitea|forgejo|codeberg|gitee|pagure|bitbucket|docker|harbor|quay)
+github|gitlab|gitea|forgejo|codeberg|gitee|pagure|bitbucket|docker|ghcr|harbor|quay)
   provider="$1"; action="${2:-}"; sub="${3:-}"
   [ -n "$action" ] || __apimgr_die "apimgr $provider: action required (verify|user|org|repo|issue|api). See --help."
   shift 3 2>/dev/null || shift 2 2>/dev/null || shift 1 2>/dev/null || true

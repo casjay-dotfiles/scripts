@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021528-git
+##@Version           :  202605021652-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -155,7 +155,7 @@ _apimgr_completion() {
       return 0
       ;;
     tag|tags|image|images)
-      COMPREPLY=($(compgen -W 'list get delete' -- "$cur"))
+      COMPREPLY=($(compgen -W 'list get create delete' -- "$cur"))
       return 0
       ;;
     *)

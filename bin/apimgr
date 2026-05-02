@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021528-git
+##@Version           :  202605021652-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Harbor + Quay providers — all 9 providers in the spec now wired. No more [stub] entries.
+# @@Changelog        :  Git-tag actions (list/get/create/delete) for github + gitea + gitlab + bitbucket.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021528-git"
+VERSION="202605021652-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -223,8 +223,9 @@ __help() {
   __printf_line "                                - PR/MR ops; --branch SOURCE, --base TARGET (default: repo's default_branch)"
   __printf_line "release [list|get TAG|create|delete TAG]"
   __printf_line "                                - Release ops (git forges only); --tag NAME (required for create), --title, --body, --branch"
-  __printf_line "tag    [list|get TAG|delete TAG]"
-  __printf_line "                                - Image-tag ops (registries — docker/harbor/quay). --repo NAMESPACE/NAME, --tag NAME"
+  __printf_line "tag    [list|get TAG|create|delete TAG]"
+  __printf_line "                                - Tag ops. Forges: git tags (--tag NAME, --branch SHA-or-branch, --body MSG)."
+  __printf_line "                                  Registries (docker/harbor/quay): image tags (--repo NS/NAME, --tag NAME)."
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Top-level shortcuts (no provider — auto-detect or default)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -634,6 +635,12 @@ __apimgr_print_release_list() {
     awk -F'\t' '{printf "%-20s %-40s %-12s %s\n", $1, substr($2,1,40), $3, substr($4,1,10)}'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pretty-print a git-tag list (forges only — registries have their own __<provider>_print_tag_list).
+# Schema-tolerant: github (.commit.sha), gitlab (.target/.commit.id), gitea (.id/.commit.sha), bitbucket (.target.hash).
+__apimgr_print_git_tag_list() {
+  __apimgr_jq -r '.[] | "\(.name)\t\(.commit.sha // .target // .id // .target.hash // "")\t\(.message // "")"' |
+    awk -F'\t' '{printf "%-30s %-12s %s\n", $1, substr($2,1,12), substr($3,1,60)}'
+}
 # Pretty-print a single release (for `release get`).
 __apimgr_print_release() {
   __apimgr_jq -r '
@@ -858,6 +865,43 @@ __github_release_delete() {
   esac
   __github_api DELETE "/repos/$APIMGR_REPO/releases/$id" >/dev/null && printf_green "Deleted release '$key' from $APIMGR_REPO"
 }
+# Git-tag actions for github. GitHub has no direct "create tag" endpoint — go through the lower-level git-refs API.
+__github_tag_repo() { __apimgr_resolve_repo || __apimgr_die "github tag: --repo USER/REPO required"; }
+__github_tag_list() {
+  __apimgr_require_creds github
+  __github_tag_repo
+  __github_api GET "/repos/$APIMGR_REPO/tags?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_git_tag_list
+}
+__github_tag_get() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds github
+  __github_tag_repo
+  [ -n "$tag" ] || __apimgr_die "github tag get: --tag NAME or positional TAG required"
+  __github_api GET "/repos/$APIMGR_REPO/git/ref/tags/$tag" | __apimgr_jq .
+}
+__github_tag_create() {
+  __apimgr_require_creds github
+  __github_tag_repo
+  [ -n "$APIMGR_TAG" ] || __apimgr_die "github tag create: --tag NAME required"
+  [ -n "$APIMGR_BRANCH" ] || __apimgr_die "github tag create: --branch SHA-or-branch required (the commit/branch to point the tag at)"
+  # If --branch isn't a 40-char hex sha, look it up as a head ref.
+  local sha="$APIMGR_BRANCH"
+  case "$sha" in
+    [a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9]) ;;
+    *) sha="$(__github_api GET "/repos/$APIMGR_REPO/git/ref/heads/$APIMGR_BRANCH" | __apimgr_jq -r '.object.sha // empty')"
+       [ -n "$sha" ] || __apimgr_die "github tag create: branch '$APIMGR_BRANCH' not found in $APIMGR_REPO" ;;
+  esac
+  local payload; payload="$(__apimgr_jq -n --arg ref "refs/tags/$APIMGR_TAG" --arg sha "$sha" '{ref:$ref, sha:$sha}')"
+  __github_post POST "/repos/$APIMGR_REPO/git/refs" "$payload" | __apimgr_jq -r '"Created tag \(.ref) → \(.object.sha[0:7])"'
+}
+__github_tag_delete() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds github
+  __github_tag_repo
+  [ -n "$tag" ] || __apimgr_die "github tag delete: --tag NAME or positional TAG required"
+  __apimgr_confirm "Delete tag '$tag' from $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __github_api DELETE "/repos/$APIMGR_REPO/git/refs/tags/$tag" >/dev/null && printf_green "Deleted tag '$tag' from $APIMGR_REPO"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== Gitea provider (covers Forgejo, Codeberg — same API surface) ==============
 # Each subprovider gets its own URL/token resolution but shares the action implementation via __gitea_*.
@@ -1078,6 +1122,39 @@ __gitea_release_delete() {
             [ -n "$id" ] || __apimgr_die "$provider release delete: tag '$key' not found" ;;
   esac
   __gitea_api "$provider" DELETE "/repos/$APIMGR_REPO/releases/$id" >/dev/null && printf_green "Deleted release '$key' from $APIMGR_REPO"
+}
+# Git-tag actions for gitea-family. Direct /tags endpoint (no git-refs detour like github).
+__gitea_tag_repo() { local provider="$1"; __apimgr_resolve_repo || __apimgr_die "$provider tag: --repo USER/REPO required"; }
+__gitea_tag_list() {
+  local provider="$1"
+  __apimgr_require_creds "$provider"
+  __gitea_tag_repo "$provider"
+  __gitea_api "$provider" GET "/repos/$APIMGR_REPO/tags?limit=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_git_tag_list
+}
+__gitea_tag_get() {
+  local provider="$1" tag="${APIMGR_TAG:-$2}"
+  __apimgr_require_creds "$provider"
+  __gitea_tag_repo "$provider"
+  [ -n "$tag" ] || __apimgr_die "$provider tag get: --tag NAME or positional TAG required"
+  __gitea_api "$provider" GET "/repos/$APIMGR_REPO/tags/$tag" | __apimgr_jq .
+}
+__gitea_tag_create() {
+  local provider="$1"
+  __apimgr_require_creds "$provider"
+  __gitea_tag_repo "$provider"
+  [ -n "$APIMGR_TAG" ] || __apimgr_die "$provider tag create: --tag NAME required"
+  local target="${APIMGR_BRANCH:-}"
+  [ -n "$target" ] || target="$(__gitea_api "$provider" GET "/repos/$APIMGR_REPO" | __apimgr_jq -r '.default_branch // "main"')"
+  local payload; payload="$(__apimgr_jq -n --arg n "$APIMGR_TAG" --arg t "$target" --arg m "${APIMGR_BODY:-}" '{tag_name:$n, target:$t, message:$m}')"
+  __gitea_api "$provider" POST "/repos/$APIMGR_REPO/tags" "$payload" | __apimgr_jq -r '"Created tag \(.name) → \(.id[0:7] // .commit.sha[0:7] // "")"'
+}
+__gitea_tag_delete() {
+  local provider="$1" tag="${APIMGR_TAG:-$2}"
+  __apimgr_require_creds "$provider"
+  __gitea_tag_repo "$provider"
+  [ -n "$tag" ] || __apimgr_die "$provider tag delete: --tag NAME or positional TAG required"
+  __apimgr_confirm "Delete tag '$tag' from $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __gitea_api "$provider" DELETE "/repos/$APIMGR_REPO/tags/$tag" >/dev/null && printf_green "Deleted tag '$tag' from $APIMGR_REPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== GitLab provider (api.v4 — uses PRIVATE-TOKEN header and URL-encoded namespace/path) ==============
@@ -1302,6 +1379,36 @@ __gitlab_release_delete() {
   __apimgr_confirm "Delete release '$key' from $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
   __gitlab_api DELETE "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/releases/$(__gitlab_urlenc "$key")" >/dev/null && printf_green "Deleted release '$key' from $APIMGR_REPO"
 }
+# Git-tag actions for gitlab. Different path (/repository/tags) than github/gitea/release.
+__gitlab_tag_repo() { __apimgr_resolve_repo || __apimgr_die "gitlab tag: --repo USER/REPO required"; }
+__gitlab_tag_list() {
+  __apimgr_require_creds gitlab
+  __gitlab_tag_repo
+  __gitlab_api GET "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/repository/tags?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_print_git_tag_list
+}
+__gitlab_tag_get() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds gitlab
+  __gitlab_tag_repo
+  [ -n "$tag" ] || __apimgr_die "gitlab tag get: --tag NAME or positional TAG required"
+  __gitlab_api GET "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/repository/tags/$(__gitlab_urlenc "$tag")" | __apimgr_jq .
+}
+__gitlab_tag_create() {
+  __apimgr_require_creds gitlab
+  __gitlab_tag_repo
+  [ -n "$APIMGR_TAG" ] || __apimgr_die "gitlab tag create: --tag NAME required"
+  local ref; ref="$(__gitlab_resolve_base)"
+  local payload; payload="$(__apimgr_jq -n --arg n "$APIMGR_TAG" --arg r "$ref" --arg m "${APIMGR_BODY:-}" '{tag_name:$n, ref:$r, message:$m}')"
+  __gitlab_api POST "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/repository/tags" "$payload" | __apimgr_jq -r '"Created tag \(.name) → \(.target[0:7] // .commit.id[0:7] // "")"'
+}
+__gitlab_tag_delete() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds gitlab
+  __gitlab_tag_repo
+  [ -n "$tag" ] || __apimgr_die "gitlab tag delete: --tag NAME or positional TAG required"
+  __apimgr_confirm "Delete tag '$tag' from $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __gitlab_api DELETE "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/repository/tags/$(__gitlab_urlenc "$tag")" >/dev/null && printf_green "Deleted tag '$tag' from $APIMGR_REPO"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== Bitbucket Cloud provider (api v2.0 — workspaces/repositories/{slug}, paginated {values:[]} wrappers) ==============
 # Auth: Bearer token (workspace/repo access tokens or OAuth). Basic auth with app passwords also works
@@ -1508,7 +1615,37 @@ __bitbucket_pr_close() {
 # Bitbucket Cloud has no first-class release object — releases are just git tags. Surface a friendly stub
 # rather than a generic "not implemented" so the user knows it's a platform limitation, not a missing feature.
 __bitbucket_release_unsupported() {
-  __apimgr_die "bitbucket has no release API (releases are plain git tags). Use 'apimgr bitbucket api /repositories/$APIMGR_REPO/refs/tags' for tags."
+  __apimgr_die "bitbucket has no release API (releases are plain git tags). Use 'apimgr bitbucket tag list' instead."
+}
+# Git-tag actions for bitbucket. Path is /refs/tags. Bitbucket wraps responses in {values:[]}.
+__bitbucket_tag_repo() { __apimgr_resolve_repo || __apimgr_die "bitbucket tag: --repo WORKSPACE/REPO required"; }
+__bitbucket_tag_list() {
+  __apimgr_require_creds bitbucket
+  __bitbucket_tag_repo
+  __bitbucket_api GET "/repositories/$APIMGR_REPO/refs/tags?pagelen=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __bitbucket_unwrap | __apimgr_print_git_tag_list
+}
+__bitbucket_tag_get() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds bitbucket
+  __bitbucket_tag_repo
+  [ -n "$tag" ] || __apimgr_die "bitbucket tag get: --tag NAME or positional TAG required"
+  __bitbucket_api GET "/repositories/$APIMGR_REPO/refs/tags/$tag" | __apimgr_jq .
+}
+__bitbucket_tag_create() {
+  __apimgr_require_creds bitbucket
+  __bitbucket_tag_repo
+  [ -n "$APIMGR_TAG" ] || __apimgr_die "bitbucket tag create: --tag NAME required"
+  [ -n "$APIMGR_BRANCH" ] || __apimgr_die "bitbucket tag create: --branch SHA required (the commit hash to tag)"
+  local payload; payload="$(__apimgr_jq -n --arg n "$APIMGR_TAG" --arg sha "$APIMGR_BRANCH" --arg m "${APIMGR_BODY:-}" '{name:$n, target:{hash:$sha}, message:$m}')"
+  __bitbucket_api POST "/repositories/$APIMGR_REPO/refs/tags" "$payload" | __apimgr_jq -r '"Created tag \(.name) → \(.target.hash[0:7])"'
+}
+__bitbucket_tag_delete() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds bitbucket
+  __bitbucket_tag_repo
+  [ -n "$tag" ] || __apimgr_die "bitbucket tag delete: --tag NAME or positional TAG required"
+  __apimgr_confirm "Delete tag '$tag' from $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __bitbucket_api DELETE "/repositories/$APIMGR_REPO/refs/tags/$tag" >/dev/null && printf_green "Deleted tag '$tag' from $APIMGR_REPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== Docker Hub provider (hub.docker.com/v2 — JWT auth via login flow) ==============
@@ -1902,10 +2039,18 @@ __apimgr_dispatch_provider() {
             delete|rm)        __github_release_delete "$1" ;;
             *)                __apimgr_die "github release: unknown sub '$sub' (try list|get|create|delete)" ;;
           esac ;;
+        tag|tags)
+          case "$sub" in
+            list|"")          __github_tag_list ;;
+            get|show)         __github_tag_get "$1" ;;
+            create|new)       __github_tag_create ;;
+            delete|rm)        __github_tag_delete "$1" ;;
+            *)                __apimgr_die "github tag: unknown sub '$sub' (try list|get|create|delete)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "github api: PATH required (e.g. apimgr github api /user)"
           __github_api GET "$sub" ;;
-        *)                    __apimgr_die "github: unknown action '$action'. Try: verify|user|org|repo|issue|pr|release|api" ;;
+        *)                    __apimgr_die "github: unknown action '$action'. Try: verify|user|org|repo|issue|pr|release|tag|api" ;;
       esac ;;
     gitea|forgejo|codeberg)
       case "$action" in
@@ -1951,10 +2096,18 @@ __apimgr_dispatch_provider() {
             delete|rm)        __gitea_release_delete "$provider" "$1" ;;
             *)                __apimgr_die "$provider release: unknown sub '$sub' (try list|get|create|delete)" ;;
           esac ;;
+        tag|tags)
+          case "$sub" in
+            list|"")          __gitea_tag_list "$provider" ;;
+            get|show)         __gitea_tag_get "$provider" "$1" ;;
+            create|new)       __gitea_tag_create "$provider" ;;
+            delete|rm)        __gitea_tag_delete "$provider" "$1" ;;
+            *)                __apimgr_die "$provider tag: unknown sub '$sub' (try list|get|create|delete)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "$provider api: PATH required"
           __gitea_api "$provider" GET "$sub" ;;
-        *)                    __apimgr_die "$provider: unknown action '$action'. Try: verify|user|org|repo|issue|pr|release|api" ;;
+        *)                    __apimgr_die "$provider: unknown action '$action'. Try: verify|user|org|repo|issue|pr|release|tag|api" ;;
       esac ;;
     gitlab)
       case "$action" in
@@ -2000,10 +2153,18 @@ __apimgr_dispatch_provider() {
             delete|rm)        __gitlab_release_delete "$1" ;;
             *)                __apimgr_die "gitlab release: unknown sub '$sub' (try list|get|create|delete)" ;;
           esac ;;
+        tag|tags)
+          case "$sub" in
+            list|"")          __gitlab_tag_list ;;
+            get|show)         __gitlab_tag_get "$1" ;;
+            create|new)       __gitlab_tag_create ;;
+            delete|rm)        __gitlab_tag_delete "$1" ;;
+            *)                __apimgr_die "gitlab tag: unknown sub '$sub' (try list|get|create|delete)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "gitlab api: PATH required (e.g. apimgr gitlab api /version)"
           __gitlab_api GET "$sub" ;;
-        *)                    __apimgr_die "gitlab: unknown action '$action'. Try: verify|user|org|repo|issue|pr|release|api" ;;
+        *)                    __apimgr_die "gitlab: unknown action '$action'. Try: verify|user|org|repo|issue|pr|release|tag|api" ;;
       esac ;;
     bitbucket)
       case "$action" in
@@ -2043,10 +2204,18 @@ __apimgr_dispatch_provider() {
           esac ;;
         release|releases|rel)
           __bitbucket_release_unsupported ;;
+        tag|tags)
+          case "$sub" in
+            list|"")          __bitbucket_tag_list ;;
+            get|show)         __bitbucket_tag_get "$1" ;;
+            create|new)       __bitbucket_tag_create ;;
+            delete|rm)        __bitbucket_tag_delete "$1" ;;
+            *)                __apimgr_die "bitbucket tag: unknown sub '$sub' (try list|get|create|delete)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "bitbucket api: PATH required (e.g. apimgr bitbucket api /user)"
           __bitbucket_api GET "$sub" ;;
-        *)                    __apimgr_die "bitbucket: unknown action '$action'. Try: verify|user|org|repo|issue|pr|api" ;;
+        *)                    __apimgr_die "bitbucket: unknown action '$action'. Try: verify|user|org|repo|issue|pr|tag|api" ;;
       esac ;;
     docker)
       case "$action" in

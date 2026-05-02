@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021500-git
+##@Version           :  202605021508-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Bitbucket Cloud provider — verify/user/org/repo/issue/pr (release flagged unsupported, platform has no release API).
+# @@Changelog        :  Docker Hub provider (JWT login) + new `tag` action for image tags. Five providers fully working now.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021500-git"
+VERSION="202605021508-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -206,7 +206,7 @@ __help() {
   __printf_line "codeberg                        - Codeberg (Gitea API). CODEBERG_API_URL + CODEBERG_ACCESS_TOKEN"
   __printf_line "gitlab                          - GitLab. GITLAB_API_URL + GITLAB_ACCESS_TOKEN"
   __printf_line "bitbucket                       - Bitbucket Cloud. BITBUCKET_API_URL + BITBUCKET_ACCESS_TOKEN (Bearer)"
-  __printf_line "docker                          - Docker Hub / private. DOCKER_API_URL + DOCKER_HUB_API_KEY      [stub]"
+  __printf_line "docker                          - Docker Hub. DOCKER_API_URL + DOCKER_USERNAME + DOCKER_HUB_API_KEY (login → JWT)"
   __printf_line "harbor                          - Harbor. HARBOR_API_URL + HARBOR_ACCESS_TOKEN                   [stub]"
   __printf_line "quay                            - Quay. QUAY_API_URL + QUAY_ACCESS_TOKEN                         [stub]"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -222,7 +222,9 @@ __help() {
   __printf_line "pr     [list|get N|create|merge N|close N]"
   __printf_line "                                - PR/MR ops; --branch SOURCE, --base TARGET (default: repo's default_branch)"
   __printf_line "release [list|get TAG|create|delete TAG]"
-  __printf_line "                                - Release ops; --tag NAME (required for create), --title, --body, --branch (target ref)"
+  __printf_line "                                - Release ops (git forges only); --tag NAME (required for create), --title, --body, --branch"
+  __printf_line "tag    [list|get TAG|delete TAG]"
+  __printf_line "                                - Image-tag ops (registries — docker/harbor/quay). --repo NAMESPACE/NAME, --tag NAME"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Top-level shortcuts (no provider — auto-detect or default)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -1509,6 +1511,127 @@ __bitbucket_release_unsupported() {
   __apimgr_die "bitbucket has no release API (releases are plain git tags). Use 'apimgr bitbucket api /repositories/$APIMGR_REPO/refs/tags' for tags."
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# ============== Docker Hub provider (hub.docker.com/v2 — JWT auth via login flow) ==============
+# Auth model: POST /users/login with {username, password} returns {token: <jwt>}; subsequent calls send
+# `Authorization: JWT <token>`. The "password" is your Personal Access Token (DOCKER_HUB_API_KEY).
+# JWT is cached in APIMGR_DOCKER_JWT for the duration of one apimgr invocation, then discarded.
+__docker_login() {
+  [ -n "$APIMGR_DOCKER_JWT" ] && return 0
+  local user pass base resp
+  base="$(__apimgr_provider_url docker)" || return 1
+  user="$(__apimgr_provider_username docker)" || __apimgr_die "docker: no username — set DOCKER_USERNAME or APIMGR_DOCKER_USERNAME"
+  pass="$(__apimgr_provider_token docker)" || return 1
+  local payload; payload="$(__apimgr_jq -n --arg u "$user" --arg p "$pass" '{username:$u, password:$p}')"
+  resp="$(__apimgr_curl -X POST -H "Content-Type: application/json" -H "Accept: application/json" --data "$payload" "$base/users/login/" 2>/dev/null)"
+  APIMGR_DOCKER_JWT="$(__apimgr_jq -r '.token // empty' <<<"$resp")"
+  [ -n "$APIMGR_DOCKER_JWT" ] || return 1
+}
+__docker_curl() {
+  __docker_login || return 1
+  __apimgr_curl -H "Authorization: JWT $APIMGR_DOCKER_JWT" -H "Accept: application/json" "$@"
+}
+__docker_api() {
+  local method="$1" path="$2" data="$3"
+  local base; base="$(__apimgr_provider_url docker)" || return 1
+  if [ -n "$data" ]; then
+    __docker_curl -X "$method" -H "Content-Type: application/json" --data "$data" "$base$path"
+  else
+    __docker_curl -X "$method" "$base$path"
+  fi
+}
+# Decode the username field from the cached JWT payload. Used as a default namespace for `repo list` / `user get`
+# when --user / --org aren't passed. JWT bodies are base64url-encoded; we pad and decode.
+__docker_jwt_user() {
+  __docker_login >/dev/null || return 1
+  local body="${APIMGR_DOCKER_JWT#*.}"; body="${body%%.*}"
+  local pad=$(( 4 - ${#body} % 4 )); [ "$pad" -lt 4 ] && body="$body$(printf '=%.0s' $(seq 1 "$pad"))"
+  printf '%s' "$body" | tr '_-' '/+' | base64 -d 2>/dev/null | __apimgr_jq -r '.username // .sub // empty'
+}
+# Docker-shaped formatters.
+__docker_print_repo_list() {
+  __apimgr_jq -r '.[] | "\(.namespace)/\(.name)\t\(.description // "")\t\(.is_private)\t\(.pull_count // 0)"' |
+    awk -F'\t' '{printf "%-40s %-40s %-9s %s pulls\n", $1, substr($2,1,40), ($3=="true"?"private":"public"), $4}'
+}
+__docker_print_repo() {
+  __apimgr_jq -r '
+    "Name:        \(.namespace)/\(.name)",
+    "Description: \(.description // "")",
+    "Visibility:  \(if .is_private then "private" else "public" end)",
+    "Pulls:       \(.pull_count // 0)",
+    "Stars:       \(.star_count // 0)",
+    "Updated:     \(.last_updated // "")",
+    "",
+    "\(.full_description // "")"
+  '
+}
+__docker_print_tag_list() {
+  __apimgr_jq -r '.[] | "\(.name)\t\(.full_size // 0)\t\(.last_updated // "")"' |
+    awk -F'\t' '{ size = $2 / 1024 / 1024; printf "%-30s %8.1f MB  %s\n", $1, size, substr($3, 1, 19) }'
+}
+__docker_verify() {
+  __apimgr_require_creds docker
+  __docker_login || __apimgr_die "Docker Hub login failed (POST /users/login). Check DOCKER_USERNAME + DOCKER_HUB_API_KEY."
+  local who; who="$(__docker_jwt_user)"
+  printf 'Authenticated as %s — https://hub.docker.com/u/%s\n' "$who" "$who"
+}
+__docker_user_get() {
+  __apimgr_require_creds docker
+  local who="${APIMGR_USER:-$(__docker_jwt_user)}"
+  [ -n "$who" ] || __apimgr_die "docker user get: --user NAME required (or login first via verify)"
+  __docker_api GET "/users/$who/" | __apimgr_jq .
+}
+__docker_org_get() {
+  __apimgr_require_creds docker
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "docker org get: --org NAMESPACE required"
+  __docker_api GET "/orgs/$APIMGR_ORG/" | __apimgr_jq .
+}
+__docker_org_all() {
+  __apimgr_require_creds docker
+  [ -n "$APIMGR_ORG" ] || __apimgr_die "docker org all: --org NAMESPACE required"
+  __docker_api GET "/repositories/$APIMGR_ORG/?page_size=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_jq '.results // .' | __docker_print_repo_list
+}
+__docker_repo_list() {
+  __apimgr_require_creds docker
+  local ns="${APIMGR_USER:-${APIMGR_ORG:-$(__docker_jwt_user)}}"
+  [ -n "$ns" ] || __apimgr_die "docker repo list: namespace unresolved — pass --user or --org"
+  __docker_api GET "/repositories/$ns/?page_size=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_jq '.results // .' | __docker_print_repo_list
+}
+__docker_repo_get() {
+  __apimgr_require_creds docker
+  __apimgr_resolve_repo || __apimgr_die "docker repo get: --repo NAMESPACE/NAME required"
+  __docker_api GET "/repositories/$APIMGR_REPO/" | __docker_print_repo
+}
+__docker_repo_delete() {
+  __apimgr_require_creds docker
+  __apimgr_resolve_repo || __apimgr_die "docker repo delete: --repo NAMESPACE/NAME required"
+  __apimgr_confirm "Delete $APIMGR_REPO from Docker Hub? This is irreversible." || { printf_yellow "Aborted"; return 1; }
+  __docker_api DELETE "/repositories/$APIMGR_REPO/" >/dev/null && printf_green "Deleted $APIMGR_REPO"
+}
+__docker_repo_all() {
+  if [ -n "$APIMGR_ORG" ]; then __docker_org_all; else __docker_repo_list; fi
+}
+__docker_tag_repo() { __apimgr_resolve_repo || __apimgr_die "docker tag: --repo NAMESPACE/NAME required"; }
+__docker_tag_list() {
+  __apimgr_require_creds docker
+  __docker_tag_repo
+  __docker_api GET "/repositories/$APIMGR_REPO/tags/?page_size=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __apimgr_jq '.results // .' | __docker_print_tag_list
+}
+__docker_tag_get() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds docker
+  __docker_tag_repo
+  [ -n "$tag" ] || __apimgr_die "docker tag get: --tag NAME or positional TAG required"
+  __docker_api GET "/repositories/$APIMGR_REPO/tags/$tag/" | __apimgr_jq .
+}
+__docker_tag_delete() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds docker
+  __docker_tag_repo
+  [ -n "$tag" ] || __apimgr_die "docker tag delete: --tag NAME or positional TAG required"
+  __apimgr_confirm "Delete tag '$tag' from $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __docker_api DELETE "/repositories/$APIMGR_REPO/tags/$tag/" >/dev/null && printf_green "Deleted tag '$tag' from $APIMGR_REPO"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Stub providers — print a clear "not yet implemented" so the dispatch surface is honest about what works.
 __apimgr_stub_provider() {
   __apimgr_die "Provider '$1' is not implemented yet. Architecture is in place; add __${1}_<action> functions to enable. See bin/apimgr __github_* / __gitea_* for templates."
@@ -1710,7 +1833,36 @@ __apimgr_dispatch_provider() {
           __bitbucket_api GET "$sub" ;;
         *)                    __apimgr_die "bitbucket: unknown action '$action'. Try: verify|user|org|repo|issue|pr|api" ;;
       esac ;;
-    docker|harbor|quay)
+    docker)
+      case "$action" in
+        verify)               __docker_verify ;;
+        user)                 __docker_user_get ;;
+        org|namespace)
+          case "$sub" in
+            all)              __docker_org_all ;;
+            *)                __docker_org_get ;;
+          esac ;;
+        repo|repos|repositories|image|images)
+          case "$sub" in
+            list)             __docker_repo_list ;;
+            get|"")           __docker_repo_get ;;
+            delete|rm)        __docker_repo_delete ;;
+            all)              __docker_repo_all ;;
+            *)                __apimgr_die "docker repo: unknown sub '$sub' (try list|get|delete|all)" ;;
+          esac ;;
+        tag|tags)
+          case "$sub" in
+            list|"")          __docker_tag_list ;;
+            get|show)         __docker_tag_get "$1" ;;
+            delete|rm)        __docker_tag_delete "$1" ;;
+            *)                __apimgr_die "docker tag: unknown sub '$sub' (try list|get|delete)" ;;
+          esac ;;
+        api)
+          [ -n "$sub" ] || __apimgr_die "docker api: PATH required (e.g. apimgr docker api /repositories/library/alpine/)"
+          __docker_api GET "$sub" ;;
+        *)                    __apimgr_die "docker: unknown action '$action'. Try: verify|user|org|repo|tag|api" ;;
+      esac ;;
+    harbor|quay)
       __apimgr_stub_provider "$provider" ;;
     "")
       __apimgr_die "no provider specified — try: apimgr <provider> <action>, or run apimgr --help" ;;
@@ -1784,7 +1936,7 @@ GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,force,"
 LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,tag:,format:,visibility:,api,provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="github gitlab gitea forgejo codeberg bitbucket docker harbor quay verify user org repo issue pr release api"
+ARRAY="github gitlab gitea forgejo codeberg bitbucket docker harbor quay verify user org repo issue pr release tag image api"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""

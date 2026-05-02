@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021500-git
+##@Version           :  202605021508-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -53,7 +53,7 @@ _apimgr_completion() {
   LONGOPTS="--completions --config --reset-config --debug --dir --help --options --raw --version --force --no- --yes-"
   LONGOPTS+=" --repo --user --org --token --official --title --body --state --limit --branch --base --tag --format --visibility --provider --api"
   #####################################################################
-  ARRAY="github gitlab gitea forgejo codeberg bitbucket docker harbor quay verify user org repo issue pr release api"
+  ARRAY="github gitlab gitea forgejo codeberg bitbucket docker harbor quay verify user org repo issue pr release tag image api"
   ARRAY+=""
   #####################################################################
   LIST="get list create delete all"
@@ -152,6 +152,10 @@ _apimgr_completion() {
       ;;
     release|releases|rel)
       COMPREPLY=($(compgen -W 'list get create delete' -- "$cur"))
+      return 0
+      ;;
+    tag|tags|image|images)
+      COMPREPLY=($(compgen -W 'list get delete' -- "$cur"))
       return 0
       ;;
     *)

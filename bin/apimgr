@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021359-git
+##@Version           :  202605021423-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Implement gitlab provider (verify/user/org/repo + api raw GET) — uses PRIVATE-TOKEN auth, URL-encodes paths.
+# @@Changelog        :  Issue actions (list/get/create/close/comment) for github + gitea + gitlab. Dispatcher passes positionals through.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021359-git"
+VERSION="202605021423-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -217,7 +217,8 @@ __help() {
   __printf_line "org [get|all]                   - Org info / list all repos in org"
   __printf_line "repo [list|get|create|delete|all]"
   __printf_line "                                - Repo ops; --repo USER/REPO selects target (or auto-detect from cwd)"
-  __printf_line "issue [list|get|create|close]   - Issue ops; --repo, --title, --body, --state                   [planned]"
+  __printf_line "issue [list|get N|create|close N|comment N]"
+  __printf_line "                                - Issue ops; --repo, --title, --body, --state, --limit"
   __printf_line "pr     [list|get|create|merge]  - Pull-request ops                                              [planned]"
   __printf_line "release [list|create|delete]    - Release/tag ops                                               [planned]"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -554,6 +555,37 @@ __apimgr_print_repo() {
   '
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pretty-print an issue list. Works for github/gitea (uses .number, .user.login) and gitlab (.iid, .author.username).
+__apimgr_print_issue_list() {
+  __apimgr_jq -r '.[] | "#\(.number // .iid)\t\(.state)\t\(.user.login // .author.username // "")\t\(.title)"' |
+    awk -F'\t' '{printf "%-7s %-8s %-20s %s\n", $1, $2, substr($3,1,20), $4}'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pretty-print a single issue (for `issue get`).
+__apimgr_print_issue() {
+  __apimgr_jq -r '
+    "Number:  #\(.number // .iid)",
+    "Title:   \(.title)",
+    "State:   \(.state)",
+    "Author:  \(.user.login // .author.username // "")",
+    "URL:     \(.html_url // .web_url // "")",
+    "Created: \(.created_at)",
+    "",
+    "\(.body // .description // "")"
+  '
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Translate apimgr's --state values to provider-specific state names. github/gitea use open|closed|all;
+# gitlab uses opened|closed|all. Normalizing here means the user-facing flag stays uniform.
+__apimgr_state_for() {
+  local provider="$1" state="${APIMGR_STATE:-open}"
+  case "$provider" in
+    gitlab)
+      case "$state" in open) printf 'opened' ;; closed) printf 'closed' ;; all) printf 'all' ;; *) printf '%s' "$state" ;; esac ;;
+    *) printf '%s' "$state" ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Confirmation prompt for destructive ops. Honors --force. Returns 0 if confirmed, 1 otherwise.
 __apimgr_confirm() {
   local prompt="$1" reply
@@ -627,6 +659,48 @@ __github_repo_delete() {
 }
 __github_repo_all() {
   if [ -n "$APIMGR_ORG" ]; then __github_org_all; else __github_repo_list; fi
+}
+# Helper: every issue action needs the OWNER/REPO either from --repo or git auto-detect.
+__github_issue_repo() {
+  __apimgr_resolve_repo || __apimgr_die "github issue: --repo USER/REPO required (or run inside the repo's worktree)"
+}
+__github_issue_list() {
+  __apimgr_require_creds github
+  __github_issue_repo
+  local state; state="$(__apimgr_state_for github)"
+  __github_api GET "/repos/$APIMGR_REPO/issues?state=$state&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" |
+    __apimgr_jq '[.[] | select(.pull_request | not)]' |
+    __apimgr_print_issue_list
+}
+__github_issue_get() {
+  local n="$1"
+  __apimgr_require_creds github
+  __github_issue_repo
+  [ -n "$n" ] || __apimgr_die "github issue get: issue NUMBER required (e.g. apimgr github issue get 42)"
+  __github_api GET "/repos/$APIMGR_REPO/issues/$n" | __apimgr_print_issue
+}
+__github_issue_create() {
+  __apimgr_require_creds github
+  __github_issue_repo
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "github issue create: --title required"
+  local payload; payload="$(__apimgr_jq -n --arg t "$APIMGR_TITLE" --arg b "${APIMGR_BODY:-}" '{title:$t, body:$b}')"
+  __github_post POST "/repos/$APIMGR_REPO/issues" "$payload" | __apimgr_jq -r '"Created issue #\(.number) — \(.html_url)"'
+}
+__github_issue_close() {
+  local n="$1"
+  __apimgr_require_creds github
+  __github_issue_repo
+  [ -n "$n" ] || __apimgr_die "github issue close: issue NUMBER required"
+  __github_post PATCH "/repos/$APIMGR_REPO/issues/$n" '{"state":"closed"}' | __apimgr_jq -r '"Closed issue #\(.number) — \(.html_url)"'
+}
+__github_issue_comment() {
+  local n="$1"
+  __apimgr_require_creds github
+  __github_issue_repo
+  [ -n "$n" ] || __apimgr_die "github issue comment: issue NUMBER required"
+  [ -n "$APIMGR_BODY" ] || __apimgr_die "github issue comment: --body required"
+  local payload; payload="$(__apimgr_jq -n --arg b "$APIMGR_BODY" '{body:$b}')"
+  __github_post POST "/repos/$APIMGR_REPO/issues/$n/comments" "$payload" | __apimgr_jq -r '"Commented on issue #'"$n"' — \(.html_url)"'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== Gitea provider (covers Forgejo, Codeberg — same API surface) ==============
@@ -708,6 +782,50 @@ __gitea_repo_delete() {
 __gitea_repo_all() {
   local provider="$1"
   if [ -n "$APIMGR_ORG" ]; then __gitea_org_all "$provider"; else __gitea_repo_list "$provider"; fi
+}
+# Issue actions for gitea-family. Same paths as github, just different auth header (handled in __gitea_curl).
+__gitea_issue_repo() {
+  local provider="$1"
+  __apimgr_resolve_repo || __apimgr_die "$provider issue: --repo USER/REPO required"
+}
+__gitea_issue_list() {
+  local provider="$1"
+  __apimgr_require_creds "$provider"
+  __gitea_issue_repo "$provider"
+  local state; state="$(__apimgr_state_for "$provider")"
+  __gitea_api "$provider" GET "/repos/$APIMGR_REPO/issues?state=$state&type=issues&limit=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" |
+    __apimgr_print_issue_list
+}
+__gitea_issue_get() {
+  local provider="$1" n="$2"
+  __apimgr_require_creds "$provider"
+  __gitea_issue_repo "$provider"
+  [ -n "$n" ] || __apimgr_die "$provider issue get: issue NUMBER required"
+  __gitea_api "$provider" GET "/repos/$APIMGR_REPO/issues/$n" | __apimgr_print_issue
+}
+__gitea_issue_create() {
+  local provider="$1"
+  __apimgr_require_creds "$provider"
+  __gitea_issue_repo "$provider"
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "$provider issue create: --title required"
+  local payload; payload="$(__apimgr_jq -n --arg t "$APIMGR_TITLE" --arg b "${APIMGR_BODY:-}" '{title:$t, body:$b}')"
+  __gitea_api "$provider" POST "/repos/$APIMGR_REPO/issues" "$payload" | __apimgr_jq -r '"Created issue #\(.number) — \(.html_url)"'
+}
+__gitea_issue_close() {
+  local provider="$1" n="$2"
+  __apimgr_require_creds "$provider"
+  __gitea_issue_repo "$provider"
+  [ -n "$n" ] || __apimgr_die "$provider issue close: issue NUMBER required"
+  __gitea_api "$provider" PATCH "/repos/$APIMGR_REPO/issues/$n" '{"state":"closed"}' | __apimgr_jq -r '"Closed issue #\(.number) — \(.html_url)"'
+}
+__gitea_issue_comment() {
+  local provider="$1" n="$2"
+  __apimgr_require_creds "$provider"
+  __gitea_issue_repo "$provider"
+  [ -n "$n" ] || __apimgr_die "$provider issue comment: issue NUMBER required"
+  [ -n "$APIMGR_BODY" ] || __apimgr_die "$provider issue comment: --body required"
+  local payload; payload="$(__apimgr_jq -n --arg b "$APIMGR_BODY" '{body:$b}')"
+  __gitea_api "$provider" POST "/repos/$APIMGR_REPO/issues/$n/comments" "$payload" | __apimgr_jq -r '"Commented on issue #'"$n"' — \(.html_url)"'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== GitLab provider (api.v4 — uses PRIVATE-TOKEN header and URL-encoded namespace/path) ==============
@@ -806,15 +924,59 @@ __gitlab_repo_delete() {
 __gitlab_repo_all() {
   if [ -n "$APIMGR_ORG" ]; then __gitlab_org_all; else __gitlab_repo_list; fi
 }
+# GitLab issue actions. Field names differ: .iid (not .number), .description (not .body), state values
+# are opened|closed|all (normalized via __apimgr_state_for). Comments live under /notes, not /comments.
+__gitlab_issue_repo() {
+  __apimgr_resolve_repo || __apimgr_die "gitlab issue: --repo USER/REPO required"
+}
+__gitlab_issue_list() {
+  __apimgr_require_creds gitlab
+  __gitlab_issue_repo
+  local state; state="$(__apimgr_state_for gitlab)"
+  __gitlab_api GET "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/issues?state=$state&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" |
+    __apimgr_print_issue_list
+}
+__gitlab_issue_get() {
+  local n="$1"
+  __apimgr_require_creds gitlab
+  __gitlab_issue_repo
+  [ -n "$n" ] || __apimgr_die "gitlab issue get: issue IID required"
+  __gitlab_api GET "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/issues/$n" | __apimgr_print_issue
+}
+__gitlab_issue_create() {
+  __apimgr_require_creds gitlab
+  __gitlab_issue_repo
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "gitlab issue create: --title required"
+  local payload; payload="$(__apimgr_jq -n --arg t "$APIMGR_TITLE" --arg d "${APIMGR_BODY:-}" '{title:$t, description:$d}')"
+  __gitlab_api POST "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/issues" "$payload" | __apimgr_jq -r '"Created issue #\(.iid) — \(.web_url)"'
+}
+__gitlab_issue_close() {
+  local n="$1"
+  __apimgr_require_creds gitlab
+  __gitlab_issue_repo
+  [ -n "$n" ] || __apimgr_die "gitlab issue close: issue IID required"
+  __gitlab_api PUT "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/issues/$n" '{"state_event":"close"}' | __apimgr_jq -r '"Closed issue #\(.iid) — \(.web_url)"'
+}
+__gitlab_issue_comment() {
+  local n="$1"
+  __apimgr_require_creds gitlab
+  __gitlab_issue_repo
+  [ -n "$n" ] || __apimgr_die "gitlab issue comment: issue IID required"
+  [ -n "$APIMGR_BODY" ] || __apimgr_die "gitlab issue comment: --body required"
+  local payload; payload="$(__apimgr_jq -n --arg b "$APIMGR_BODY" '{body:$b}')"
+  __gitlab_api POST "/projects/$(__gitlab_urlenc "$APIMGR_REPO")/issues/$n/notes" "$payload" | __apimgr_jq -r '"Commented on issue #'"$n"' — \(.web_url // "")"'
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Stub providers — print a clear "not yet implemented" so the dispatch surface is honest about what works.
 __apimgr_stub_provider() {
   __apimgr_die "Provider '$1' is not implemented yet. Architecture is in place; add __${1}_<action> functions to enable. See bin/apimgr __github_* / __gitea_* for templates."
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Provider dispatcher — routes "<provider> <action> [sub]" to the right __<provider>_<action> function.
+# Provider dispatcher — routes "<provider> <action> [sub] [extra positionals]" to the right __<provider>_<action>
+# function. Extra positionals (e.g. an issue number after `issue get`) are passed through to the action functions.
 __apimgr_dispatch_provider() {
-  local provider="$1" action="$2" sub="$3"
+  local provider="$1" action="$2" sub="${3:-}"
+  shift 3 2>/dev/null || true
   case "$provider" in
     github)
       case "$action" in
@@ -834,10 +996,19 @@ __apimgr_dispatch_provider() {
             all)              __github_repo_all ;;
             *)                __apimgr_die "github repo: unknown sub '$sub' (try list|get|create|delete|all)" ;;
           esac ;;
+        issue)
+          case "$sub" in
+            list|"")          __github_issue_list ;;
+            get|show)         __github_issue_get "$1" ;;
+            create|new)       __github_issue_create ;;
+            close)            __github_issue_close "$1" ;;
+            comment)          __github_issue_comment "$1" ;;
+            *)                __apimgr_die "github issue: unknown sub '$sub' (try list|get|create|close|comment)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "github api: PATH required (e.g. apimgr github api /user)"
           __github_api GET "$sub" ;;
-        *)                    __apimgr_die "github: unknown action '$action'. Try: verify|user|org|repo|api" ;;
+        *)                    __apimgr_die "github: unknown action '$action'. Try: verify|user|org|repo|issue|api" ;;
       esac ;;
     gitea|forgejo|codeberg)
       case "$action" in
@@ -857,10 +1028,19 @@ __apimgr_dispatch_provider() {
             all)              __gitea_repo_all "$provider" ;;
             *)                __apimgr_die "$provider repo: unknown sub '$sub' (try list|get|create|delete|all)" ;;
           esac ;;
+        issue)
+          case "$sub" in
+            list|"")          __gitea_issue_list "$provider" ;;
+            get|show)         __gitea_issue_get "$provider" "$1" ;;
+            create|new)       __gitea_issue_create "$provider" ;;
+            close)            __gitea_issue_close "$provider" "$1" ;;
+            comment)          __gitea_issue_comment "$provider" "$1" ;;
+            *)                __apimgr_die "$provider issue: unknown sub '$sub' (try list|get|create|close|comment)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "$provider api: PATH required"
           __gitea_api "$provider" GET "$sub" ;;
-        *)                    __apimgr_die "$provider: unknown action '$action'" ;;
+        *)                    __apimgr_die "$provider: unknown action '$action'. Try: verify|user|org|repo|issue|api" ;;
       esac ;;
     gitlab)
       case "$action" in
@@ -880,10 +1060,19 @@ __apimgr_dispatch_provider() {
             all)              __gitlab_repo_all ;;
             *)                __apimgr_die "gitlab repo: unknown sub '$sub' (try list|get|create|delete|all)" ;;
           esac ;;
+        issue)
+          case "$sub" in
+            list|"")          __gitlab_issue_list ;;
+            get|show)         __gitlab_issue_get "$1" ;;
+            create|new)       __gitlab_issue_create ;;
+            close)            __gitlab_issue_close "$1" ;;
+            comment)          __gitlab_issue_comment "$1" ;;
+            *)                __apimgr_die "gitlab issue: unknown sub '$sub' (try list|get|create|close|comment)" ;;
+          esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "gitlab api: PATH required (e.g. apimgr gitlab api /version)"
           __gitlab_api GET "$sub" ;;
-        *)                    __apimgr_die "gitlab: unknown action '$action'. Try: verify|user|org|repo|api" ;;
+        *)                    __apimgr_die "gitlab: unknown action '$action'. Try: verify|user|org|repo|issue|api" ;;
       esac ;;
     bitbucket|docker|harbor|quay)
       __apimgr_stub_provider "$provider" ;;
@@ -1143,14 +1332,17 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 case "$1" in
 github|gitlab|gitea|forgejo|codeberg|bitbucket|docker|harbor|quay)
   provider="$1"; action="${2:-}"; sub="${3:-}"
-  [ -n "$action" ] || __apimgr_die "apimgr $provider: action required (verify|user|org|repo|api). See --help."
-  __apimgr_dispatch_provider "$provider" "$action" "$sub"
+  [ -n "$action" ] || __apimgr_die "apimgr $provider: action required (verify|user|org|repo|issue|api). See --help."
+  shift 3 2>/dev/null || shift 2 2>/dev/null || shift 1 2>/dev/null || true
+  __apimgr_dispatch_provider "$provider" "$action" "$sub" "$@"
   APIMGR_EXIT_STATUS=$?
   ;;
 verify|user|org|repo|issue|pr|release|api)
   # Top-level shortcut: provider auto-detected from git remote, then APIMGR_DEFAULT_PROVIDER.
   __apimgr_resolve_provider ""
-  __apimgr_dispatch_provider "$APIMGR_PROVIDER" "$1" "${2:-}"
+  action="$1"; sub="${2:-}"
+  shift 2 2>/dev/null || shift 1 2>/dev/null || true
+  __apimgr_dispatch_provider "$APIMGR_PROVIDER" "$action" "$sub" "$@"
   APIMGR_EXIT_STATUS=$?
   ;;
 "")

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021820-git
+##@Version           :  202605021957-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Add Sonatype Nexus — 16th provider. Multi-format enterprise registry (alias: sonatype).
+# @@Changelog        :  Add OneDev — 17th provider. Modern self-host forge with numeric project IDs.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021820-git"
+VERSION="202605021957-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -207,6 +207,7 @@ __help() {
   __printf_line "gitee                           - Gitee (gitee.com — github-shaped API). GITEE_API_URL + GITEE_ACCESS_TOKEN"
   __printf_line "pagure                          - Pagure (pagure.io — Fedora's forge). PAGURE_API_URL + PAGURE_ACCESS_TOKEN"
   __printf_line "sourcehut                       - Sourcehut (sr.ht). SOURCEHUT_API_URL (=meta) + SOURCEHUT_ACCESS_TOKEN. repo+tag only."
+  __printf_line "onedev                          - OneDev (modern self-host forge). ONEDEV_API_URL + ONEDEV_ACCESS_TOKEN"
   __printf_line "gitlab                          - GitLab. GITLAB_API_URL + GITLAB_ACCESS_TOKEN"
   __printf_line "bitbucket                       - Bitbucket Cloud. BITBUCKET_API_URL + BITBUCKET_ACCESS_TOKEN (Bearer)"
   __printf_line "docker                          - Docker Hub. DOCKER_API_URL + DOCKER_USERNAME + DOCKER_HUB_API_KEY (login → JWT)"
@@ -2179,6 +2180,129 @@ __sourcehut_pr_unsupported() {
   __apimgr_die "sourcehut: pull requests are mailing-list patches in lists.sr.ht — incompatible with apimgr's PR model. Use git send-email or 'apimgr sourcehut api /lists/...' for raw access."
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# ============== OneDev provider (per-instance /~api — modern self-host forge) ==============
+# Auth: Bearer token (OneDev access tokens). URL is per-instance — set ONEDEV_API_URL to your install
+# (e.g. https://onedev.example.com/~api). Internally OneDev uses numeric IDs; named lookups go via
+# the project-by-name endpoint, then subsequent calls use the resolved id.
+__onedev_curl() {
+  local token; token="$(__apimgr_provider_token onedev)" || return 1
+  __apimgr_curl -H "Authorization: Bearer $token" -H "Accept: application/json" "$@"
+}
+__onedev_api() {
+  local method="$1" path="$2" data="$3"
+  local base; base="$(__apimgr_provider_url onedev)" || return 1
+  if [ -n "$data" ]; then
+    __onedev_curl -X "$method" -H "Content-Type: application/json" --data "$data" "$base$path"
+  else
+    __onedev_curl -X "$method" "$base$path"
+  fi
+}
+# Resolve a project name (or USER/REPO path) to a numeric id. Cached in APIMGR_ONEDEV_PROJECT_ID for
+# the invocation so multiple actions on the same repo only pay one lookup.
+__onedev_project_id() {
+  if [ -n "$APIMGR_ONEDEV_PROJECT_ID" ]; then printf '%s' "$APIMGR_ONEDEV_PROJECT_ID"; return 0; fi
+  __apimgr_resolve_repo || __apimgr_die "onedev: --repo USER/REPO required"
+  # OneDev's API takes a path-style query for finding the project. Strip any leading namespace if user
+  # passed a github-style "user/repo" — OneDev itself uses path slashes natively.
+  local resp; resp="$(__onedev_api GET "/projects?name=$APIMGR_REPO")"
+  APIMGR_ONEDEV_PROJECT_ID="$(__apimgr_jq -r 'if type == "array" then .[0].id else .id // empty end' <<<"$resp" 2>/dev/null)"
+  [ -n "$APIMGR_ONEDEV_PROJECT_ID" ] || __apimgr_die "onedev: project '$APIMGR_REPO' not found"
+  printf '%s' "$APIMGR_ONEDEV_PROJECT_ID"
+}
+__onedev_print_repo_list() {
+  __apimgr_jq -r '.[] | "\(.id)\t\(.name)\t\(.description // "")\t\(.defaultBranch // "")"' |
+    awk -F'\t' '{printf "%-6s %-40s %-40s %s\n", $1, $2, substr($3,1,40), $4}'
+}
+__onedev_print_repo() {
+  __apimgr_jq -r '
+    "ID:          \(.id)",
+    "Name:        \(.name)",
+    "Description: \(.description // "")",
+    "Default:     \(.defaultBranch // "")",
+    "Created:     \(.createDate // "")"
+  '
+}
+__onedev_print_issue_list() {
+  __apimgr_jq -r '.[] | "#\(.number)\t\(.state)\t\(.submitter.name // "")\t\(.title)"' |
+    awk -F'\t' '{printf "%-7s %-8s %-20s %s\n", $1, $2, substr($3,1,20), $4}'
+}
+__onedev_verify() {
+  __apimgr_require_creds onedev
+  local resp; resp="$(__onedev_api GET /me)" || __apimgr_die "OneDev /me call failed"
+  __apimgr_jq -r '"Authenticated as \(.name) (\(.fullName // "no name"))"' <<<"$resp"
+}
+__onedev_user_get() {
+  __apimgr_require_creds onedev
+  if [ -n "$APIMGR_USER" ]; then
+    __onedev_api GET "/users?name=$APIMGR_USER" | __apimgr_jq '.[0] // empty'
+  else
+    __onedev_api GET /me | __apimgr_jq .
+  fi
+}
+__onedev_repo_list() {
+  __apimgr_require_creds onedev
+  __onedev_api GET "/projects?count=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __onedev_print_repo_list
+}
+__onedev_repo_get() {
+  __apimgr_require_creds onedev
+  local id; id="$(__onedev_project_id)"
+  __onedev_api GET "/projects/$id" | __onedev_print_repo
+}
+__onedev_repo_create() {
+  __apimgr_require_creds onedev
+  local name="${APIMGR_REPO##*/}"
+  [ -n "$name" ] || __apimgr_die "onedev repo create: --repo NAME (or PARENT/NAME) required"
+  # Note: OneDev project create takes a JSON body with name + optional description + parent. Parent is by id.
+  local payload; payload="$(__apimgr_jq -n --arg n "$name" --arg d "${APIMGR_BODY:-}" '{name:$n, description:$d}')"
+  __onedev_api POST "/projects" "$payload" | __apimgr_jq -r '"Created project #\(.) — onedev assigns a numeric id"'
+}
+__onedev_repo_delete() {
+  __apimgr_require_creds onedev
+  local id; id="$(__onedev_project_id)"
+  __apimgr_confirm "Delete OneDev project '$APIMGR_REPO' (id=$id)? Irreversible." || { printf_yellow "Aborted"; return 1; }
+  __onedev_api DELETE "/projects/$id" >/dev/null && printf_green "Deleted project '$APIMGR_REPO'"
+}
+__onedev_issue_list() {
+  __apimgr_require_creds onedev
+  local id; id="$(__onedev_project_id)"
+  local q="?count=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}"
+  case "${APIMGR_STATE:-open}" in open) q="$q&state=Open" ;; closed) q="$q&state=Closed" ;; esac
+  __onedev_api GET "/projects/$id/issues$q" | __onedev_print_issue_list
+}
+__onedev_issue_get() {
+  local n="$1"
+  __apimgr_require_creds onedev
+  local id; id="$(__onedev_project_id)"
+  [ -n "$n" ] || __apimgr_die "onedev issue get: issue NUMBER required"
+  __onedev_api GET "/projects/$id/issues/$n" | __apimgr_jq .
+}
+__onedev_issue_create() {
+  __apimgr_require_creds onedev
+  local id; id="$(__onedev_project_id)"
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "onedev issue create: --title required"
+  local payload; payload="$(__apimgr_jq -n --arg t "$APIMGR_TITLE" --arg b "${APIMGR_BODY:-}" '{title:$t, description:$b}')"
+  __onedev_api POST "/projects/$id/issues" "$payload" | __apimgr_jq -r '"Created issue #\(.number)"'
+}
+__onedev_pr_list() {
+  __apimgr_require_creds onedev
+  local id; id="$(__onedev_project_id)"
+  __onedev_api GET "/projects/$id/pull-requests?count=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" |
+    __apimgr_jq -r '.[] | "#\(.number)\t\(.status)\t\(.submitter.name // "")\t\(.sourceBranch)→\(.targetBranch)\t\(.title)"' |
+    awk -F'\t' '{printf "%-7s %-12s %-18s %-30s %s\n", $1, substr($2,1,12), substr($3,1,18), substr($4,1,30), $5}'
+}
+__onedev_pr_get() {
+  local n="$1"
+  __apimgr_require_creds onedev
+  local id; id="$(__onedev_project_id)"
+  [ -n "$n" ] || __apimgr_die "onedev pr get: PR NUMBER required"
+  __onedev_api GET "/projects/$id/pull-requests/$n" | __apimgr_jq .
+}
+__onedev_tag_list() {
+  __apimgr_require_creds onedev
+  local id; id="$(__onedev_project_id)"
+  __onedev_api GET "/projects/$id/tags" | __apimgr_print_git_tag_list
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== Docker Hub provider (hub.docker.com/v2 — JWT auth via login flow) ==============
 # Auth model: POST /users/login with {username, password} returns {token: <jwt>}; subsequent calls send
 # `Authorization: JWT <token>`. The "password" is your Personal Access Token (DOCKER_HUB_API_KEY).
@@ -3343,6 +3467,43 @@ __apimgr_dispatch_provider() {
           __sourcehut_api "$service" GET "$sub" ;;
         *)                    __apimgr_die "sourcehut: unknown action '$action'. Try: verify|user|repo|tag|api" ;;
       esac ;;
+    onedev)
+      case "$action" in
+        verify)               __onedev_verify ;;
+        user)                 __onedev_user_get ;;
+        repo)
+          case "$sub" in
+            list)             __onedev_repo_list ;;
+            get|"")           __onedev_repo_get ;;
+            create)           __onedev_repo_create ;;
+            delete|rm)        __onedev_repo_delete ;;
+            *)                __apimgr_die "onedev repo: unknown sub '$sub' (try list|get|create|delete)" ;;
+          esac ;;
+        issue)
+          case "$sub" in
+            list|"")          __onedev_issue_list ;;
+            get|show)         __onedev_issue_get "$1" ;;
+            create|new)       __onedev_issue_create ;;
+            *)                __apimgr_die "onedev issue: unknown sub '$sub' (try list|get|create)" ;;
+          esac ;;
+        pr|pull|pulls|mr)
+          case "$sub" in
+            list|"")          __onedev_pr_list ;;
+            get|show)         __onedev_pr_get "$1" ;;
+            *)                __apimgr_die "onedev pr: unknown sub '$sub' (try list|get — create/merge need raw api with branch IDs)" ;;
+          esac ;;
+        tag|tags)
+          case "$sub" in
+            list|"")          __onedev_tag_list ;;
+            *)                __apimgr_die "onedev tag: only 'list' supported via apimgr (create/delete need raw api)" ;;
+          esac ;;
+        org)                  __apimgr_die "onedev has no orgs/namespaces — projects sit at the top level. Use 'repo list' instead." ;;
+        release|releases|rel) __apimgr_die "onedev has no first-class release API — use 'apimgr onedev tag list' for tags." ;;
+        api)
+          [ -n "$sub" ] || __apimgr_die "onedev api: PATH required (e.g. apimgr onedev api /me)"
+          __onedev_api GET "$sub" ;;
+        *)                    __apimgr_die "onedev: unknown action '$action'. Try: verify|user|repo|issue|pr|tag|api" ;;
+      esac ;;
     docker)
       case "$action" in
         verify)               __docker_verify ;;
@@ -3543,7 +3704,7 @@ __apimgr_dispatch_provider() {
     "")
       __apimgr_die "no provider specified — try: apimgr <provider> <action>, or run apimgr --help" ;;
     *)
-      __apimgr_die "unknown provider '$provider'. Supported: github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay cloudsmith artifactory nexus" ;;
+      __apimgr_die "unknown provider '$provider'. Supported: github gitlab gitea forgejo codeberg gitee pagure sourcehut onedev bitbucket docker ghcr harbor quay cloudsmith artifactory nexus" ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3612,7 +3773,7 @@ GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,force,"
 LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,tag:,format:,visibility:,api,provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut bitbucket docker ghcr harbor quay cloudsmith artifactory nexus verify user org repo issue pr release tag image api"
+ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut onedev bitbucket docker ghcr harbor quay cloudsmith artifactory nexus verify user org repo issue pr release tag image api"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -3796,7 +3957,7 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 # Top-level form: `apimgr <action> [sub]` auto-detects provider from git remote / APIMGR_DEFAULT_PROVIDER.
 # Provider form:  `apimgr <provider> <action> [sub]` is explicit.
 case "$1" in
-github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|bitbucket|docker|ghcr|harbor|quay|cloudsmith|artifactory|jfrog|nexus|sonatype)
+github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|onedev|bitbucket|docker|ghcr|harbor|quay|cloudsmith|artifactory|jfrog|nexus|sonatype)
   provider="$1"; action="${2:-}"; sub="${3:-}"
   [ -n "$action" ] || __apimgr_die "apimgr $provider: action required (verify|user|org|repo|issue|api). See --help."
   shift 3 2>/dev/null || shift 2 2>/dev/null || shift 1 2>/dev/null || true

@@ -25,7 +25,7 @@ This file serves as the **complete AI context and history** for all AI interacti
 ### Understanding User Intent
 - ✅ **Question mark (?)** = User asking a question, NOT giving instructions
 - ✅ **No question mark** = User giving instructions, act on them
-- ✅ **Multiple tasks** = Create AI.TODO.md immediately (see below)
+- ✅ **Multiple tasks** = Create TODO.AI.md immediately (see below)
 
 ### What NOT to Ask
 - ❌ "Should I read this file?" (just do it)
@@ -41,19 +41,24 @@ This file serves as the **complete AI context and history** for all AI interacti
 
 ---
 
-## 📝 AI.TODO.md Workflow
+## 📝 TODO.AI.md Workflow
 
-### When to Create AI.TODO.md
+(See "File Management" further down for the full TODO.md ↔ TODO.AI.md / PLAN.md ↔ PLAN.AI.md pairing and the empty-when-done convention.)
 
-**ALWAYS create when:**
-- ✅ More than 2 instructions given at once
+### When to Create TODO.AI.md
+
+If the human has already written a clear `TODO.md`, AI works against that directly — no need to duplicate. Create `TODO.AI.md` only when the AI's task list needs to be different from (or refinement of) the human-authored one. The same logic applies to PLAN.md ↔ PLAN.AI.md.
+
+**Create / populate TODO.AI.md when:**
+- ✅ More than 2 instructions given at once and no actionable TODO.md exists
 - ✅ More than 2 tasks to complete
 - ✅ Complex multi-step workflow
 - ✅ Multiple files to modify
+- ✅ The existing TODO.md is too loose to act on without restructuring
 
 ### Format
 ```markdown
-# AI TODO
+# TODO.AI.md
 
 ## Current Session Tasks
 
@@ -68,14 +73,14 @@ This file serves as the **complete AI context and history** for all AI interacti
 ```
 
 ### Workflow
-1. User gives 3+ tasks → **Create AI.TODO.md immediately**
+1. User gives 3+ tasks → **populate TODO.AI.md immediately** (or use existing TODO.md if clear)
 2. Work on first task
-3. **Update AI.TODO.md** (move to Completed section)
+3. **Update TODO.AI.md** — move the task to the Completed section
 4. Work on next task
-5. **Update AI.TODO.md**
-6. When all done → **Delete AI.TODO.md**
-7. **Update AI.md** with session summary
-8. **Create COMMIT_MESS** with all changes
+5. **Update TODO.AI.md**
+6. When all done → **empty TODO.AI.md** (don't delete the file — the empty file signals "no work in progress"; delete only the contents)
+7. **Update AI.md** with a session-history entry
+8. **Create / update `.git/COMMIT_MESS`** with the full change summary
 
 ### Benefits
 - ✅ Keeps AI organized and focused
@@ -488,18 +493,18 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 
 **Before Starting:**
 - [ ] Read AI.md for full context
-- [ ] Check for AI.TODO.md (resume existing tasks)
-- [ ] Understand current project state
+- [ ] Check TODO.AI.md / TODO.md / PLAN.AI.md / PLAN.md — resume in-flight work if any have content
+- [ ] Understand current project state (`git status`, `git log -5`)
 
 **During Work:**
-- [ ] If >2 tasks → Create AI.TODO.md immediately
-- [ ] Update AI.TODO.md after each task
+- [ ] If >2 tasks and no clear TODO.md exists → populate TODO.AI.md immediately
+- [ ] Update TODO.AI.md (or TODO.md) after each task — move to Completed
 - [ ] Follow code standards (functions: `__`, variables: `SCRIPTNAME_`)
 - [ ] Comments above code (never inline)
 - [ ] Test changes (Docker-first, then local)
 
 **After Completion:**
-- [ ] Delete AI.TODO.md (if all tasks done)
+- [ ] Empty any AI-authored work-in-progress files (TODO.AI.md, PLAN.AI.md) — keep the file, blank the contents
 - [ ] Create/update `.git/COMMIT_MESS` with proper format
 - [ ] Update AI.md with session summary
 - [ ] Verify all files synced and tested
@@ -533,13 +538,14 @@ gitcommit diff
 - **AI.md** — This file. Project rules, workflows, code standards, session history. Source of truth. Project-specific only — no per-script SPECs here.
 - (the pointer-file at repo root) — thin redirect at AI.md so the harness has a small loadable reference. Do not duplicate AI.md content there.
 
-**Script-level / work-in-progress** — see below for empty-when-done convention:
-- **TODO.AI.md** — AI's TODO list for in-flight script-level work
-- **PLAN.AI.md** — AI's plan file (architectural design before code)
-- **PLAN.md** — human-written plan; AI reads + executes on it
-- **TODO.md** — general project TODO; AI can pick up tasks from it
+**Script-level / work-in-progress** — paired files, human raw / AI refined:
 
-**Empty-when-done convention** (for the four script-level files above): an empty file means "no work in progress here." A file with content means "this work is queued / being done." Don't delete the file — empty *signals* "nothing outstanding" while the file's existence keeps it discoverable. AI marks AI-side files (TODO.AI.md, PLAN.AI.md) empty after committing; humans empty PLAN.md / TODO.md when confirming completion.
+- **TODO.md** ↔ **TODO.AI.md** — task list. `TODO.md` is human-authored and may be loose / under-specified. AI can act on it directly when it's clear; when it needs refinement to be actionable, AI rewrites it into `TODO.AI.md` first and executes against that.
+- **PLAN.md** ↔ **PLAN.AI.md** — design / plan doc. Same relationship — `PLAN.md` is human-authored, `PLAN.AI.md` is the AI-refined version when needed. Either is fair game for AI to execute.
+
+The `.AI.md` siblings exist only when refinement is needed; they're not required. If `TODO.md` is already actionable, AI works from it directly without creating `TODO.AI.md`.
+
+**Empty-when-done convention** (for all four script-level files above): an empty file means "no work in progress here." A file with content means "this work is queued / being done." Don't delete the file — empty *signals* "nothing outstanding" while the file's existence keeps it discoverable. After committing the work, AI empties any AI-authored files it touched (TODO.AI.md, PLAN.AI.md). Humans empty PLAN.md / TODO.md when they confirm the work is done.
 
 **Commit staging:**
 - **.git/COMMIT_MESS** — commit message staging, created by AI, cleaned by gitcommit after a successful commit
@@ -555,7 +561,7 @@ This AI.md file should be updated:
 ### Context for New Sessions
 When starting a new AI session:
 1. **Read AI.md first** - Get full context and history
-2. **Check AI.TODO.md** - Resume incomplete tasks if exists
+2. **Check TODO.AI.md / TODO.md / PLAN.AI.md / PLAN.md** — resume in-flight work if any of those files have content
 3. **Read CLAUDE.md** - Review development standards
 4. **Check git status** - Understand current state
 5. **Proceed with task** - Follow established patterns

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605041500-git
+##@Version           :  202605041600-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -30,7 +30,7 @@ _buildx_completion() {
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
   local LONGOPTS="--completions --config --debug --dir --help --options --raw --version --silent --force --cleanup --no-pull "
-  local LONGOPTS+="--repo --no-registry --no-repo --platform --tag --all --build --url --script --init --user --image --registry --gen-script --cron --files "
+  local LONGOPTS+="--repo --no-registry --no-repo --platform --tag --all --build --url --script --init --user --org --image --registry --gen-script --cron --files "
   local SHORTOPTS=""
   local ARRAY="all build run init status version api cron automated "
   local API_OPTS="tags list search sources clone delete update"
@@ -67,7 +67,7 @@ _buildx_completion() {
     --platform)
       COMPREPLY=($(compgen -W 'x64 arm arm64 linux/amd64 linux/arm64 linux/arm/v7' -- "$cur"))
       ;;
-    --user|--repo|--image|--tag|--url)
+    --user|--org|--repo|--image|--tag|--url)
       # These expect custom input, no completion
       ;;
     api)

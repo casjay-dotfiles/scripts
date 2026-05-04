@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605041500-git
+##@Version           :  202605041600-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605041500-git"
+VERSION="202605041600-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -237,12 +237,12 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Build Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "--registry [url]                - Set registry (supports multiple, see formats below)"
+  __printf_line "--registry [url]                - Registry: docker.io | ghcr.io/org | reg/org/repo"
+  __printf_line "--org/--user [name]             - User/org (priority over registry URL)"
+  __printf_line "--repo [name]                   - Repo/image name (priority over registry URL)"
   __printf_line "--tag [tag]                     - Set image tag (supports multiple)"
   __printf_line "--url [full-url]                - Custom complete image URL with smart completion"
-  __printf_line "--repo [name]                   - Set repository name"
-  __printf_line "--user [name]                   - Set user/organization"
-  __printf_line "--image [name]                  - Set image name (overrides auto-detection)"
+  __printf_line "--image [name]                  - Alias for --repo"
   __printf_line "--platform [arch]               - Set target platform (x64, arm, arm64, or full string)"
   __printf_line "--dir [path]                    - Sets the working directory"
   __printf_line "--files [subdir]                - Dockerfile directory (e.g., containers, docker)"
@@ -588,13 +588,13 @@ __set_variables() {
         # Format: registry/org/repo (first component has . or : indicating a hostname)
         BUILDX_DEFAULT_REGISTRY="$first_component"
         local _fr_rest="${first_registry#*/}"
-        BUILDX_SET_ORG="${_fr_rest%%/*}"
-        BUILDX_SET_IMAGE="${_fr_rest##*/}"
+        BUILDX_SET_ORG="${BUILDX_SET_ORG:-${_fr_rest%%/*}}"
+        BUILDX_SET_IMAGE="${BUILDX_SET_IMAGE:-${_fr_rest##*/}}"
       else
         # Format: org/repo (Docker Hub assumed)
         BUILDX_DEFAULT_REGISTRY="${BUILDX_DEFAULT_REGISTRY:-docker.io}"
-        BUILDX_SET_ORG="${first_registry%%/*}"
-        BUILDX_SET_IMAGE="${first_registry##*/}"
+        BUILDX_SET_ORG="${BUILDX_SET_ORG:-${first_registry%%/*}}"
+        BUILDX_SET_IMAGE="${BUILDX_SET_IMAGE:-${first_registry##*/}}"
       fi
     elif [[ "$first_registry" == *"/"* ]]; then
       # Format: registry/org OR org/repo (single slash)
@@ -602,13 +602,13 @@ __set_variables() {
       if [[ "$first_component" == *"."* || "$first_component" == *":"* ]]; then
         # Format: registry/org (first component has . or : indicating a hostname)
         BUILDX_DEFAULT_REGISTRY="$first_component"
-        BUILDX_SET_ORG="${first_registry#*/}"
+        BUILDX_SET_ORG="${BUILDX_SET_ORG:-${first_registry#*/}}"
         # BUILDX_SET_IMAGE will use default (basename of PROJECT_ROOT)
       else
         # Format: org/repo (Docker Hub assumed)
         BUILDX_DEFAULT_REGISTRY="${BUILDX_DEFAULT_REGISTRY:-docker.io}"
-        BUILDX_SET_ORG="${first_registry%%/*}"
-        BUILDX_SET_IMAGE="${first_registry#*/}"
+        BUILDX_SET_ORG="${BUILDX_SET_ORG:-${first_registry%%/*}}"
+        BUILDX_SET_IMAGE="${BUILDX_SET_IMAGE:-${first_registry#*/}}"
       fi
     else
       # Format: registry (hostname only)
@@ -1337,9 +1337,9 @@ __buildx_status() {
 __logging_build() {
   local cmd="$1" logfile="$2" errfile="${2%.log}.err"
   mkdir -p "${logfile%/*}"
-  # stdout -> terminal + .log; stderr -> .err + .log + terminal
-  { eval "$cmd" 2> >(tee -a "$errfile" | tee -a "$logfile" >&2); } | tee -a "$logfile"
-  return "${PIPESTATUS[0]}"
+  # stdout -> .log only; stderr -> .err + .log only; nothing to terminal
+  { eval "$cmd" 2> >(tee -a "$errfile" >> "$logfile"); } >> "$logfile"
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_docker_script() {
@@ -2163,7 +2163,7 @@ SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,no-pull"
 LONGOPTS+=",force,cleanup,repo:,no-registry,no-repo,cron,platform:,files:"
-LONGOPTS+=",gen-script,tag:,all,build,url:,script,init,user:,image:,registry:"
+LONGOPTS+=",gen-script,tag:,all,build,url:,script,init,user:,org:,image:,registry:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="all run[Dockerfile] init status version api[tags,list,search,sources,clone,delete,update] "
 ARRAY+=""
@@ -2307,6 +2307,7 @@ while :; do
     ;;
   --repo)
     export BUILDX_SET_REPO="$2"
+    export BUILDX_SET_IMAGE="$2"
     shift 2
     ;;
   --platform)
@@ -2346,6 +2347,7 @@ while :; do
     shift 2
     ;;
   --image)
+    export BUILDX_SET_REPO="$2"
     export BUILDX_SET_IMAGE="$2"
     shift 2
     ;;
@@ -2363,7 +2365,7 @@ while :; do
     unset url urls completed_url completed_urls
     shift 2
     ;;
-  --user)
+  --org | --user)
     export BUILDX_SET_ORG="$2"
     export BUILDX_SET_GIT_USER="$2"
     shift 2

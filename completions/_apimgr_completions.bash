@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021957-git
+##@Version           :  202605040132-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -53,7 +53,7 @@ _apimgr_completion() {
   LONGOPTS="--completions --config --reset-config --debug --dir --help --options --raw --version --force --no- --yes-"
   LONGOPTS+=" --repo --user --org --token --official --title --body --state --limit --branch --base --tag --format --visibility --provider --api"
   #####################################################################
-  ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut onedev bitbucket docker ghcr harbor quay cloudsmith artifactory jfrog nexus sonatype verify user org repo issue pr release tag image package component api"
+  ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut onedev bitbucket docker ghcr glcr harbor quay cloudsmith artifactory jfrog nexus sonatype verify user org repo issue pr release tag image package component api"
   ARRAY+=""
   #####################################################################
   LIST="get list create delete all"
@@ -125,7 +125,7 @@ _apimgr_completion() {
       COMPREPLY=($(compgen -W '5 10 20 30 50 100' -- "$cur"))
       return 0
       ;;
-    github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|onedev|bitbucket|docker|ghcr|harbor|quay|cloudsmith|artifactory|jfrog|nexus|sonatype)
+    github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|onedev|bitbucket|docker|ghcr|glcr|harbor|quay|cloudsmith|artifactory|jfrog|nexus|sonatype)
       # After a provider, complete with actions.
       COMPREPLY=($(compgen -W 'verify user org repo issue pr release tag api' -- "$cur"))
       return 0

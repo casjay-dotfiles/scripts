@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605021957-git
+##@Version           :  202605040132-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Add OneDev — 17th provider. Modern self-host forge with numeric project IDs.
+# @@Changelog        :  Add GitLab Container Registry (glcr) — 18th provider. Mirrors ghcr; falls back to GITLAB_* creds.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605021957-git"
+VERSION="202605040132-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -212,6 +212,7 @@ __help() {
   __printf_line "bitbucket                       - Bitbucket Cloud. BITBUCKET_API_URL + BITBUCKET_ACCESS_TOKEN (Bearer)"
   __printf_line "docker                          - Docker Hub. DOCKER_API_URL + DOCKER_USERNAME + DOCKER_HUB_API_KEY (login → JWT)"
   __printf_line "ghcr                            - GitHub Container Registry. GHCR_API_URL + GHCR_ACCESS_TOKEN (read/write/delete:packages scope)"
+  __printf_line "glcr                            - GitLab Container Registry. GLCR_API_URL + GLCR_ACCESS_TOKEN (falls back to GITLAB_*)"
   __printf_line "harbor                          - Harbor. HARBOR_API_URL + HARBOR_USERNAME + HARBOR_ACCESS_TOKEN (Basic auth)"
   __printf_line "quay                            - Quay. QUAY_API_URL + QUAY_ACCESS_TOKEN (Bearer)"
   __printf_line "cloudsmith                      - Cloudsmith (multi-format SaaS). CLOUDSMITH_API_URL + CLOUDSMITH_API_KEY"
@@ -2566,6 +2567,131 @@ __ghcr_tag_delete() {
   __ghcr_api DELETE "$path/versions/$id" >/dev/null && printf_green "Deleted tag '$tag' from $APIMGR_REPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# ============== GitLab Container Registry (glcr — uses GitLab's project-scoped /registry endpoints) ==============
+# Like ghcr, glcr is conceptually a registry but the management API rides on the host forge's REST surface.
+# Resolver chain reuses GLCR_API_URL/GLCR_ACCESS_TOKEN if set; users typically alias to GitLab's:
+#   export GLCR_API_URL="$GITLAB_API_URL" GLCR_ACCESS_TOKEN="$GITLAB_ACCESS_TOKEN"
+# The token must have api or read_registry / write_registry scope. Falls back to gitlab's URL/token if the
+# glcr-specific vars aren't set — convenience for the common case where they share creds.
+__glcr_curl() {
+  local token; token="$(__apimgr_provider_token glcr 2>/dev/null)"
+  [ -n "$token" ] || token="$(__apimgr_provider_token gitlab)" || return 1
+  __apimgr_curl -H "PRIVATE-TOKEN: $token" -H "Accept: application/json" "$@"
+}
+__glcr_url() {
+  local url; url="$(__apimgr_provider_url glcr 2>/dev/null)"
+  [ -n "$url" ] || url="$(__apimgr_provider_url gitlab)" || return 1
+  printf '%s' "$url"
+}
+__glcr_api() {
+  local method="$1" path="$2" data="$3"
+  local base; base="$(__glcr_url)" || return 1
+  if [ -n "$data" ]; then
+    __glcr_curl -X "$method" -H "Content-Type: application/json" --data "$data" "$base$path"
+  else
+    __glcr_curl -X "$method" "$base$path"
+  fi
+}
+__glcr_require_creds() {
+  __glcr_url >/dev/null || __apimgr_die "No URL for 'glcr' — set GLCR_API_URL/APIMGR_GLCR_URL or GITLAB_API_URL (the registry rides on GitLab's API)"
+  local t; t="$(__apimgr_provider_token glcr 2>/dev/null)"; [ -n "$t" ] || t="$(__apimgr_provider_token gitlab 2>/dev/null)"
+  [ -n "$t" ] || __apimgr_die "No token for 'glcr' — set GLCR_ACCESS_TOKEN, APIMGR_GLCR_TOKEN, GITLAB_ACCESS_TOKEN, or pass --token"
+}
+__glcr_print_repo_list() {
+  __apimgr_jq -r '.[] | "\(.id)\t\(.path)\t\(.tags_count // 0)\t\(.location // "")"' |
+    awk -F'\t' '{printf "%-6s %-50s %3d tag(s)  %s\n", $1, substr($2,1,50), $3, $4}'
+}
+__glcr_print_repo() {
+  __apimgr_jq -r '
+    "ID:          \(.id)",
+    "Path:        \(.path)",
+    "Project:     \(.project_id)",
+    "Location:    \(.location)",
+    "Tags count:  \(.tags_count // 0)",
+    "Created:     \(.created_at // "")"
+  '
+}
+__glcr_print_tag_list() {
+  __apimgr_jq -r '.[] | "\(.name)\t\(.short_revision // .revision[0:12] // "")\t\(.total_size // 0)\t\(.created_at // "")"' |
+    awk -F'\t' '{ size = $3 / 1024 / 1024; printf "%-30s %-14s %8.1f MB  %s\n", $1, $2, size, substr($4, 1, 19) }'
+}
+__glcr_verify() {
+  __glcr_require_creds
+  # /user works the same on gitlab — confirms the token + (implicitly) the registry scope when listing happens.
+  __glcr_api GET /user | __apimgr_jq -r '"Authenticated as \(.username) (\(.name // "no name")) — registry access via project-scoped endpoints"'
+}
+# Resolve a project's registry repository ID from --repo PROJECT/IMAGE. PROJECT is the gitlab project path
+# (group/proj), IMAGE is the registry repo's name within that project. Returns the registry-repo id by
+# listing /projects/<enc>/registry/repositories and matching against the trailing path segment.
+__glcr_split_repo() {
+  __apimgr_resolve_repo || __apimgr_die "glcr: --repo PROJECT_PATH (or PROJECT_PATH/IMAGE) required"
+  # The path may have 2 or 3 segments; we use everything except the last as project, last as image (optional).
+  if [[ "$APIMGR_REPO" == */*/* ]]; then
+    GLCR_PROJECT_PATH="${APIMGR_REPO%/*}"
+    GLCR_IMAGE_NAME="${APIMGR_REPO##*/}"
+  else
+    GLCR_PROJECT_PATH="$APIMGR_REPO"
+    GLCR_IMAGE_NAME=""
+  fi
+}
+__glcr_resolve_registry_id() {
+  local image="$1"
+  local list; list="$(__glcr_api GET "/projects/$(__gitlab_urlenc "$GLCR_PROJECT_PATH")/registry/repositories")"
+  if [ -z "$image" ]; then
+    __apimgr_jq -r '.[0].id // empty' <<<"$list"
+  else
+    __apimgr_jq -r --arg n "$image" '.[] | select(.path | endswith("/" + $n) or (. == $n)) | .id' <<<"$list" | head -n1
+  fi
+}
+__glcr_repo_list() {
+  __glcr_require_creds
+  __glcr_split_repo
+  [ -n "$GLCR_PROJECT_PATH" ] || __apimgr_die "glcr repo list: --repo PROJECT_PATH required"
+  __glcr_api GET "/projects/$(__gitlab_urlenc "$GLCR_PROJECT_PATH")/registry/repositories?tags=true&tags_count=true&per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __glcr_print_repo_list
+}
+__glcr_repo_get() {
+  __glcr_require_creds
+  __glcr_split_repo
+  [ -n "$GLCR_PROJECT_PATH" ] || __apimgr_die "glcr repo get: --repo PROJECT_PATH/IMAGE required"
+  local id; id="$(__glcr_resolve_registry_id "$GLCR_IMAGE_NAME")"
+  [ -n "$id" ] || __apimgr_die "glcr repo get: registry repository not found in project '$GLCR_PROJECT_PATH'${GLCR_IMAGE_NAME:+ matching '$GLCR_IMAGE_NAME'}"
+  __glcr_api GET "/registry/repositories/$id?tags=true&tags_count=true" | __glcr_print_repo
+}
+__glcr_repo_delete() {
+  __glcr_require_creds
+  __glcr_split_repo
+  local id; id="$(__glcr_resolve_registry_id "$GLCR_IMAGE_NAME")"
+  [ -n "$id" ] || __apimgr_die "glcr repo delete: registry repository not found"
+  __apimgr_confirm "Delete GitLab registry repository id=$id from '$GLCR_PROJECT_PATH'? Removes ALL tags. Irreversible." || { printf_yellow "Aborted"; return 1; }
+  __glcr_api DELETE "/registry/repositories/$id" >/dev/null && printf_green "Deleted registry repository id=$id"
+}
+__glcr_tag_list() {
+  __glcr_require_creds
+  __glcr_split_repo
+  local id; id="$(__glcr_resolve_registry_id "$GLCR_IMAGE_NAME")"
+  [ -n "$id" ] || __apimgr_die "glcr tag list: registry repository not found"
+  __glcr_api GET "/projects/$(__gitlab_urlenc "$GLCR_PROJECT_PATH")/registry/repositories/$id/tags?per_page=${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" | __glcr_print_tag_list
+}
+__glcr_tag_get() {
+  local tag="${APIMGR_TAG:-$1}"
+  __glcr_require_creds
+  __glcr_split_repo
+  [ -n "$tag" ] || __apimgr_die "glcr tag get: --tag NAME or positional TAG required"
+  local id; id="$(__glcr_resolve_registry_id "$GLCR_IMAGE_NAME")"
+  [ -n "$id" ] || __apimgr_die "glcr tag get: registry repository not found"
+  __glcr_api GET "/projects/$(__gitlab_urlenc "$GLCR_PROJECT_PATH")/registry/repositories/$id/tags/$tag" | __apimgr_jq .
+}
+__glcr_tag_delete() {
+  local tag="${APIMGR_TAG:-$1}"
+  __glcr_require_creds
+  __glcr_split_repo
+  [ -n "$tag" ] || __apimgr_die "glcr tag delete: --tag NAME or positional TAG required"
+  local id; id="$(__glcr_resolve_registry_id "$GLCR_IMAGE_NAME")"
+  [ -n "$id" ] || __apimgr_die "glcr tag delete: registry repository not found"
+  __apimgr_confirm "Delete tag '$tag' from $GLCR_PROJECT_PATH (registry id=$id)?" || { printf_yellow "Aborted"; return 1; }
+  __glcr_api DELETE "/projects/$(__gitlab_urlenc "$GLCR_PROJECT_PATH")/registry/repositories/$id/tags/$tag" >/dev/null && printf_green "Deleted tag '$tag'"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== Harbor provider (api/v2.0 — Basic auth or robot tokens; project + repository_name model) ==============
 # Auth: Basic <base64(username:password)> when both HARBOR_USERNAME and HARBOR_ACCESS_TOKEN are set;
 # falls back to Bearer when only the token is available (some Harbor deployments behind OIDC accept Bearer too).
@@ -3563,6 +3689,29 @@ __apimgr_dispatch_provider() {
           __ghcr_api GET "$sub" ;;
         *)                    __apimgr_die "ghcr: unknown action '$action'. Try: verify|user|org|repo|tag|api" ;;
       esac ;;
+    glcr)
+      case "$action" in
+        verify)               __glcr_verify ;;
+        repo|repos|repositories|image|images)
+          case "$sub" in
+            list)             __glcr_repo_list ;;
+            get|"")           __glcr_repo_get ;;
+            delete|rm)        __glcr_repo_delete ;;
+            *)                __apimgr_die "glcr repo: unknown sub '$sub' (try list|get|delete — create is push-only via 'docker push registry.gitlab.com/...')" ;;
+          esac ;;
+        tag|tags)
+          case "$sub" in
+            list|"")          __glcr_tag_list ;;
+            get|show)         __glcr_tag_get "$1" ;;
+            delete|rm)        __glcr_tag_delete "$1" ;;
+            *)                __apimgr_die "glcr tag: unknown sub '$sub' (try list|get|delete)" ;;
+          esac ;;
+        user|org)             __apimgr_die "glcr has no separate user/org endpoints — registry repos belong to gitlab projects. Use 'apimgr gitlab user/org' for those." ;;
+        api)
+          [ -n "$sub" ] || __apimgr_die "glcr api: PATH required (e.g. apimgr glcr api /projects/<id>/registry/repositories)"
+          __glcr_api GET "$sub" ;;
+        *)                    __apimgr_die "glcr: unknown action '$action'. Try: verify|repo|tag|api" ;;
+      esac ;;
     harbor)
       case "$action" in
         verify)               __harbor_verify ;;
@@ -3704,7 +3853,7 @@ __apimgr_dispatch_provider() {
     "")
       __apimgr_die "no provider specified — try: apimgr <provider> <action>, or run apimgr --help" ;;
     *)
-      __apimgr_die "unknown provider '$provider'. Supported: github gitlab gitea forgejo codeberg gitee pagure sourcehut onedev bitbucket docker ghcr harbor quay cloudsmith artifactory nexus" ;;
+      __apimgr_die "unknown provider '$provider'. Supported: github gitlab gitea forgejo codeberg gitee pagure sourcehut onedev bitbucket docker ghcr glcr harbor quay cloudsmith artifactory nexus" ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3773,7 +3922,7 @@ GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,force,"
 LONGOPTS+="repo:,user:,org:,token:,official,title:,body:,state:,limit:,branch:,base:,tag:,format:,visibility:,api,provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut onedev bitbucket docker ghcr harbor quay cloudsmith artifactory nexus verify user org repo issue pr release tag image api"
+ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut onedev bitbucket docker ghcr glcr harbor quay cloudsmith artifactory nexus verify user org repo issue pr release tag image api"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -3957,7 +4106,7 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 # Top-level form: `apimgr <action> [sub]` auto-detects provider from git remote / APIMGR_DEFAULT_PROVIDER.
 # Provider form:  `apimgr <provider> <action> [sub]` is explicit.
 case "$1" in
-github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|onedev|bitbucket|docker|ghcr|harbor|quay|cloudsmith|artifactory|jfrog|nexus|sonatype)
+github|gitlab|gitea|forgejo|codeberg|gitee|pagure|sourcehut|sr.ht|srht|onedev|bitbucket|docker|ghcr|glcr|harbor|quay|cloudsmith|artifactory|jfrog|nexus|sonatype)
   provider="$1"; action="${2:-}"; sub="${3:-}"
   [ -n "$action" ] || __apimgr_die "apimgr $provider: action required (verify|user|org|repo|issue|api). See --help."
   shift 3 2>/dev/null || shift 2 2>/dev/null || shift 1 2>/dev/null || true

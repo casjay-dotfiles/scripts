@@ -339,246 +339,6 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 
 ---
 
-## 📦 apimgr — Multi-Provider API Client (SPEC)
-
-`bin/apimgr` is a single-binary REST client across 18 git forges and container/artifact registries. Think of it as `gh` but for everything. This SPEC is **the contract** — implementation details may move, but these rules don't change without explicit user approval.
-
-### Mission
-
-Provide a uniform `apimgr <provider> <action> [sub] [flags]` surface across:
-- Git forges (where the conceptual model is repo / issue / pr / release / tag)
-- Container & artifact registries (where the conceptual model is repo / tag)
-
-When the provider is omitted (`apimgr <action> ...`), auto-detect from the cwd's `git remote get-url origin`, falling back to `APIMGR_DEFAULT_PROVIDER`.
-
-### Architecture Principles
-
-1. **No hardcoded endpoints.** URLs come from the user's environment. The script knows the *shape* of each provider's API; the user supplies the *where*.
-2. **Functions for every reusable bit.** Auth, formatting, pagination, URL building — each in a named helper. No copy-paste.
-3. **No UUOC, minimize forks.** Every external command call has to justify itself; bash builtins win when the result is the same. (See "Bash Performance" section above for the full rule list.)
-4. **Single curl wrapper.** Every API call goes through a thin `__<provider>_curl` that composes the right auth header and delegates to the shared `__apimgr_curl` for timeouts/retries:
-   ```
-   __apimgr_curl() { curl -q -LSsf --max-time "${APIMGR_API_TIMEOUT:-10}" --retry "${APIMGR_API_RETRY:-1}" "$@"; }
-   ```
-5. **Anonymous-first.** Public reads work without a token; auth is unlocked behavior, not the gatekeeper.
-6. **Pagination is invisible.** A user-facing `list` returns *all* matching records (capped by `--limit`). The script loops `?page=N` (or cursor / Link-header) internally.
-
-### Resolver Chains (env-var-only mapping)
-
-**URL** — default mode:
-```
-APIMGR_<P>_URL  →  <P>_API_URL
-```
-
-**URL** — with `--official`:
-```
-APIMGR_<P>_OFFICIAL_URL  →  <P>_OFFICIAL_API_URL  →  default-mode chain
-```
-
-If only `<P>_API_URL` is set, both modes use it. Add `<P>_OFFICIAL_API_URL` only when self-host and public differ.
-
-**Token** — base chain:
-```
---token  →  APIMGR_<P>_TOKEN  →  <P>_ACCESS_TOKEN  →  <P>_TOKEN
-```
-
-**Token** — provider-specific aliases (matches established community env-var conventions, so a fresh user with a normal shell rc Just Works):
-
-| Provider | Extra token env vars (in priority order) |
-|---|---|
-| github | `GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_PAT` |
-| gitlab | `GITLAB_TOKEN`, `CI_JOB_TOKEN` |
-| gitea | `GITEA_TOKEN` |
-| docker | `DOCKER_HUB_API_KEY`, `DOCKER_PASSWORD` |
-| bitbucket | `BITBUCKET_APP_PASSWORD` |
-| cloudsmith | `CLOUDSMITH_API_KEY` |
-| artifactory | `JFROG_ACCESS_TOKEN`, `JFROG_TOKEN` |
-| nexus | (Basic auth — needs `NEXUS_USERNAME` too) |
-
-**Username** — for self-listing fallbacks and Basic auth:
-```
-APIMGR_<P>_USERNAME  →  <P>_USERNAME
-```
-
-### Auth Model — Anonymous First, Token Unlocks
-
-Three states for any API call:
-
-| State | URL set? | Token set? | Behavior |
-|---|---|---|---|
-| **Configured** | yes | yes | Full access — private + public, mutations OK, higher rate limits |
-| **Anonymous** | yes | no | Public reads work; mutations error with friendly token-setup hint |
-| **Unconfigured** | no | — | Hard fail with explicit "set `<P>_API_URL` or `APIMGR_<P>_URL`" message |
-
-`__apimgr_require_url` (mandatory always) and `__apimgr_provider_token` (optional, returns empty if unset) replace the old `__apimgr_require_creds`. Per-provider curl wrappers conditionally include the auth header:
-```
-__github_curl() {
-  local token auth=()
-  token="$(__apimgr_provider_token github 2>/dev/null)"
-  [ -n "$token" ] && auth=(-H "Authorization: Bearer $token")
-  __apimgr_curl "${auth[@]}" -H "Accept: application/vnd.github+json" "$@"
-}
-```
-
-**Mutations always require a token.** `repo create`, `repo delete`, `issue create`, `pr merge`, `tag delete`, etc. call a new `__apimgr_require_token <provider>` helper that fast-fails with the missing-token UX (see below) before any socket opens.
-
-**Token-set behavior** — when the token resolves, listings show **everything the token can see**: private repos in `repo list`, draft issues, member-only orgs, etc. No flag needed; auth carries the access.
-
-### Missing-Token UX
-
-When a token is required but not set, the error message must:
-1. Name the missing env var (the canonical one + standard alias)
-2. Provide the **token-generation URL** for that provider
-3. Tell the user where to put the token (env var or `settings.conf`)
-
-Token-generation URLs (the script must include the right one for each provider — keep this table updated when providers change their settings UI):
-
-| Provider | URL to generate token |
-|---|---|
-| github | `https://github.com/settings/personal-access-tokens` (fine-grained) or `/settings/tokens` (classic) |
-| gitlab | `https://gitlab.com/-/user_settings/personal_access_tokens` (or `<host>/-/user_settings/...` for self-host) |
-| gitea / forgejo | `<host>/user/settings/applications` |
-| codeberg | `https://codeberg.org/user/settings/applications` |
-| gitee | `https://gitee.com/profile/personal_access_tokens` |
-| pagure | `<host>/settings#nav-api-tab` |
-| sourcehut | `https://meta.sr.ht/oauth2/personal-token` (or `<meta-host>/oauth2/personal-token`) |
-| onedev | `<host>/~administration/access-tokens` |
-| bitbucket | `https://bitbucket.org/account/settings/app-passwords/` |
-| docker | `https://hub.docker.com/settings/security` |
-| ghcr | `https://github.com/settings/tokens` (needs `read:packages` / `write:packages` / `delete:packages` scopes) |
-| glcr | `https://gitlab.com/-/user_settings/personal_access_tokens` (needs `read_registry` / `write_registry` scopes) |
-| harbor | `<host>/account` |
-| quay | `https://quay.io/user/<user>?tab=settings` |
-| cloudsmith | `https://cloudsmith.io/user/settings/api/` |
-| artifactory | `<host>/ui/admin/security/access-tokens` (admin) or User Profile (self) |
-| nexus | `<host>/#user/usertoken` |
-
-Friendly error template:
-```
-github: 'repo create' requires a token (mutations always need auth).
-  → Generate one at: https://github.com/settings/personal-access-tokens
-  → Set GITHUB_ACCESS_TOKEN, APIMGR_GITHUB_TOKEN, or GITHUB_TOKEN in your shell rc
-  → Or add APIMGR_GITHUB_TOKEN="..." to ~/.config/myscripts/apimgr/settings.conf
-  → Or pass --token <X> for one invocation
-```
-
-### Pagination — Internal Loop, Single User-Facing Call
-
-The user-facing API never exposes page numbers. `list` returns **everything** that matches, capped by `--limit N` (default 30 per `APIMGR_DEFAULT_LIMIT`).
-
-Implementation pattern (per-provider helper since pagination dialects differ):
-```
-# github / gitea / gitlab (page+per_page style):
-__<p>_paginated_get() {
-  local path="$1" per_page=100 page=1 collected="[]"
-  while :; do
-    local sep="?"; [[ "$path" == *"?"* ]] && sep="&"
-    local resp; resp="$(__<p>_api GET "${path}${sep}per_page=${per_page}&page=${page}")" || return 1
-    local count; count="$(__apimgr_jq 'length' <<<"$resp")"
-    [ "${count:-0}" -gt 0 ] || break
-    collected="$(__apimgr_jq -s 'add' <<<"$collected $resp")"
-    [ "$count" -lt "$per_page" ] && break
-    page=$((page + 1))
-    # Honor --limit as a global cap to avoid unbounded loops on huge repos.
-    [ "$(__apimgr_jq 'length' <<<"$collected")" -ge "${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" ] && break
-  done
-  __apimgr_jq --argjson n "${APIMGR_LIMIT:-${APIMGR_DEFAULT_LIMIT:-30}}" '.[0:$n]' <<<"$collected"
-}
-```
-
-Pagination dialects per provider (use the right helper per family):
-- **page + per_page**: github, gitea/forgejo/codeberg, gitee, gitlab, glcr
-- **pagelen + page**: bitbucket
-- **page_size + page**: cloudsmith, harbor, docker (Hub returns `next` URL)
-- **count + offset**: onedev
-- **next URL in response**: docker Hub, sourcehut (RFC 5988 Link header on git.sr.ht)
-- **flat (no pagination needed)**: artifactory `/repositories`, nexus `/repositories`, pagure `/projects` (uses `?per_page` natively)
-
-`--limit N` is a hard cap on the total returned count, not a per-page setting. The internal `per_page` is set as high as the provider allows (typically 100) to minimize API calls.
-
-### Provider Matrix (18)
-
-**Forges** — git-style surface (verify/user/org/repo/issue/pr/release/tag/api):
-
-| Provider | Aliases | Auth | URL pattern | Notes |
-|---|---|---|---|---|
-| github | — | Bearer | `api.github.com` or Enterprise | reference impl |
-| gitlab | — | PRIVATE-TOKEN | `gitlab.com/api/v4` or self-host | URL-encoded paths |
-| gitea | — | `Authorization: token X` | self-host `/api/v1` | base for forgejo/codeberg |
-| forgejo | — | (gitea code path) | self-host | |
-| codeberg | — | (gitea code path) | `codeberg.org/api/v1` | |
-| gitee | — | `Authorization: token X` | `gitee.com/api/v5` | github-shaped, create-issue quirk |
-| pagure | — | `Authorization: token X` | `pagure.io/api/0` | form-encoded creates, capitalized states |
-| sourcehut | sr.ht, srht | Bearer | `meta.sr.ht/api` | multi-service (meta/git/todo/lists) |
-| onedev | — | Bearer | self-host `/~api` | numeric project IDs, name→id resolver |
-| bitbucket | — | Bearer | `api.bitbucket.org/2.0` | no release API; pr close = decline |
-
-**Registries** — registry-style surface (verify/user/org/repo/tag/api):
-
-| Provider | Aliases | Auth | URL pattern | Notes |
-|---|---|---|---|---|
-| docker | — | JWT login | `hub.docker.com/v2` | login flow → JWT cached per invocation |
-| ghcr | — | Bearer | `api.github.com` | rides on github's API; `/packages/container/*` |
-| glcr | — | PRIVATE-TOKEN | (gitlab API URL) | rides on gitlab; falls back to GITLAB_* creds |
-| harbor | — | Basic / Bearer | self-host `/api/v2.0` | project + repo_name model, slash encoding |
-| quay | — | Bearer | `quay.io/api/v1` | namespace + repo |
-| cloudsmith | — | `X-Api-Key` | `api.cloudsmith.io/v1` | multi-format SaaS, slug_perm tags |
-| artifactory | jfrog | Bearer | self-host `/artifactory/api` | flat repo keys, dual /api+root paths |
-| nexus | sonatype | Basic / Bearer | self-host `/service/rest/v1` | components = tags, flat repo names |
-
-### Action Surface
-
-**Common (all providers where applicable):**
-- `verify` — confirm the token works (or, when anon-only, confirm the URL is reachable)
-- `user [get]` — current user (or `--user NAME` for another)
-- `org [get|all]` — org info / list every repo in the org
-- `repo [list|get|create|delete|all]` — primary CRUD
-- `api PATH` — raw GET against an arbitrary path (escape hatch)
-
-**Forge-only:**
-- `issue [list|get N|create|close N|comment N]` — `--state open|closed|all`, `--title`, `--body`
-- `pr [list|get N|create|merge N|close N]` — `--branch SOURCE`, `--base TARGET`, `--title`, `--body`. Aliases: `pull`, `pulls`, `mr`
-- `release [list|get TAG|create|delete TAG]` — `--tag NAME`, `--title`, `--body`, `--branch` (target ref)
-- `tag [list|get TAG|create|delete TAG]` — git tags. `--tag NAME`, `--branch SHA-or-branch`, `--body`
-
-**Registry-only:**
-- `tag [list|get TAG|delete TAG]` — image tags. `--repo NAMESPACE/NAME`, `--tag NAME`. (No `create` — tags are made on `docker push`.)
-
-When an action doesn't apply to a provider (e.g. `release` on bitbucket, `issue` on docker), the dispatcher prints a friendly platform-explanation message rather than a generic "not implemented" — see existing per-provider examples in the script.
-
-### Auto-Detect from `git remote`
-
-`__apimgr_detect_provider_from_git` parses `git remote get-url origin` and matches the host:
-
-```
-github.com   → github     pagure.io   → pagure
-gitlab.com   → gitlab     sr.ht       → sourcehut
-codeberg.org → codeberg   sourcehut.* → sourcehut
-bitbucket.org→ bitbucket  *gitea*     → gitea
-gitee.com    → gitee      *forgejo*   → forgejo
-```
-
-Self-host hostnames map via `APIMGR_GIT_HOST_<host>_PROVIDER` (dots → underscores), e.g. `APIMGR_GIT_HOST_git_corp_example_PROVIDER=gitea`.
-
-### Adding a New Provider
-
-To add provider `foo`:
-
-1. Add `__foo_curl` (auth header composition), `__foo_api` (method/path/data), provider-specific formatters as needed.
-2. Add action functions: `__foo_verify`, `__foo_user_get`, `__foo_repo_list`, etc.
-3. Add `foo` to `ARRAY=` and `LONGOPTS` if it adds any new flags.
-4. Add `foo` to the top-level `case "$1"` (so the dispatcher recognizes it).
-5. Add a `foo)` branch to `__apimgr_dispatch_provider`.
-6. Add a line to the `__help` providers list with the env var names.
-7. If the provider has a recognizable host pattern, extend `__apimgr_detect_provider_from_git`.
-8. Add the provider to the resolver chain documentation in this SPEC, including its token-generation URL.
-9. Update `man/apimgr.1` and `completions/_apimgr_completions.bash` to match.
-10. Bump version in all three files (`bin`, `man`, `completion`).
-
-Use `__github_*` (full surface) and `__docker_*` (registry-only with auth flow) as templates.
-
----
-
 ## 📖 Session History
 
 ### Session 2025-01-24: Git Log Enhancements & AI Workflow
@@ -768,11 +528,21 @@ gitcommit diff
 ## 📌 Important Notes
 
 ### File Management
-- **AI.md** - This file, always in sync, master context
-- **AI.TODO.md** - Temporary task tracker, created when needed, deleted when done
-- **CLAUDE.md** - Development notes and project standards (reference)
-- **TODO.md** - User's general project TODO (not AI-specific)
-- **.git/COMMIT_MESS** - Commit message staging, created by AI, cleaned by gitcommit
+
+**Project-level (governance, always present):**
+- **AI.md** — This file. Project rules, workflows, code standards, session history. Source of truth. Project-specific only — no per-script SPECs here.
+- (the pointer-file at repo root) — thin redirect at AI.md so the harness has a small loadable reference. Do not duplicate AI.md content there.
+
+**Script-level / work-in-progress** — see below for empty-when-done convention:
+- **TODO.AI.md** — AI's TODO list for in-flight script-level work
+- **PLAN.AI.md** — AI's plan file (architectural design before code)
+- **PLAN.md** — human-written plan; AI reads + executes on it
+- **TODO.md** — general project TODO; AI can pick up tasks from it
+
+**Empty-when-done convention** (for the four script-level files above): an empty file means "no work in progress here." A file with content means "this work is queued / being done." Don't delete the file — empty *signals* "nothing outstanding" while the file's existence keeps it discoverable. AI marks AI-side files (TODO.AI.md, PLAN.AI.md) empty after committing; humans empty PLAN.md / TODO.md when confirming completion.
+
+**Commit staging:**
+- **.git/COMMIT_MESS** — commit message staging, created by AI, cleaned by gitcommit after a successful commit
 
 ### Keep in Sync
 This AI.md file should be updated:

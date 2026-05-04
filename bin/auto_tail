@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605041300-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Sep 01, 2023 12:34 EDT
 # @@File             :  auto_tail
 # @@Description      :  Dynamic log monitor that auto-tails files and adapts to new additions
-# @@Changelog        :  Fixed xargs syntax, undefined variables, and improved directory handling
+# @@Changelog        :  Fix kill logic, default log dir, array handling, add --lines option
 # @@TODO             :  Add support for file patterns, color-coded output per file
 # @@Other            :  Monitors up to 5 levels deep, auto-restarts on file additions
 # @@Resource         :  Uses tail --follow=name for persistent monitoring
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202602020740-git"
+VERSION="202605041300-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -185,12 +185,14 @@ EOF
 # Help function - Align to 50
 __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "auto_tail:  - $VERSION"
+  __printf_opts "auto_tail:  Dynamic log monitor - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: auto_tail [options] [commands]"
+  __printf_line "Usage: auto_tail [options] [dir1] [dir2] ..."
+  __printf_line "Monitors directories (up to 5 levels deep) and tails all files."
+  __printf_line "Auto-restarts tail when new files are added. Defaults to $AUTO_TAIL_DEFAULT_LOG_DIR."
   __printf_line " - "
-  __printf_line " - "
-  __printf_line "--dir                           - Sets the working directory"
+  __printf_line "--dir [path]                    - Add a directory to monitor"
+  __printf_line "--lines [N]                     - Show last N lines of each file on start (default: 10)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -310,13 +312,15 @@ __no_options_function() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-__get_files() { find $AUTO_TAIL_BASE_DIR -maxdepth 5 -type f 2>/dev/null; }
-__get_count() { find $AUTO_TAIL_BASE_DIR -maxdepth 5 -type f 2>/dev/null | wc -l; }
+__get_files() { find "${AUTO_TAIL_BASE_DIRS[@]}" -maxdepth 5 -type f 2>/dev/null; }
+__get_count() { __get_files | wc -l; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_thread() {
-  printf_cyan "Following logs in $AUTO_TAIL_NAME" && sleep 1
-  local files="$(__get_files)"
-  tail --follow=name --retry $files 2>/dev/null &
+  printf_cyan "Following logs in ${AUTO_TAIL_NAME[*]}" && sleep 1
+  local -a _files
+  readarray -t _files < <(__get_files)
+  [ ${#_files[@]} -eq 0 ] && return
+  tail --follow=name --retry -n "${AUTO_TAIL_LINES:-10}" "${_files[@]}" 2>/dev/null &
   THREAD_PID=$!
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -336,7 +340,7 @@ AUTO_TAIL_EXIT_STATUS=0
 AUTO_TAIL_CONFIG_DIR="${AUTO_TAIL_CONFIG_DIR:-$HOME/.config/myscripts/auto_tail}"
 AUTO_TAIL_CONFIG_BACKUP_DIR="${AUTO_TAIL_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/auto_tail/backups}"
 AUTO_TAIL_LOG_DIR="${AUTO_TAIL_LOG_DIR:-$HOME/.local/log/auto_tail}"
-AUTO_TAIL_RUN_DIR="${AUTO_TAIL_RUN_DIR:-$HOME/.local/run/system_scripts/$AUTO_TAIL_SCRIPTS_PREFIX}"
+AUTO_TAIL_RUN_DIR="${AUTO_TAIL_RUN_DIR:-$HOME/.local/run/system_scripts/auto_tail}"
 AUTO_TAIL_TEMP_DIR="${AUTO_TAIL_TEMP_DIR:-$HOME/.local/tmp/system_scripts/auto_tail}"
 AUTO_TAIL_CACHE_DIR="${AUTO_TAIL_CACHE_DIR:-$HOME/.cache/auto_tail}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -361,7 +365,8 @@ AUTO_TAIL_NOTIFY_CLIENT_ICON="${AUTO_TAIL_NOTIFY_CLIENT_ICON:-notification-new}"
 AUTO_TAIL_NOTIFY_CLIENT_URGENCY="${AUTO_TAIL_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-AUTO_TAIL_DEFAULT_LOG_DIR="${AUTO_TAIL_DEFAULT_LOG_DIR:-$HOME/.local/log/buildx}"
+AUTO_TAIL_DEFAULT_LOG_DIR="${AUTO_TAIL_DEFAULT_LOG_DIR:-$HOME/.local/log}"
+AUTO_TAIL_LINES="${AUTO_TAIL_LINES:-10}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$AUTO_TAIL_CONFIG_DIR/$AUTO_TAIL_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -405,7 +410,7 @@ SETARGS=("$@")
 SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force,no-*"
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force,lines:,no-*"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
@@ -499,6 +504,10 @@ while :; do
     shift 1
     AUTO_TAIL_FORCE="true"
     ;;
+  --lines)
+    AUTO_TAIL_LINES="${2:-10}"
+    shift 2
+    ;;
   --dir)
     CWD_IS_SET="TRUE"
     AUTO_TAIL_CWD="$2"
@@ -553,20 +562,21 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 AUTO_TAIL_GET_PATTERN=
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
+AUTO_TAIL_BASE_DIRS=()
+AUTO_TAIL_NAME=()
 for dir in "$@"; do
-  AUTO_TAIL_GET_PATTERN+="$dir,"
-  AUTO_TAIL_NAME+=("${dir##*/}")
   if [ ! -d "$dir" ]; then
-    echo "DIR $dir does not exist, waiting for it..."
-    while [ ! -d "$dir" ]; do
-      sleep 2
-    done
-    echo "DIR $dir is now online"
+    printf_yellow "DIR $dir does not exist, waiting for it..."
+    while [ ! -d "$dir" ]; do sleep 2; done
+    printf_green "DIR $dir is now online"
   fi
+  AUTO_TAIL_BASE_DIRS+=("$dir")
+  AUTO_TAIL_NAME+=("${dir##*/}")
 done
+[ ${#AUTO_TAIL_BASE_DIRS[@]} -eq 0 ] && AUTO_TAIL_BASE_DIRS=("$AUTO_TAIL_DEFAULT_LOG_DIR") && AUTO_TAIL_NAME=("${AUTO_TAIL_DEFAULT_LOG_DIR##*/}")
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 AUTO_TAIL_NAME=("$(printf '%s\n' "${AUTO_TAIL_NAME[@]}" | sort -u | tr '\n' ' ')")
-AUTO_TAIL_BASE_DIR="${AUTO_TAIL_GET_PATTERN//,/ }"
+AUTO_TAIL_BASE_DIR="${AUTO_TAIL_BASE_DIRS[*]}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables
 OLD_NUM_OF_FILES=$(__get_count)
@@ -584,7 +594,8 @@ while true; do
   NUM_FILES=$(__get_count)
   if [ $NUM_FILES -ne $OLD_NUM_OF_FILES ]; then
     OLD_NUM_OF_FILES=$NUM_FILES
-    kill -HUP $THREAD_PID >/dev/null 2>&1
+    kill "$THREAD_PID" 2>/dev/null
+    wait "$THREAD_PID" 2>/dev/null
     __run_thread
   fi
   sleep 1

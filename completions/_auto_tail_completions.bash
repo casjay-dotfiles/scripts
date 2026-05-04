@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605041300-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -50,7 +50,7 @@ _auto_tail_completion() {
   SHORTOPTS=""
   SHORTOPTS+=""
   #####################################################################
-  LONGOPTS="--completions --config --debug --dir --help --options --raw --version --silent --force --no- "
+  LONGOPTS="--completions --config --debug --dir --help --lines --options --raw --version --silent --force --no- "
   LONGOPTS+=""
   #####################################################################
   #NOOPTS="--no-* "
@@ -87,6 +87,9 @@ _auto_tail_completion() {
     --no-*)
       COMPREPLY=($(compgen -W '${NOOPTS}' -- "$cur"))
       return 0
+      ;;
+    --lines)
+      COMPREPLY=($(compgen -W '10 20 50 100' -- "$cur"))
       ;;
     --dir)
       prev="dir"

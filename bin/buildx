@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605040349-git
+##@Version           :  202605041100-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 21:22 EDT
 # @@File             :  buildx
 # @@Description      :  Docker buildx wrapper
-# @@Changelog        :  Auto-migrate legacy .env.scripts variables
+# @@Changelog        :  Fix silent output, Ctrl+C handling, UUOC cleanup
 # @@TODO             :  Refactor code: clean up arguments and variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605040349-git"
+VERSION="202605041100-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -403,6 +403,12 @@ __trap_exit_local() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_int() {
+  printf '\n'
+  printf_yellow "Build interrupted"
+  exit 130
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_timer() {
   local retval=$?
   __cmd_exists bc || return $retval
@@ -429,29 +435,29 @@ __complete_url() {
   local default_tag="${BUILDX_DEFAULT_VERSION:-latest}"
 
   # Parse the input URL into components
-  if echo "$input_url" | grep -q ':'; then
+  if [[ "$input_url" == *":"* ]]; then
     # Has tag portion
-    registry="$(echo "$input_url" | cut -d'/' -f1)"
+    registry="${input_url%%/*}"
     tag="${input_url##*:}"
     input_url="${input_url%:*}"
   else
     # No tag, will add default
-    registry="$(echo "$input_url" | cut -d'/' -f1)"
+    registry="${input_url%%/*}"
   fi
 
   # Count path components after registry
-  path_components="$(echo "${input_url#*/}" | tr '/' '\n' | wc -l)"
+  path_components="$(tr '/' '\n' <<<"${input_url#*/}" | wc -l)"
 
   case "$path_components" in
   1)
     # registry.com/namespace -> add image and tag
-    namespace="$(echo "$input_url" | cut -d'/' -f2)"
+    local _rest1="${input_url#*/}"; namespace="${_rest1%%/*}"
     image="$default_image"
     ;;
   2)
     # registry.com/namespace/image -> add tag only
-    namespace="$(echo "$input_url" | cut -d'/' -f2)"
-    image="$(echo "$input_url" | cut -d'/' -f3)"
+    local _rest2="${input_url#*/}"; namespace="${_rest2%%/*}"
+    local _rest3="${_rest2#*/}"; image="${_rest3%%/*}"
     ;;
   0)
     # registry.com -> add namespace, image, and tag
@@ -911,7 +917,7 @@ __get_dockerfile_ver() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_all() {
-  trap 'exit' SIGINT
+  trap '__trap_int' INT TERM
   local exitCode=0
   export BUILDX_ADD_TAG=""
   export ENV_IMAGE_TAG=""
@@ -957,7 +963,7 @@ __run_all() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_run() {
-  trap 'exit' SIGINT
+  trap '__trap_int' INT TERM
   local exitCode=0
   __wait_for_previous_build
   __create_log_files
@@ -1069,9 +1075,9 @@ __docker_init() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker_push() {
-  __docker push "$tagged_name" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null ||
-    __docker push "$tagged_name" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null ||
-    __docker push "$tagged_name" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null && true
+  __docker push "$tagged_name" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" ||
+    __docker push "$tagged_name" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" ||
+    __docker push "$tagged_name" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" && true
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1345,7 +1351,7 @@ __run_docker_script() {
   fi
   sleep 2
   printf 'Executing: %s\n' "$set_build_command" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
-  eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null || false
+  eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" || false
   return $?
 
 }
@@ -1371,7 +1377,7 @@ __run_dockermgr_script() {
   fi
   sleep 2
   printf 'Executing: %s\n' "$build_command" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
-  eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null || false
+  eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" || false
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1380,7 +1386,7 @@ __run_buildx_script() {
     printf_yellow "Using legacy docker build (buildx not available)"
     set_build_command="$BUILDX_DOCKER_CMD build,, $DOCKER_BUILD_ARGS,, --rm --pull,, --no-cache,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile} && $BUILDX_DOCKER_CMD push $tagged_name"
   else
-    set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, $DOCKER_BUILD_ARGS,, $DOCKER_ANNOTATIONS,, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --pull --push,, --no-cache --progress auto --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
+    set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, $DOCKER_BUILD_ARGS,, $DOCKER_ANNOTATIONS,, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --pull --push,, --no-cache --progress plain --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
   fi
   set_build_command="${set_build_command//  / }"
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
@@ -1403,7 +1409,7 @@ __run_buildx_script() {
   local build_exit_code=1
   
   while [ $retry_count -le $max_retries ]; do
-    if eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null; then
+    if eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE"; then
       # Success
       build_exit_code=0
       break
@@ -1420,7 +1426,7 @@ __run_buildx_script() {
           
           # For retry, use cache to avoid full rebuild - remove --no-cache and --pull for faster retry
           if [ "$retry_count" -gt 1 ]; then
-            set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, $DOCKER_BUILD_ARGS,, $DOCKER_ANNOTATIONS,, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --push,, --progress auto --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
+            set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, $DOCKER_BUILD_ARGS,, $DOCKER_ANNOTATIONS,, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --push,, --progress plain --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
             set_build_command="${set_build_command//  / }"
             set_build_command="${set_build_command//,,/}"
             printf_cyan "Using cached layers for retry (removed --no-cache --pull)"
@@ -1455,7 +1461,7 @@ __run_build_script() {
   fi
   sleep 2
   printf 'Executing: %s\n' "$set_build_command" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
-  eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null || false
+  eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" || false
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1506,24 +1512,24 @@ __parse_dockerfile_labels() {
   # Parse LABEL instructions from Dockerfile, handling multi-line LABELs with backslash
   while IFS= read -r line; do
     # Remove leading/trailing whitespace
-    line="$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    
+    line="$(sed 's/^[[:space:]]*//;s/[[:space:]]*$//' <<<"$line")"
+
     # Check if this is a LABEL line or continuation
-    if echo "$line" | grep -q '^LABEL '; then
+    if [[ "$line" == "LABEL "* ]]; then
       # Start of new LABEL, process any accumulated label first
       if [ "$in_label" = true ] && [ -n "$label_accumulator" ]; then
         eval "$(__process_label_content "$label_accumulator" "$_IMAGE_NAME" "$_BUILD_DATE" "$_BUILD_VERSION" "$_LICENSE" "$_GIT_COMMIT")"
       fi
       # Start accumulating new label
-      label_accumulator="$(echo "$line" | sed 's/^LABEL //')"
+      label_accumulator="${line#LABEL }"
       in_label=true
     elif [ "$in_label" = true ]; then
       # Continuation line - append to accumulator
       label_accumulator+=" $line"
     fi
-    
+
     # Check if line ends with backslash (continuation)
-    if echo "$line" | grep -q '\\$'; then
+    if [[ "$line" == *\\ ]]; then
       # Remove trailing backslash and continue accumulating
       label_accumulator="${label_accumulator%\\}"
       continue
@@ -1638,7 +1644,7 @@ __run_docker_build() {
           SET_ADD_HOST+=("-t $host/$namespace/$image_name ")
         fi
       else
-        namespace="$(echo $(basename $(dirname "$BUILDX_CWD")))"
+        local _cwdparent="${BUILDX_CWD%/*}"; namespace="${_cwdparent##*/}"
         __tag_versions "$host/$namespace/$image_name"
         SET_ADD_HOST+=("-t $host/$namespace/$image_name ")
       fi
@@ -2112,6 +2118,7 @@ BUILDX_TEMP_FILE="${BUILDX_TEMP_FILE:-$(mktemp $BUILDX_TEMP_DIR/XXXXXX 2>/dev/nu
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
 trap '__trap_exit;exit $?' EXIT
+trap '__trap_int' INT TERM
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
 __notifications() {

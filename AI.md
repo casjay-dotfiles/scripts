@@ -1365,4 +1365,46 @@ curl wrappers and a new shared `__<p>_paginated_get` helper.
 - `feedback_never_bash_x_on_auth_paths.md` — `set -x` exposes tokens
 
 
+---
+
+## Session 2026-05-04: buildx — fix silent output + Ctrl+C
+
+### Problem
+`buildx ~/Projects/github/dockersrc/go` ran for 3 hours with no visible
+output; user couldn't tell if it was working or hung, and Ctrl+C appeared
+unresponsive.
+
+### Root Cause
+Every build runner (`__run_buildx_script`, `__run_build_script`,
+`__run_docker_script`, `__run_dockermgr_script`) and `__docker_push` used:
+```bash
+eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
+```
+The trailing `&>/dev/null` redirected **tee's own stdout+stderr** to
+`/dev/null`. So tee correctly wrote to the log file, but the user's terminal
+received zero output for the entire build. This also masked Ctrl+C — the
+signal fired and cleaned up, but since there was no output the user could not
+tell anything had happened.
+
+### Fixes Applied
+
+1. **Remove `&>/dev/null` from all 5 build/push pipelines** — output now
+   goes to both the log file (via tee) and the terminal.
+2. **`--progress auto` → `--progress plain`** in `__run_buildx_script` —
+   `auto` uses TTY-detection; `plain` is reliable through pipes.
+3. **Add `__trap_int`** — prints "Build interrupted" and exits 130. Wired
+   globally (`trap '__trap_int' INT TERM`) and replaces the silent
+   `trap 'exit' SIGINT` in `__run_all` and `__buildx_run`.
+4. **UUOC fixes** (project standard):
+   - `__complete_url`: `echo "$x" | grep -q ':'` → `[[ "$x" == *":"* ]]`;
+     `echo "$x" | cut -d'/' -f1` → `${x%%/*}`; `cut -d'/' -f2` → `${x#*/}`
+   - `__parse_dockerfile_labels`: `echo | grep -q '^LABEL '` → `[[ == "LABEL "* ]]`;
+     `echo | grep -q '\\$'` → `[[ == *\\ ]]`; `echo | sed` → `<<< "$x"` form
+   - `__run_docker_build`: `echo $(basename $(dirname $BUILDX_CWD))` →
+     pure parameter expansion (`${x%/*}` + `${x##*/}`)
+
+### Files Modified
+- `bin/buildx` — all fixes above, version `202605041100-git`
+- `man/buildx.1` — version bump
+- `completions/_buildx_completions.bash` — version bump
 

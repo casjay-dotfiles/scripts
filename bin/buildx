@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605041600-git
+##@Version           :  202605041700-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605041600-git"
+VERSION="202605041700-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -928,7 +928,7 @@ __run_all() {
   export BUILDX_BUILD_ALL="${BUILDX_BUILD_ALL:-true}"
   export BUILDX_GIT_COMMIT_ID="${BUILDX_GIT_COMMIT_ID:-}"
   export ENV_BUILDX_PROJECT_DIR="$(dirname "$BUILDX_CWD")"
-  export BUILDX_CUSTOM_LOG_RUNALL_DIR="${BUILDX_CUSTOM_LOG_DIR:-$BUILDX_LOG_DIR}"
+  export BUILDX_CUSTOM_LOG_RUNALL_DIR="$BUILDX_LOG_DIR/${BUILDX_DEFAULT_REGISTRY:-docker.io}/${BUILDX_DEFAULT_ORG:-unknown}/${BUILDX_DEFAULT_REPO:-unknown}"
   export BUILDX_CUSTOM_LOG_RUNALL_FILE="$BUILDX_CUSTOM_LOG_RUNALL_DIR/build_all.log"
   #
   local errormess="Can not find a Dockerfile in $BUILDX_CWD"
@@ -1079,9 +1079,9 @@ __docker_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker_push() {
   local _push_cmd="$BUILDX_DOCKER_CMD push $tagged_name"
-  __logging_build "$_push_cmd" "$BUILDX_CUSTOM_LOG_FILE" ||
-    __logging_build "$_push_cmd" "$BUILDX_CUSTOM_LOG_FILE" ||
-    __logging_build "$_push_cmd" "$BUILDX_CUSTOM_LOG_FILE" && true
+  __logging_build "$_push_cmd" "$BUILDX_CUSTOM_LOG_FILE" "$BUILDX_CUSTOM_ERR_FILE" ||
+    __logging_build "$_push_cmd" "$BUILDX_CUSTOM_LOG_FILE" "$BUILDX_CUSTOM_ERR_FILE" ||
+    __logging_build "$_push_cmd" "$BUILDX_CUSTOM_LOG_FILE" "$BUILDX_CUSTOM_ERR_FILE" && true
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1335,10 +1335,9 @@ __buildx_status() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __logging_build() {
-  local cmd="$1" logfile="$2" errfile="${2%.log}.err"
-  mkdir -p "${logfile%/*}"
-  # stdout -> .log only; stderr -> .err + .log only; nothing to terminal
-  { eval "$cmd" 2> >(tee -a "$errfile" >> "$logfile"); } >> "$logfile"
+  local cmd="$1" logfile="$2" errfile="${3:-${2%.log}.err}"
+  mkdir -p "${logfile%/*}" "${errfile%/*}"
+  eval "$cmd" >> "$logfile" 2>> "$errfile"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1363,7 +1362,7 @@ __run_docker_script() {
   fi
   sleep 2
   printf 'Executing: %s\n' "$set_build_command" >> "$BUILDX_CUSTOM_LOG_FILE"
-  __logging_build "$set_build_command" "$BUILDX_CUSTOM_LOG_FILE" || false
+  __logging_build "$set_build_command" "$BUILDX_CUSTOM_LOG_FILE" "$BUILDX_CUSTOM_ERR_FILE" || false
   return $?
 
 }
@@ -1389,7 +1388,7 @@ __run_dockermgr_script() {
   fi
   sleep 2
   printf 'Executing: %s\n' "$build_command" >> "$BUILDX_CUSTOM_LOG_FILE"
-  __logging_build "$set_build_command" "$BUILDX_CUSTOM_LOG_FILE" || false
+  __logging_build "$set_build_command" "$BUILDX_CUSTOM_LOG_FILE" "$BUILDX_CUSTOM_ERR_FILE" || false
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1421,7 +1420,7 @@ __run_buildx_script() {
   local build_exit_code=1
   
   while [ $retry_count -le $max_retries ]; do
-    if __logging_build "$set_build_command" "$BUILDX_CUSTOM_LOG_FILE"; then
+    if __logging_build "$set_build_command" "$BUILDX_CUSTOM_LOG_FILE" "$BUILDX_CUSTOM_ERR_FILE"; then
       # Success
       build_exit_code=0
       break
@@ -1430,7 +1429,7 @@ __run_buildx_script() {
       retry_count=$((retry_count + 1))
       
       # Check if this looks like a push failure (build succeeded but push failed)
-      if tail -100 "$BUILDX_CUSTOM_LOG_FILE" 2>/dev/null | grep -qi "no active session\|context deadline\|failed to push"; then
+      if tail -100 "${BUILDX_CUSTOM_ERR_FILE:-$BUILDX_CUSTOM_LOG_FILE}" 2>/dev/null | grep -qi "no active session\|context deadline\|failed to push"; then
         if [ $retry_count -le $max_retries ]; then
           printf_yellow "Push failed due to session timeout, retrying in ${retry_delay}s (attempt $retry_count of $max_retries)..."
           printf '%s\n' "# Push failed, retrying in ${retry_delay}s (attempt $retry_count of $max_retries)" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
@@ -1473,7 +1472,7 @@ __run_build_script() {
   fi
   sleep 2
   printf 'Executing: %s\n' "$set_build_command" >> "$BUILDX_CUSTOM_LOG_FILE"
-  __logging_build "$set_build_command" "$BUILDX_CUSTOM_LOG_FILE" || false
+  __logging_build "$set_build_command" "$BUILDX_CUSTOM_LOG_FILE" "$BUILDX_CUSTOM_ERR_FILE" || false
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1718,7 +1717,7 @@ __build_cmd() {
     printf_yellow "The last 75 lines of the log are in:${CYAN} $errlog"
     printf_blue "Full log is in the logfile"
     echo "build failed on $(date +'%Y-%m-%d at %H:%M')" >>"$errlog"
-    tail -n75 "$BUILDX_CUSTOM_LOG_FILE" >>"$errlog"
+    tail -n75 "${BUILDX_CUSTOM_ERR_FILE:-$BUILDX_CUSTOM_LOG_FILE}" >>"$errlog"
   fi
   return ${exitCodeS:-$?}
 }
@@ -1853,11 +1852,13 @@ __execute_buildx() {
   local _log_repo="${_pt_rest##*/}"
   logfolder="$BUILDX_LOG_DIR/$_log_reg/$_log_org/$_log_repo"
   logfile="$logfolder/${tag_version:-latest}.log"
+  # err file is always per-dockerfile (never build_all.err)
+  BUILDX_CUSTOM_ERR_FILE="$logfolder/${tag_version:-latest}.err"
   logscript_dir="$BUILDX_CONFIG_DIR/scripts/$_log_org"
   logscript_file="$logscript_dir/$_log_repo-${tag_version}.sh"
   pretty_name="${set_tag/:*/}"
   if [ -n "$BUILDX_CUSTOM_LOG_RUNALL_DIR" ] && [ -n "$BUILDX_CUSTOM_LOG_RUNALL_FILE" ]; then
-    # When running 'buildx all', use the single shared log file
+    # When running 'buildx all', stdout aggregates into shared log; stderr still per-dockerfile
     logfile="$BUILDX_CUSTOM_LOG_RUNALL_FILE"
     logfolder="$BUILDX_CUSTOM_LOG_RUNALL_DIR"
   fi
@@ -1874,7 +1875,10 @@ __execute_buildx() {
   if __build_cmd "$FULL_DIR_PATH"; then
     notify_message+="Successfully built $set_tag $ADDITIONAL_PRETTY|"
     printf_green "Successfully built container: $set_tag $ADDITIONAL_PRETTY"
-    [ -f "$BUILDX_FAILED_LOG" ] && rm -Rf "$BUILDX_FAILED_LOG"
+    # Only remove .build_failed when not in 'all' mode; in 'all' mode it may belong to a different Dockerfile
+    [ "$BUILDX_BUILD_ALL" != "true" ] && [ -f "$BUILDX_FAILED_LOG" ] && rm -Rf "$BUILDX_FAILED_LOG"
+    # Remove .err on success — it only contains progress output, not actual errors
+    [ -f "$BUILDX_CUSTOM_ERR_FILE" ] && rm -f "$BUILDX_CUSTOM_ERR_FILE"
     if [ "$BUILDX_NO_PULL" != "no" ]; then
       printf '%bPulling the updated image%b: ' "${GREEN}" "${NC}"
       if __docker pull "$push_tag" &>/dev/null; then
@@ -1986,9 +1990,8 @@ __buildx_all() {
   [ "$BUILDX_FAILED_EXISTS" -eq 0 ] && export BUILDX_FAILED_EXISTS="false" || export BUILDX_FAILED_EXISTS="true"
   [ "$BUILDX_GEN_SCRIPT" = "true" ] && exit_message_good="Finished generating the build scripts" || exit_message_good="Finished building all Dockerfile in"
   [ "$BUILDX_GEN_SCRIPT" = "true" ] && exit_message_error="Finished generating the build scripts with errors" || exit_message_error="Building has failed with errors"
-  if [ $statusCode -eq 0 ] || [ "$BUILDX_FAILED_EXISTS" = "false" ]; then
+  if [ $statusCode -eq 0 ]; then
     printf_blue "$exit_message_good $search_dir"
-    statusCode=0
   else
     printf_red "$exit_message_error"
   fi
@@ -2585,6 +2588,7 @@ all)
 run)
   shift 1
   __run_all "$@"
+  exit $?
   ;;
 
 build)

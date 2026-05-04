@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605041100-git
+##@Version           :  202605041200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 21:22 EDT
 # @@File             :  buildx
 # @@Description      :  Docker buildx wrapper
-# @@Changelog        :  Fix silent output, Ctrl+C handling, UUOC cleanup
+# @@Changelog        :  Fix log path, init log, registry parser UUOC
 # @@TODO             :  Refactor code: clean up arguments and variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605041100-git"
+VERSION="202605041200-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -534,7 +534,7 @@ __set_variables() {
   export BUILDX_PID_NUMBER="$$"
   # Use PROJECT_ROOT for consistent naming (not CWD which might change)
   export name="${BUILDX_PROJECT_ROOT##*/}"
-  export org_name="$(basename $(dirname "$BUILDX_PROJECT_ROOT"))"
+  local _proj_parent="${BUILDX_PROJECT_ROOT%/*}"; export org_name="${_proj_parent##*/}"
   export DOCKER_PLATFORMS="$BUILDX_DOCKER_PLATFORMS"
   export BUILDX_EXPERIMENTAL="$BUILDX_DOCKER_BUILD_EXPERIMENTAL"
   export DOCKER_CLI_EXPERIMENTAL="$BUILDX_DOCKER_CLI_EXPERIMENTAL"
@@ -581,51 +581,52 @@ __set_variables() {
     # 2. org/repo - Docker Hub format (e.g., casjaysdev/myapp -> docker.io/casjaysdev/myapp)
     # 3. registry/org - Registry with org (e.g., ghcr.io/casjaysdev)
     # 4. registry - Registry only (e.g., ghcr.io)
-    if echo "$first_registry" | grep -q '/.*/.'; then
+    if [[ "$first_registry" == *"/"*"/"* ]]; then
       # Format: registry/org/repo OR org/repo
       # Detect if first component is a registry hostname (contains . or :)
-      local first_component="$(echo "$first_registry" | cut -d'/' -f1)"
-      if echo "$first_component" | grep -qE '\.|:'; then
+      local first_component="${first_registry%%/*}"
+      if [[ "$first_component" == *"."* || "$first_component" == *":"* ]]; then
         # Format: registry/org/repo (first component has . or : indicating a hostname)
         BUILDX_DEFAULT_REGISTRY="$first_component"
-        BUILDX_SET_ORG="$(echo "$first_registry" | cut -d'/' -f2)"
-        BUILDX_SET_IMAGE="$(echo "$first_registry" | cut -d'/' -f3)"
+        local _fr_rest="${first_registry#*/}"
+        BUILDX_SET_ORG="${_fr_rest%%/*}"
+        BUILDX_SET_IMAGE="${_fr_rest##*/}"
       else
         # Format: org/repo (Docker Hub assumed)
         BUILDX_DEFAULT_REGISTRY="docker.io"
-        BUILDX_SET_ORG="$(echo "$first_registry" | cut -d'/' -f1)"
-        BUILDX_SET_IMAGE="$(echo "$first_registry" | cut -d'/' -f2)"
+        BUILDX_SET_ORG="${first_registry%%/*}"
+        BUILDX_SET_IMAGE="${first_registry##*/}"
       fi
-    elif echo "$first_registry" | grep -q '/'; then
+    elif [[ "$first_registry" == *"/"* ]]; then
       # Format: registry/org OR org/repo (single slash)
-      local first_component="$(echo "$first_registry" | cut -d'/' -f1)"
-      if echo "$first_component" | grep -qE '\.|:'; then
+      local first_component="${first_registry%%/*}"
+      if [[ "$first_component" == *"."* || "$first_component" == *":"* ]]; then
         # Format: registry/org (first component has . or : indicating a hostname)
         BUILDX_DEFAULT_REGISTRY="$first_component"
-        BUILDX_SET_ORG="$(echo "$first_registry" | cut -d'/' -f2)"
-        # BUILDX_SET_IMAGE will use default from line 464 (basename of PROJECT_ROOT)
+        BUILDX_SET_ORG="${first_registry#*/}"
+        # BUILDX_SET_IMAGE will use default (basename of PROJECT_ROOT)
       else
         # Format: org/repo (Docker Hub assumed)
         BUILDX_DEFAULT_REGISTRY="docker.io"
-        BUILDX_SET_ORG="$(echo "$first_registry" | cut -d'/' -f1)"
-        BUILDX_SET_IMAGE="$(echo "$first_registry" | cut -d'/' -f2)"
+        BUILDX_SET_ORG="${first_registry%%/*}"
+        BUILDX_SET_IMAGE="${first_registry#*/}"
       fi
     else
       # Format: registry (hostname only)
       BUILDX_DEFAULT_REGISTRY="$first_registry"
-      # BUILDX_SET_ORG and BUILDX_SET_IMAGE will use defaults from lines 464-465
+      # BUILDX_SET_ORG and BUILDX_SET_IMAGE will use defaults
     fi
 
     # Store all registries for additional processing
     BUILDX_ADD_REGISTRY="$BUILDX_SET_REGISTRY"
     # Enable registry processing if multiple registries specified
-    if echo "$BUILDX_SET_REGISTRY" | grep -q ','; then
-      BUILDX_ENABLE_REGISTRY="true"
-    fi
+    [[ "$BUILDX_SET_REGISTRY" == *","* ]] && BUILDX_ENABLE_REGISTRY="true"
   fi
   BUILDX_GIT_REPO_USER="${BUILDX_SET_GIT_USER:-$BUILDX_GIT_REPO_USER}"
   BUILDX_PROJECT_DIR="${BUILDX_PROJECT_DIR:-$HOME/Projects/github/$BUILDX_DEFAULT_REPO}"
-  BUILDX_DEFAULT_VERSION="$(echo "${BUILDX_SET_VERSION:-$BUILDX_DEFAULT_VERSION}" | awk -F ' ' '{print $1}' | sed 's|"||g')"
+  local _ver="${BUILDX_SET_VERSION:-$BUILDX_DEFAULT_VERSION}"
+  _ver="${_ver%%[[:space:]]*}"; _ver="${_ver//\"/}"
+  BUILDX_DEFAULT_VERSION="$_ver"
   # Enable additional tag processing if tags are specified
   if [ -n "$BUILDX_VERSION_TAG" ]; then
     export BUILDX_ADD_TAG="true"
@@ -639,8 +640,8 @@ __set_variables() {
   [ -n "$BUILDX_SET_ORG" ] && export BUILDX_SET_ORG
   [ -n "$BUILDX_SET_GIT_USER" ] && export BUILDX_SET_GIT_USER
   BUILDX_SET_DEFAULT_VER="${BUILDX_SET_DEFAULT_VER:-$BUILDX_SET_VERSION}"
-  export BUILDX_CUSTOM_LOG_DIR="$BUILDX_LOG_DIR/$BUILDX_DEFAULT_REGISTRY/$BUILDX_DEFAULT_LOG_ORG/$BUILDX_DEFAULT_LOG_REPO"
-  export BUILDX_CUSTOM_LOG_FILE="$BUILDX_CUSTOM_LOG_DIR/${BUILDX_SET_DEFAULT_VER:-$name}.log"
+  export BUILDX_CUSTOM_LOG_DIR="$BUILDX_LOG_DIR"
+  export BUILDX_CUSTOM_LOG_FILE="$BUILDX_LOG_DIR/init.log"
   export BUILDX_PID_FILE="$HOME/.local/run/$APPNAME/${BUILDX_BUILDER_NAME_CUSTOM:-$BUILDX_BUILDER_NAME}.pid"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1833,19 +1834,21 @@ __execute_buildx() {
   tagged_name="${tagged_name//\/dockerfile/}"
   push_tag="$tagged_name:$tag_version"
   set_tag="${push_tag//$BUILDX_DEFAULT_REGISTRY\//}"
-  logfolder="${BUILDX_CUSTOM_LOG_DIR:-/$BUILDX_DEFAULT_REGISTRY/$BUILDX_DEFAULT_LOG_ORG/$BUILDX_DEFAULT_LOG_REPO}"
-  logfile="${BUILDX_CUSTOM_LOG_FILE:-$BUILDX_CUSTOM_LOG_DIR/$(echo "$tagged_name" | awk -F':' '{print $1}').log}"
-  logscript_dir="$BUILDX_CONFIG_DIR/scripts/$(echo "$tagged_name" | awk -F '/' '{print $(NF-1)}')"
-  logscript_file="$logscript_dir/$(echo "$tagged_name" | awk -F '/' '{print $NF}')-${tag_version}.sh"
+  # Derive log path from push destination: BUILDX_LOG_DIR/registry/org/repo/version.log
+  local _pt_base="${push_tag%:*}"
+  local _log_reg="${_pt_base%%/*}"
+  local _pt_rest="${_pt_base#*/}"
+  local _log_org="${_pt_rest%%/*}"
+  local _log_repo="${_pt_rest##*/}"
+  logfolder="$BUILDX_LOG_DIR/$_log_reg/$_log_org/$_log_repo"
+  logfile="$logfolder/${tag_version:-latest}.log"
+  logscript_dir="$BUILDX_CONFIG_DIR/scripts/$_log_org"
+  logscript_file="$logscript_dir/$_log_repo-${tag_version}.sh"
   pretty_name="${set_tag/:*/}"
-  log_file_tag_name="$(echo "$push_tag" | awk -F ':' '{print $2}' | grep '^' || echo '')"
   if [ -n "$BUILDX_CUSTOM_LOG_RUNALL_DIR" ] && [ -n "$BUILDX_CUSTOM_LOG_RUNALL_FILE" ]; then
     # When running 'buildx all', use the single shared log file
     logfile="$BUILDX_CUSTOM_LOG_RUNALL_FILE"
     logfolder="$BUILDX_CUSTOM_LOG_RUNALL_DIR"
-  elif [ -n "$log_file_tag_name" ]; then
-    # For individual builds, use tag-specific log files
-    logfile="$logfolder/$log_file_tag_name.log"
   fi
   BUILDX_CUSTOM_LOG_FILE="$logfile"
   BUILDX_CUSTOM_LOG_DIR="$logfolder"
@@ -1856,7 +1859,7 @@ __execute_buildx() {
   if [ -f "$Dockerfile" ]; then
     [ -d "$FULL_DIR_PATH/rootfs" ] || mkdir -p "$FULL_DIR_PATH/rootfs"
   fi
-  [ -d "$BUILDX_LOG_DIR/$logfolder" ] || mkdir -p "$BUILDX_LOG_DIR/$logfolder"
+  [ -d "$logfolder" ] || mkdir -p "$logfolder"
   if __build_cmd "$FULL_DIR_PATH"; then
     notify_message+="Successfully built $set_tag $ADDITIONAL_PRETTY|"
     printf_green "Successfully built container: $set_tag $ADDITIONAL_PRETTY"
@@ -2409,8 +2412,12 @@ if [ -f "${2:-$1}" ]; then
 fi
 # Calculate org/repo from PROJECT_ROOT (not from CWD which might change)
 BUILDX_BUILDER_NAME_CUSTOM="${BUILDX_PROJECT_ROOT##*/}"
-BUILDX_DEFAULT_LOG_ORG="${BUILDX_SET_ORG:-$(basename "$(dirname "$(realpath "$BUILDX_PROJECT_ROOT")")")}"
-BUILDX_DEFAULT_LOG_REPO="$(basename "$(realpath "$BUILDX_PROJECT_ROOT")" | sed 's|^docker-||g')"
+_proj_real="$(realpath "$BUILDX_PROJECT_ROOT" 2>/dev/null || printf '%s' "$BUILDX_PROJECT_ROOT")"
+_proj_parent="${_proj_real%/*}"
+BUILDX_DEFAULT_LOG_ORG="${BUILDX_SET_ORG:-${_proj_parent##*/}}"
+BUILDX_DEFAULT_LOG_REPO="${_proj_real##*/}"
+BUILDX_DEFAULT_LOG_REPO="${BUILDX_DEFAULT_LOG_REPO#docker-}"
+unset _proj_real _proj_parent
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 #__requiresudo "$0" "$@" || exit 2     # exit 2 if errors

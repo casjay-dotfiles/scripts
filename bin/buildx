@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605041300-git
+##@Version           :  202605041500-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 21:22 EDT
 # @@File             :  buildx
 # @@Description      :  Docker buildx wrapper
-# @@Changelog        :  Add __logging_build; split stdout/stderr logs; fix registry default
+# @@Changelog        :  Fix BUILDX_DEFAULT_ORG ordering, ADD_REGISTRY compare, logging stderr
 # @@TODO             :  Refactor code: clean up arguments and variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605041300-git"
+VERSION="202605041500-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -568,8 +568,7 @@ __set_variables() {
   BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS// /,}"
   # Always use PROJECT_ROOT for org/repo calculations
   BUILDX_DEFAULT_REPO="${BUILDX_SET_REPO:-${BUILDX_PROJECT_ROOT##*/}}"
-  BUILDX_DEFAULT_ORG="${BUILDX_SET_ORG:-$(dirname "$BUILDX_PROJECT_ROOT")}"
-  BUILDX_DEFAULT_ORG="${BUILDX_DEFAULT_ORG##*/}"
+  # BUILDX_DEFAULT_ORG is set AFTER registry parsing below — the parser may update BUILDX_SET_ORG
   # Handle multiple registries: first becomes primary, all stored for processing
   if [ -n "$BUILDX_SET_REGISTRY" ]; then
     # Get the first registry entry for parsing
@@ -622,6 +621,9 @@ __set_variables() {
     # Enable registry processing if multiple registries specified
     [[ "$BUILDX_SET_REGISTRY" == *","* ]] && BUILDX_ENABLE_REGISTRY="true"
   fi
+  # Must be after registry parsing: parser may have updated BUILDX_SET_ORG from registry path
+  BUILDX_DEFAULT_ORG="${BUILDX_SET_ORG:-$(dirname "$BUILDX_PROJECT_ROOT")}"
+  BUILDX_DEFAULT_ORG="${BUILDX_DEFAULT_ORG##*/}"
   BUILDX_GIT_REPO_USER="${BUILDX_SET_GIT_USER:-$BUILDX_GIT_REPO_USER}"
   BUILDX_PROJECT_DIR="${BUILDX_PROJECT_DIR:-$HOME/Projects/github/$BUILDX_DEFAULT_REPO}"
   local _ver="${BUILDX_SET_VERSION:-$BUILDX_DEFAULT_VERSION}"
@@ -1335,7 +1337,8 @@ __buildx_status() {
 __logging_build() {
   local cmd="$1" logfile="$2" errfile="${2%.log}.err"
   mkdir -p "${logfile%/*}"
-  { eval "$cmd" 2> >(tee -a "$errfile" >&2); } | tee -a "$logfile"
+  # stdout -> terminal + .log; stderr -> .err + .log + terminal
+  { eval "$cmd" 2> >(tee -a "$errfile" | tee -a "$logfile" >&2); } | tee -a "$logfile"
   return "${PIPESTATUS[0]}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1638,8 +1641,8 @@ __run_docker_build() {
   # Process multiple registries - skip duplicates with primary registry
   if [ -n "$BUILDX_ADD_REGISTRY" ]; then
     for host in $registry; do
-      # Skip if this registry is the same as the primary registry
-      [ "$host" = "$BUILDX_DEFAULT_REGISTRY" ] && continue
+      # Skip if this registry hostname matches the primary (host may be registry/org/repo)
+      [ "${host%%/*}" = "$BUILDX_DEFAULT_REGISTRY" ] && continue
       if [ -n "$BUILDX_ADD_REPO" ]; then
         namespace="$BUILDX_ADD_REPO"
         [ "$namespace" = "" ] && namespace="library"
@@ -1662,7 +1665,7 @@ __run_docker_build() {
   __tag_versions "$tagged_name"
   ADD_HOST="$(printf '%s\n' "${SET_ADD_HOST[@]}" | sort -u | tr '\n' ' ' | sed 's|  *| |g')"
   ADDITIONAL_TAGS="$REGISTRY_TAG ${ADD_HOST[*]}"
-  ADDITIONAL_PRETTY="$(echo "$ADDITIONAL_TAGS" | sed 's|--tag||g;s|-t||g' | tr ' ' '\n' | grep -v '^$' | tr '\n' ' ')"
+  ADDITIONAL_PRETTY="$(printf '%s\n' $ADDITIONAL_TAGS | grep -v '^-' | grep -v '^$' | tr '\n' ' ')"
   [ -n "$image_name" ] && tagged_name="$image_name" || tagged_name="$push_tag"
   if [ "$BUILDX_RUN_SCRIPT" = "true" ] && [ -f "$BUILDX_CWD/build.sh" ]; then
     printf_blue "Using $BUILDX_CWD/build.sh to build $tagged_name"

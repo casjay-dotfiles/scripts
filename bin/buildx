@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602021103-git
+##@Version           :  202605040349-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 21:22 EDT
 # @@File             :  buildx
 # @@Description      :  Docker buildx wrapper
-# @@Changelog        :  Fixed --platform flag passed to recursive buildx all calls
+# @@Changelog        :  Auto-migrate legacy .env.scripts variables
 # @@TODO             :  Refactor code: clean up arguments and variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202602021103-git"
+VERSION="202605040349-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -46,7 +46,11 @@ export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
-CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+if [ -d "$SCRIPT_SRC_DIR/../templates/dockerfiles" ] && [ -d "$SCRIPT_SRC_DIR/../functions" ]; then
+  CASJAYSDEVDIR="${CASJAYSDEVDIR:-$(realpath "$SCRIPT_SRC_DIR/.." 2>/dev/null)}"
+else
+  CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+fi
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
 SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
@@ -58,6 +62,10 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
   exit 1
+fi
+# Keep local repo templates/functions authoritative when running from source tree
+if [ -d "$SCRIPT_SRC_DIR/../templates/dockerfiles" ] && [ -d "$SCRIPT_SRC_DIR/../functions" ]; then
+  CASJAYSDEVDIR="$(realpath "$SCRIPT_SRC_DIR/.." 2>/dev/null)"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Options are: *_install
@@ -269,12 +277,13 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Environment Variables"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "ENV_IMAGE_PUSH                  - Complete push destination (registry/org/repo)"
+  __printf_line "ENV_REGISTRY_URL                - Registry provider base URL"
+  __printf_line "ENV_REGISTRY_PUSH               - Complete push destination (registry/org/repo)"
   __printf_line "ENV_ADD_IMAGE_PUSH              - Additional registries (comma-separated)"
+  __printf_line "ENV_REGISTRY_ORG                - Organization/user name"
+  __printf_line "ENV_REGISTRY_REPO               - Image/repo name"
   __printf_line "ENV_IMAGE_TAG                   - Default tag (latest, v1.0, etc.)"
   __printf_line "ENV_ADD_TAGS                    - Additional tags (v1.0,stable,USE_DATE)"
-  __printf_line "ENV_ORG_NAME                    - Organization/user name"
-  __printf_line "ENV_IMAGE_NAME                  - Image/repo name"
   __printf_line "ENV_PLATFORMS                   - Build platforms from .env.scripts"
   __printf_line "BUILDX_SET_REGISTRY             - Runtime registry override (same formats)"
   __printf_line "BUILDX_DOCKER_PLATFORMS         - Build platforms (linux/amd64,linux/arm64)"
@@ -491,6 +500,29 @@ __complete_url() {
   echo "$registry/$namespace/$image:$tag"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__migrate_env_script() {
+  local env_file="" migrate_script=""
+  shopt -s nullglob
+  for env_file in "$BUILDX_CWD/.env.scripts" "$BUILDX_CWD/.env.scripts".*; do
+    [ -f "$env_file" ] || continue
+    if grep -qE '^(ENV_HUB_BASE|ENV_IMAGE_PUSH|ENV_IMAGE_NAME|ENV_ORG_NAME)=' "$env_file"; then
+      migrate_script="$SCRIPT_SRC_DIR/gen-dockerfile"
+      [ -x "$migrate_script" ] || migrate_script="$CASJAYSDEVDIR/bin/gen-dockerfile"
+      [ -x "$migrate_script" ] || {
+        shopt -u nullglob
+        printf_exit "Unable to migrate legacy .env.scripts files: gen-dockerfile not found"
+      }
+      printf_blue "Migrating legacy .env.scripts files in $BUILDX_CWD"
+      GEN_DOCKERFILE_MIGRATE_ENV_ONLY="true" "$migrate_script" --update --dir "$BUILDX_CWD" || {
+        shopt -u nullglob
+        printf_exit "Failed to migrate legacy .env.scripts files in $BUILDX_CWD"
+      }
+      break
+    fi
+  done
+  shopt -u nullglob
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_variables() {
   export DOCKER_BUILDKIT=1
   export BUILDX_PID_NUMBER="$$"
@@ -501,21 +533,26 @@ __set_variables() {
   export BUILDX_EXPERIMENTAL="$BUILDX_DOCKER_BUILD_EXPERIMENTAL"
   export DOCKER_CLI_EXPERIMENTAL="$BUILDX_DOCKER_CLI_EXPERIMENTAL"
   # Handle ENV_ variables from .env.scripts (created by gen-dockerfile)
-  BUILDX_SET_ORG="${ENV_ORG_NAME:-$BUILDX_SET_ORG}"
-  [ -n "$ENV_IMAGE_NAME" ] && BUILDX_SET_IMAGE="$ENV_IMAGE_NAME"
-  # ENV_IMAGE_PUSH is the complete push destination: {registry}/{user}/{repo} or {user}/{repo}
-  if [ -n "$ENV_IMAGE_PUSH" ]; then
-    if [[ "$ENV_IMAGE_PUSH" == *"/"*"/"* ]]; then
+  BUILDX_SET_ORG="${ENV_REGISTRY_ORG:-$BUILDX_SET_ORG}"
+  [ -n "$ENV_REGISTRY_REPO" ] && BUILDX_SET_IMAGE="$ENV_REGISTRY_REPO"
+  if [ -n "$ENV_REGISTRY_URL" ] && [ -z "$BUILDX_SET_REGISTRY" ]; then
+    local env_registry="${ENV_REGISTRY_URL#*://}"
+    BUILDX_SET_REGISTRY="${env_registry%%/*}"
+  fi
+  local env_registry_push="${ENV_REGISTRY_PUSH:-}"
+  # ENV_REGISTRY_PUSH is the complete push destination: {registry}/{user}/{repo} or {user}/{repo}
+  if [ -n "$env_registry_push" ]; then
+    if [[ "$env_registry_push" == *"/"*"/"* ]]; then
       # Format: registry/user/repo
-      BUILDX_SET_REGISTRY="${ENV_IMAGE_PUSH%%/*}"
-      local _remainder="${ENV_IMAGE_PUSH#*/}"
+      BUILDX_SET_REGISTRY="${env_registry_push%%/*}"
+      local _remainder="${env_registry_push#*/}"
       BUILDX_SET_ORG="${_remainder%%/*}"
       BUILDX_SET_IMAGE="${_remainder#*/}"
     else
       # Format: user/repo (Docker Hub)
-      BUILDX_SET_REGISTRY="docker.io"
-      BUILDX_SET_ORG="${ENV_IMAGE_PUSH%%/*}"
-      BUILDX_SET_IMAGE="${ENV_IMAGE_PUSH#*/}"
+      BUILDX_SET_REGISTRY="${BUILDX_SET_REGISTRY:-docker.io}"
+      BUILDX_SET_ORG="${env_registry_push%%/*}"
+      BUILDX_SET_IMAGE="${env_registry_push#*/}"
     fi
   fi
   BUILDX_VERSION_TAG="${ENV_ADD_TAGS:-$BUILDX_VERSION_TAG}"
@@ -533,7 +570,7 @@ __set_variables() {
     local first_registry="${BUILDX_SET_REGISTRY%%,*}"
 
     # Parse the first registry entry to extract components
-    # Supports four formats (same smart logic as ENV_IMAGE_PUSH):
+    # Supports four formats (same smart logic as ENV_REGISTRY_PUSH):
     # 1. registry/org/repo - Full path (e.g., ghcr.io/casjaysdev/myapp)
     # 2. org/repo - Docker Hub format (e.g., casjaysdev/myapp -> docker.io/casjaysdev/myapp)
     # 3. registry/org - Registry with org (e.g., ghcr.io/casjaysdev)
@@ -1761,7 +1798,7 @@ __execute_buildx() {
   SET_DIR_NAME="$(echo "$SET_DIR_NAME" | tr '[:upper:]' '[:lower:]')"
   #
   __get_dockerfile_ver "$Dockerfile"
-  [ -n "$ENV_IMAGE_PUSH" ] && name="$(basename "${ENV_IMAGE_PUSH//:*/}")"
+  [ -n "$ENV_REGISTRY_PUSH" ] && name="$(basename "$ENV_REGISTRY_PUSH")"
   tag_version="${new_tag:-$set_newtag}"
   tag_version="${tag_version,,}"
   BUILDX_DEFAULT_VERSION="$tag_version"
@@ -2062,6 +2099,9 @@ __detect_dockerfile_platforms() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" ] && . "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE"
+if [ -d "$SCRIPT_SRC_DIR/../templates/dockerfiles" ] && [ -d "$SCRIPT_SRC_DIR/../functions" ]; then
+  CASJAYSDEVDIR="$(realpath "$SCRIPT_SRC_DIR/.." 2>/dev/null)"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$BUILDX_LOG_DIR" ] || mkdir -p "$BUILDX_LOG_DIR" |& __devnull
@@ -2370,6 +2410,7 @@ BUILDX_DEFAULT_LOG_REPO="$(basename "$(realpath "$BUILDX_PROJECT_ROOT")" | sed '
 #cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__migrate_env_script
 [ -f "$BUILDX_CWD/.env.scripts" ] && . "$BUILDX_CWD/.env.scripts"
 [ -n "$BUILDX_SET_DEFAULT_VER" ] && [ -f "$BUILDX_CWD/.env.scripts.$BUILDX_SET_DEFAULT_VER" ] && . "$BUILDX_CWD/.env.scripts.$BUILDX_SET_DEFAULT_VER"
 # - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605040349-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Tuesday, Aug 29, 2023 20:55 EDT
 # @@File             :  gen-dockerfile
 # @@Description      :  Create a Dockerfile
-# @@Changelog        :  New script
+# @@Changelog        :  Auto-migrate legacy .env.scripts variables
 # @@TODO             :  Rewite/Cleanup variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,8 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202602020740-git"
+VERSION="202605040349-git"
+SCRIPT_EXEC="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "$0")"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -47,7 +48,11 @@ export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
-CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+if [ -d "$SCRIPT_SRC_DIR/../templates/dockerfiles" ] && [ -d "$SCRIPT_SRC_DIR/../functions" ]; then
+  CASJAYSDEVDIR="${CASJAYSDEVDIR:-$(realpath "$SCRIPT_SRC_DIR/.." 2>/dev/null)}"
+else
+  CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+fi
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
 SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
@@ -59,6 +64,10 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
   exit 1
+fi
+# Keep local repo templates/functions authoritative when running from source tree
+if [ -d "$SCRIPT_SRC_DIR/../templates/dockerfiles" ] && [ -d "$SCRIPT_SRC_DIR/../functions" ]; then
+  CASJAYSDEVDIR="$(realpath "$SCRIPT_SRC_DIR/.." 2>/dev/null)"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Options are: *_install
@@ -135,10 +144,36 @@ __printf_line() { printf_cyan "$1"; }
 # output version
 __version() { printf_cyan "$VERSION"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__normalize_cli_args() {
+  GEN_DOCKERFILE_NORMALIZED_ARGS=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --user | --org | --repo)
+      local flag="$1"
+      shift 1
+      if [ $# -ge 2 ] && [[ "$1" =~ ^(git|reg|registry)$ ]] && [[ "$2" != -* ]]; then
+        GEN_DOCKERFILE_NORMALIZED_ARGS+=("$flag" "$1:$2")
+        shift 2
+      elif [ $# -ge 1 ]; then
+        GEN_DOCKERFILE_NORMALIZED_ARGS+=("$flag" "$1")
+        shift 1
+      else
+        GEN_DOCKERFILE_NORMALIZED_ARGS+=("$flag")
+      fi
+      ;;
+    *)
+      GEN_DOCKERFILE_NORMALIZED_ARGS+=("$1")
+      shift 1
+      ;;
+    esac
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
+  local options="${2//:/}"
   printf_color "$1: " "$5"
-  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf '%s' "${options//$3/ $4}"
   printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -156,12 +191,13 @@ __gen_config() {
   cat <<EOF >"$GEN_DOCKERFILE_CONFIG_DIR/$GEN_DOCKERFILE_CONFIG_FILE"
 # Settings for gen-dockerfile
 GEN_DOCKERFILE_BACKUP_EXT="${GEN_DOCKERFILE_BACKUP_EXT:-}"
-GEN_DOCKER_GIT_ORG="${GEN_DOCKER_GIT_ORG:-}"
-GEN_DOCKER_REGISTRY_ORG="${GEN_DOCKER_REGISTRY_ORG:-}"
+GEN_DOCKERFILE_DEFAULT_GIT_ORG="${GEN_DOCKERFILE_DEFAULT_GIT_ORG:-}"
+GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG="${GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG:-}"
 BUILDX_BUILD_DATE_FORMAT="${BUILDX_BUILD_DATE_FORMAT:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Maintainer info
 GEN_DOCKERFILE_GIT_BASE="${GEN_DOCKERFILE_GIT_BASE:-}"
+GEN_DOCKERFILE_REGISTRY_URL="${GEN_DOCKERFILE_REGISTRY_URL:-}"
 GEN_DOCKERFILE_HUB_BASE="${GEN_DOCKERFILE_HUB_BASE:-}"
 GEN_DOCKERFILE_VENDOR="${GEN_DOCKERFILE_VENDOR:-}"
 GEN_DOCKERFILE_AUTHOR="${GEN_DOCKERFILE_AUTHOR:-}"
@@ -178,6 +214,8 @@ GEN_DOCKERFILE_TEMPLATE_DIR="${GEN_DOCKERFILE_TEMPLATE_DIR:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Specify default image
 GEN_DOCKERFILE_DEFAULT_IMAGE="${GEN_DOCKERFILE_DEFAULT_IMAGE:-}"
+GEN_DOCKERFILE_DEFAULT_REPO="${GEN_DOCKERFILE_DEFAULT_REPO:-}"
+GEN_DOCKERFILE_PROJECT_DIRS="${GEN_DOCKERFILE_PROJECT_DIRS:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Specify default versions and image repo for alpine
 GEN_DOCKER_SPECIFY_IMAGE_REPO_ALPINE="${GEN_DOCKER_SPECIFY_IMAGE_REPO_ALPINE:-}"
@@ -288,7 +326,7 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "gen-dockerfile:  Create a Dockerfile - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: gen-dockerfile [options] [dir] [template] [imageName] [repo]"
+  __printf_line "Usage: gen-dockerfile [options] [dir] [template] [repo-name] [git-repo-url]"
   __printf_line "scratch                         - A simple template"
   __printf_line "alpine                          - Use alpine template"
   __printf_line "debian                          - Use debian template"
@@ -297,12 +335,17 @@ __help() {
   __printf_line "web                             - Use web template"
   __printf_line "--nogit                         - Do not Initialize a git repo"
   __printf_line "--template                      - Specify the template"
+  __printf_line "--registry HOST                 - Set registry provider (docker.io, ghcr.io)"
+  __printf_line "--user [git|reg] VALUE          - Override registry owner by default"
+  __printf_line "--repo [git|reg] VALUE          - Override registry repo by default"
+  __printf_line "--org [git|reg] VALUE           - Alias for --user"
+  __printf_line "--update                        - Update Dockerfiles and .env.scripts* in place"
   __printf_line "--tag                           - Specify the image tag"
-  __printf_line "--image                         - Specify the image repo"
   __printf_line "--dockerfile                    - Create only a Dockerfile"
   __printf_line "--distro-name                   - Specify the distro name"
-  __printf_line "--distro-tag                    - Specify the distro version"
+  __printf_line "--distro-version                - Specify the distro version"
   __printf_line "--startup                       - Create an init scripts"
+  __printf_line "Resolution order                - flags, git remote, project dirs, defaults"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -397,7 +440,6 @@ __trap_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
 __dockerignore() { __cmd_exists dockerignore && dockerignore || true; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __rm_rf() {
@@ -411,8 +453,183 @@ __trim() {
   local var="${*//;/ }"
   var="${var#"${var%%[![:space:]]*}"}" # remove leading whitespace characters
   var="${var%"${var##*[![:space:]]}"}" # remove trailing whitespace characters
-  var="$(echo "$var" | __remove_extra_spaces)"
-  printf '%s' "$var" | grep -v '^$'
+  while [[ "$var" == *"  "* ]]; do
+    var="${var//  / }"
+  done
+  [ -n "$var" ] && printf '%s' "$var"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__lower() {
+  printf '%s' "${1,,}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__registry_host_from_ref() {
+  local ref="${1:-}" first_segment="" remainder=""
+  first_segment="${ref%%/*}"
+  remainder="${ref#*/}"
+  [ "$ref" != "$remainder" ] || return 1
+  case "$first_segment" in
+  localhost | *.* | *:*)
+    [ "$remainder" != "${remainder#*/}" ] || return 1
+    printf '%s' "$first_segment"
+    ;;
+  *)
+    return 1
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__strip_registry_provider() {
+  local ref="${1:-}" registry_host=""
+  registry_host="$(__registry_host_from_ref "$ref" 2>/dev/null || true)"
+  if [ -n "$registry_host" ]; then
+    printf '%s' "${ref#*/}"
+  else
+    printf '%s' "$ref"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__normalize_registry_provider() {
+  local raw_value="${1:-}" registry_base="" registry_host="" registry_scheme="https"
+  raw_value="${raw_value%/}"
+  [ -n "$raw_value" ] || raw_value="docker.io"
+  if [[ "$raw_value" == *://* ]]; then
+    registry_scheme="${raw_value%%://*}"
+    registry_host="${raw_value#*://}"
+    registry_host="${registry_host%%/*}"
+  else
+    registry_host="${raw_value%%/*}"
+  fi
+  registry_host="$(__lower "$registry_host")"
+  case "$registry_host" in
+  hub.docker.com | index.docker.io | registry-1.docker.io)
+    registry_host="docker.io"
+    ;;
+  esac
+  registry_base="$registry_scheme://$registry_host"
+  GEN_DOCKERFILE_REGISTRY_URL="$registry_base"
+  GEN_DOCKERFILE_HUB_BASE="$GEN_DOCKERFILE_REGISTRY_URL"
+  GEN_DOCKERFILE_REGISTRY_HOST="$registry_host"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__render_templates_to_file() {
+  local output_file="${1:-}" template_file=""
+  shift 1 || true
+  [ -n "$output_file" ] || return 1
+  : >"$output_file" || return 1
+  for template_file in "$@"; do
+    [ -f "$template_file" ] || continue
+    . "$template_file"
+  done >"$output_file"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Keep a narrow compatibility bridge for older config/env names while
+# treating GEN_DOCKERFILE_SET_* as the primary runtime inputs.
+__sync_repo_setting_aliases() {
+  [ -n "$GEN_DOCKERFILE_SET_REGISTRY_URL" ] || GEN_DOCKERFILE_SET_REGISTRY_URL="${GEN_DOCKERFILE_SET_REGISTRY_PROVIDER:-}"
+  [ -n "$GEN_DOCKERFILE_SET_REGISTRY_PROVIDER" ] || GEN_DOCKERFILE_SET_REGISTRY_PROVIDER="${GEN_DOCKERFILE_SET_REGISTRY_URL:-}"
+  [ -n "$GEN_DOCKERFILE_SET_GIT_ORG" ] || GEN_DOCKERFILE_SET_GIT_ORG="${GEN_DOCKERFILE_GIT_ORG_OVERRIDE:-}"
+  [ -n "$GEN_DOCKERFILE_SET_REGISTRY_ORG" ] || GEN_DOCKERFILE_SET_REGISTRY_ORG="${GEN_DOCKERFILE_REGISTRY_ORG_OVERRIDE:-}"
+  [ -n "$GEN_DOCKERFILE_SET_GIT_REPO" ] || GEN_DOCKERFILE_SET_GIT_REPO="${GEN_DOCKERFILE_GIT_REPO_NAME_OVERRIDE:-}"
+  [ -n "$GEN_DOCKERFILE_SET_REGISTRY_REPO" ] || GEN_DOCKERFILE_SET_REGISTRY_REPO="${GEN_DOCKERFILE_REGISTRY_REPO_OVERRIDE:-}"
+  [ -n "$GEN_DOCKERFILE_SET_GIT_REPO_URL" ] || GEN_DOCKERFILE_SET_GIT_REPO_URL="${GEN_DOCKERFILE_GIT_REPO_OVERRIDE:-}"
+  GEN_DOCKER_GIT_ORG="${GEN_DOCKERFILE_SET_GIT_ORG:-${GEN_DOCKERFILE_DEFAULT_GIT_ORG:-$GEN_DOCKER_GIT_ORG}}"
+  GEN_DOCKER_REGISTRY_ORG="${GEN_DOCKERFILE_SET_REGISTRY_ORG:-${GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG:-$GEN_DOCKER_REGISTRY_ORG}}"
+  GEN_DOCKER_DEFAULT_ORG="${GEN_DOCKERFILE_SET_REGISTRY_ORG:-${GEN_DOCKER_DEFAULT_ORG:-}}"
+  GEN_DOCKERFILE_GIT_ORG_OVERRIDE="${GEN_DOCKERFILE_SET_GIT_ORG:-}"
+  GEN_DOCKERFILE_REGISTRY_ORG_OVERRIDE="${GEN_DOCKERFILE_SET_REGISTRY_ORG:-}"
+  GEN_DOCKERFILE_GIT_REPO_NAME_OVERRIDE="${GEN_DOCKERFILE_SET_GIT_REPO:-}"
+  GEN_DOCKERFILE_REGISTRY_REPO_OVERRIDE="${GEN_DOCKERFILE_SET_REGISTRY_REPO:-}"
+  GEN_DOCKERFILE_GIT_REPO_OVERRIDE="${GEN_DOCKERFILE_SET_GIT_REPO_URL:-}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_remote_url() {
+  git -C "${1:-$GEN_DOCKERFILE_CWD}" remote get-url origin 2>/dev/null ||
+    git -C "${1:-$GEN_DOCKERFILE_CWD}" config --get remote.origin.url 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__parse_git_remote() {
+  local remote_url="${1:-}" sanitized="" host="" path=""
+  GEN_DOCKERFILE_REMOTE_URL=""
+  GEN_DOCKERFILE_REMOTE_BASE=""
+  GEN_DOCKERFILE_REMOTE_OWNER=""
+  GEN_DOCKERFILE_REMOTE_REPO=""
+  [ -n "$remote_url" ] || return 1
+  remote_url="${remote_url%.git}"
+  case "$remote_url" in
+  *@*:* )
+    sanitized="${remote_url#*@}"
+    host="${sanitized%%:*}"
+    path="${sanitized#*:}"
+    ;;
+  *://* )
+    sanitized="${remote_url#*://}"
+    sanitized="${sanitized#*@}"
+    host="${sanitized%%/*}"
+    path="${sanitized#*/}"
+    ;;
+  * )
+    return 1
+    ;;
+  esac
+  [ -n "$host" ] || return 1
+  [ "${path#*/}" != "$path" ] || return 1
+  GEN_DOCKERFILE_REMOTE_URL="$remote_url"
+  GEN_DOCKERFILE_REMOTE_BASE="https://$host"
+  GEN_DOCKERFILE_REMOTE_OWNER="${path%%/*}"
+  GEN_DOCKERFILE_REMOTE_REPO="$(basename -- "$path")"
+  [ -n "$GEN_DOCKERFILE_REMOTE_OWNER" ] && [ -n "$GEN_DOCKERFILE_REMOTE_REPO" ]
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_project_directory() {
+  local cwd="${1:-$GEN_DOCKERFILE_CWD}" base_dir="" resolved_base=""
+  cwd="$(realpath -m "$cwd" 2>/dev/null)"
+  for base_dir in ${GEN_DOCKERFILE_PROJECT_DIRS:-"$HOME/Documents $HOME/Projects $HOME/Developer $HOME/Development $HOME/Workspace $HOME/Workspaces $HOME/src"}; do
+    case "$base_dir" in
+    "~"*) base_dir="$HOME${base_dir#\~}" ;;
+    esac
+    resolved_base="$(realpath -m "$base_dir" 2>/dev/null)"
+    case "$cwd/" in
+    "$resolved_base"/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__resolve_repo_settings() {
+  local default_git_org="${GEN_DOCKERFILE_DEFAULT_GIT_ORG:-casjaysdevdocker}"
+  local default_registry_org="${GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG:-casjaysdevdocker}"
+  local default_repo="${GEN_DOCKERFILE_DEFAULT_REPO:-${GEN_DOCKERFILE_DEFAULT_IMAGE##*/}}"
+  local remote_url="" path_org="" path_repo="" configured_git_org="" configured_registry_org=""
+  [ -n "$default_repo" ] || default_repo="${GEN_DOCKERFILE_TEMPLATE:-alpine}"
+  if __is_project_directory "$GEN_DOCKERFILE_CWD"; then
+    path_org="$(basename -- "$(dirname "$GEN_DOCKERFILE_CWD")")"
+    path_repo="$(basename -- "$GEN_DOCKERFILE_CWD")"
+  fi
+  if remote_url="$(__git_remote_url "$GEN_DOCKERFILE_CWD" 2>/dev/null)"; then
+    __parse_git_remote "$remote_url" || true
+  fi
+  __sync_repo_setting_aliases
+  configured_git_org="${GEN_DOCKERFILE_SET_GIT_ORG:-}"
+  configured_registry_org="${GEN_DOCKERFILE_SET_REGISTRY_ORG:-}"
+  [ "$configured_git_org" = "$default_git_org" ] && configured_git_org=""
+  [ "$configured_registry_org" = "$default_registry_org" ] && configured_registry_org=""
+  GEN_DOCKERFILE_RESOLVED_REGISTRY_REPO="${GEN_DOCKERFILE_SET_REGISTRY_REPO:-${ENV_REGISTRY_REPO:-${GEN_DOCKERFILE_REMOTE_REPO:-${path_repo:-$default_repo}}}}"
+  GEN_DOCKERFILE_RESOLVED_GIT_REPO_NAME="${GEN_DOCKERFILE_SET_GIT_REPO:-${GEN_DOCKERFILE_REMOTE_REPO:-${path_repo:-$default_repo}}}"
+  GEN_DOCKERFILE_RESOLVED_GIT_ORG="${GEN_DOCKERFILE_SET_GIT_ORG:-${configured_git_org:-${GEN_DOCKERFILE_REMOTE_OWNER:-$path_org}}}"
+  GEN_DOCKERFILE_RESOLVED_REGISTRY_ORG="${GEN_DOCKERFILE_SET_REGISTRY_ORG:-${ENV_REGISTRY_ORG:-${configured_registry_org:-${GEN_DOCKERFILE_REMOTE_OWNER:-$path_org}}}}"
+  [ -n "$GEN_DOCKERFILE_RESOLVED_GIT_ORG" ] || GEN_DOCKERFILE_RESOLVED_GIT_ORG="$default_git_org"
+  [ -n "$GEN_DOCKERFILE_RESOLVED_REGISTRY_ORG" ] || GEN_DOCKERFILE_RESOLVED_REGISTRY_ORG="$default_registry_org"
+  GEN_DOCKERFILE_RESOLVED_ORG="${GEN_DOCKERFILE_RESOLVED_REGISTRY_ORG:-$GEN_DOCKERFILE_RESOLVED_GIT_ORG}"
+  if [ -n "$GEN_DOCKERFILE_SET_GIT_REPO_URL" ]; then
+    GEN_DOCKERFILE_RESOLVED_GIT_REPO="$GEN_DOCKERFILE_SET_GIT_REPO_URL"
+  elif [ -n "$GEN_DOCKERFILE_REMOTE_URL" ] && [ "$GEN_DOCKERFILE_RESOLVED_GIT_ORG/$GEN_DOCKERFILE_RESOLVED_GIT_REPO_NAME" = "$GEN_DOCKERFILE_REMOTE_OWNER/$GEN_DOCKERFILE_REMOTE_REPO" ]; then
+    GEN_DOCKERFILE_RESOLVED_GIT_REPO="$GEN_DOCKERFILE_REMOTE_URL"
+  else
+    GEN_DOCKERFILE_RESOLVED_GIT_REPO="${GEN_DOCKERFILE_GIT_BASE:-https://github.com}/$GEN_DOCKERFILE_RESOLVED_GIT_ORG/$GEN_DOCKERFILE_RESOLVED_GIT_REPO_NAME"
+  fi
+  name="$GEN_DOCKERFILE_RESOLVED_REGISTRY_REPO"
+  organization="$GEN_DOCKERFILE_RESOLVED_ORG"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_git() {
@@ -445,14 +662,13 @@ __custom_init_files() {
   [ -d "$custom_init_dir" ] || mkdir -p "$custom_init_dir"
   for custom_init_file in "$GEN_DOCKERFILE_TEMPLATE_DIR/init_scripts"/*.sh; do
     custom_init_name="$(basename -- "$custom_init_file")"
-    custom_init_command="$(echo "$custom_init_name" | sed 's|.*-||g;s|.sh||g')"
+    custom_init_command="${custom_init_name##*-}"
+    custom_init_command="${custom_init_command%.sh}"
     printf_purple "Creating setup script: $custom_init_dir/$custom_init_name"
     if [ -f "$custom_init_dir/$custom_init_name" ]; then
       mv -f "$custom_init_dir/$custom_init_name" "$custom_init_dir/$custom_init_name.bak"
     fi
-    cat <<EOF >"$custom_init_dir/$custom_init_name"
-$(. "$custom_init_file")
-EOF
+    . "$custom_init_file" >"$custom_init_dir/$custom_init_name"
     if [ -f "$custom_init_dir/$custom_init_name" ]; then
       chmod -Rf 755 "$custom_init_dir/$custom_init_name"
       chmod -Rf +x "$custom_init_dir/$custom_init_name"
@@ -460,6 +676,202 @@ EOF
       printf_red "Failed to create $custom_init_dir/$custom_init_name"
     fi
   done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__replace_line_in_file() {
+  local file="${1:-}" pattern="${2:-}" replacement="${3:-}" nth="${4:-0}" tmp_file=""
+  [ -f "$file" ] || return 1
+  tmp_file="$(mktemp "$GEN_DOCKERFILE_TEMP_DIR/replace.XXXXXX" 2>/dev/null)" || return 1
+  awk -v pattern="$pattern" -v replacement="$replacement" -v nth="$nth" '
+  $0 ~ pattern {
+    count++
+    if (nth == 0 || count == nth) {
+      $0 = replacement
+    }
+  }
+  { print }
+  ' "$file" >"$tmp_file" && mv -f "$tmp_file" "$file"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__parse_scoped_value() {
+  local raw_value="${1:-}" default_scope="${2:-registry}"
+  if [[ "$raw_value" == *:* ]]; then
+    GEN_DOCKERFILE_SCOPE="${raw_value%%:*}"
+    GEN_DOCKERFILE_SCOPE_VALUE="${raw_value#*:}"
+  else
+    GEN_DOCKERFILE_SCOPE="$default_scope"
+    GEN_DOCKERFILE_SCOPE_VALUE="$raw_value"
+  fi
+  [ "$GEN_DOCKERFILE_SCOPE" = "reg" ] && GEN_DOCKERFILE_SCOPE="registry"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_scoped_owner_override() {
+  __parse_scoped_value "${1:-}" "registry"
+  case "$GEN_DOCKERFILE_SCOPE" in
+  git)
+    GEN_DOCKERFILE_SET_GIT_ORG="$GEN_DOCKERFILE_SCOPE_VALUE"
+    ;;
+  registry)
+    GEN_DOCKERFILE_SET_REGISTRY_ORG="$GEN_DOCKERFILE_SCOPE_VALUE"
+    ;;
+  esac
+  __sync_repo_setting_aliases
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_scoped_repo_override() {
+  __parse_scoped_value "${1:-}" "registry"
+  case "$GEN_DOCKERFILE_SCOPE" in
+  git)
+    GEN_DOCKERFILE_SET_GIT_REPO="$GEN_DOCKERFILE_SCOPE_VALUE"
+    ;;
+  registry)
+    GEN_DOCKERFILE_SET_REGISTRY_REPO="$GEN_DOCKERFILE_SCOPE_VALUE"
+    ;;
+  esac
+  __sync_repo_setting_aliases
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__upsert_assignment() {
+  local file="${1:-}" key="${2:-}" value="${3:-}" tmp_file="" found="false"
+  [ -f "$file" ] || return 1
+  tmp_file="$(mktemp "$GEN_DOCKERFILE_TEMP_DIR/upsert.XXXXXX" 2>/dev/null)" || return 1
+  awk -v key="$key" -v value="$value" '
+  BEGIN { found = 0 }
+  $0 ~ "^" key "=" {
+    print key "=\"" value "\""
+    found = 1
+    next
+  }
+  { print }
+  END {
+    if (found == 0) {
+      print key "=\"" value "\""
+    }
+  }
+  ' "$file" >"$tmp_file" && mv -f "$tmp_file" "$file"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__reset_env_script_vars() {
+  ENV_ADD_IMAGE_PUSH=""
+  ENV_ADD_TAGS=""
+  ENV_AUTHOR=""
+  ENV_DISTRO_TAG=""
+  ENV_DOCKERFILE=""
+  ENV_GIT_REPO_URL=""
+  ENV_IMAGE_TAG=""
+  ENV_MAINTAINER=""
+  ENV_PACKAGES=""
+  ENV_PLATFORMS=""
+  ENV_PULL_URL=""
+  ENV_REGISTRY_ORG=""
+  ENV_REGISTRY_PUSH=""
+  ENV_REGISTRY_REPO=""
+  ENV_REGISTRY_URL=""
+  ENV_USE_TEMPLATE=""
+  ENV_VENDOR=""
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__write_env_file() {
+  local env_file="${1:-}"
+  [ -n "$env_file" ] || return 1
+  dotenv_base_file="$(basename -- "$env_file")"
+  . "$GEN_DOCKERFILE_TEMPLATE_DIR/dotenv.template" >"$env_file"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_env_file_in_place() {
+  local env_file="${1:-}"
+  [ -f "$env_file" ] || return 1
+  __write_env_file "$env_file" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_dockerfile_in_place() {
+  local dockerfile="${1:-}" image_name=""
+  [ -f "$dockerfile" ] || return 1
+  image_name="$(basename -- "$GEN_DOCKERFILE_PUSH_URL")"
+  __replace_line_in_file "$dockerfile" '^ARG IMAGE_NAME=' "ARG IMAGE_NAME=\"$image_name\"" || return 1
+  __replace_line_in_file "$dockerfile" '^ARG PHP_SERVER=' "ARG PHP_SERVER=\"$image_name\"" || true
+  __replace_line_in_file "$dockerfile" '^ARG IMAGE_REPO=' "ARG IMAGE_REPO=\"$GEN_DOCKERFILE_PUSH_URL\"" || return 1
+  __replace_line_in_file "$dockerfile" '^LABEL org[.]opencontainers[.]image[.]url=' "LABEL org.opencontainers.image.url=\"$GEN_DOCKERFILE_HUB_REPO\"" || true
+  __replace_line_in_file "$dockerfile" '^LABEL org[.]opencontainers[.]image[.]source=' "LABEL org.opencontainers.image.source=\"$GEN_DOCKERFILE_HUB_REPO\"" 1 || true
+  __replace_line_in_file "$dockerfile" '^LABEL org[.]opencontainers[.]image[.]source=' "LABEL org.opencontainers.image.source=\"$GEN_DOCKERFILE_GIT_REPO\"" 2 || true
+  __replace_line_in_file "$dockerfile" '^LABEL org[.]opencontainers[.]image[.]documentation=' "LABEL org.opencontainers.image.documentation=\"$GEN_DOCKERFILE_GIT_REPO\"" || true
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__migrate_env_script() {
+  local env_file="" env_dockerfile="" env_image_tag="" env_use_template="" env_git_repo_url="" env_registry_repo="" env_registry_push=""
+  local env_registry_url="" env_registry_org=""
+  shopt -s nullglob
+  for env_file in "$GEN_DOCKERFILE_CWD/.env.scripts" "$GEN_DOCKERFILE_CWD/.env.scripts".*; do
+    [ -f "$env_file" ] || continue
+    grep -qE '^(ENV_HUB_BASE|ENV_IMAGE_PUSH|ENV_IMAGE_NAME|ENV_ORG_NAME)=' "$env_file" || continue
+    __reset_env_script_vars
+    . "$env_file"
+    env_dockerfile="${ENV_DOCKERFILE:-Dockerfile}"
+    env_image_tag="${ENV_IMAGE_TAG:-}"
+    env_use_template="${ENV_USE_TEMPLATE:-}"
+    env_git_repo_url="${ENV_GIT_REPO_URL:-}"
+    env_registry_repo="${ENV_REGISTRY_REPO:-${ENV_IMAGE_NAME:-}}"
+    env_registry_org="${ENV_REGISTRY_ORG:-${ENV_ORG_NAME:-}}"
+    env_registry_url="${ENV_REGISTRY_URL:-${ENV_HUB_BASE:-}}"
+    env_registry_push="${ENV_REGISTRY_PUSH:-${ENV_IMAGE_PUSH:-}}"
+    __reset_env_script_vars
+    ENV_DOCKERFILE="$env_dockerfile"
+    ENV_IMAGE_TAG="$env_image_tag"
+    ENV_USE_TEMPLATE="$env_use_template"
+    ENV_GIT_REPO_URL="$env_git_repo_url"
+    ENV_REGISTRY_REPO="$env_registry_repo"
+    ENV_REGISTRY_ORG="$env_registry_org"
+    ENV_REGISTRY_URL="$env_registry_url"
+    ENV_REGISTRY_PUSH="$env_registry_push"
+    GEN_DOCKERFILE_REGISTRY_PROVIDER_EXPLICIT="false"
+    GEN_DOCKERFILE_SET_GIT_ORG=""
+    GEN_DOCKERFILE_SET_REGISTRY_ORG=""
+    GEN_DOCKERFILE_SET_GIT_REPO=""
+    GEN_DOCKERFILE_SET_REGISTRY_REPO=""
+    GEN_DOCKERFILE_SET_GIT_REPO_URL=""
+    GEN_DOCKERFILE_SET_REGISTRY_URL=""
+    [ -n "$env_use_template" ] && GEN_DOCKERFILE_TEMPLATE="$env_use_template"
+    [ -n "$env_image_tag" ] && GEN_DOCKERFILE_DEFAULT_VERSION="$env_image_tag" && GEN_DOCKERFILE_SET_VERSION="$env_image_tag"
+    [ -n "$env_git_repo_url" ] && GEN_DOCKERFILE_SET_GIT_REPO_URL="$env_git_repo_url"
+    [ -n "$env_registry_url" ] && GEN_DOCKERFILE_SET_REGISTRY_URL="$env_registry_url"
+    __sync_repo_setting_aliases
+    __set_make_file_variables "$GEN_DOCKERFILE_CWD/$env_dockerfile" "${GEN_DOCKERFILE_SET_REGISTRY_REPO:-${env_registry_repo:-$(basename -- "$GEN_DOCKERFILE_CWD")}}" "$env_git_repo_url"
+    __set_variables
+    printf_blue "Migrating $(basename -- "$env_file") to ENV_REGISTRY_*"
+    __write_env_file "$env_file" || return 1
+  done
+  shopt -u nullglob
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_generated_files() {
+  local env_file="" env_dockerfile="" env_image_tag="" env_use_template="" env_git_repo_url="" env_registry_repo="" updated_count=0
+  shopt -s nullglob
+  for env_file in "$GEN_DOCKERFILE_CWD/.env.scripts" "$GEN_DOCKERFILE_CWD/.env.scripts".*; do
+    [ -f "$env_file" ] || continue
+    __reset_env_script_vars
+    . "$env_file"
+    env_dockerfile="${ENV_DOCKERFILE:-Dockerfile}"
+    env_image_tag="${ENV_IMAGE_TAG:-}"
+    env_use_template="${ENV_USE_TEMPLATE:-}"
+    env_registry_repo="${ENV_REGISTRY_REPO:-}"
+    env_git_repo_url="${GEN_DOCKERFILE_SET_GIT_REPO_URL:-}"
+    if [ -z "$GEN_DOCKERFILE_SET_GIT_ORG$GEN_DOCKERFILE_SET_GIT_REPO$GEN_DOCKERFILE_SET_GIT_REPO_URL" ]; then
+      env_git_repo_url="${env_git_repo_url:-${ENV_GIT_REPO_URL:-}}"
+    fi
+    [ -n "$env_use_template" ] && GEN_DOCKERFILE_TEMPLATE="$env_use_template"
+    [ -n "$env_image_tag" ] && GEN_DOCKERFILE_DEFAULT_VERSION="$env_image_tag" && GEN_DOCKERFILE_SET_VERSION="$env_image_tag"
+    [ -n "$env_git_repo_url" ] && GEN_DOCKERFILE_SET_GIT_REPO_URL="$env_git_repo_url"
+    __sync_repo_setting_aliases
+    __set_make_file_variables "$GEN_DOCKERFILE_CWD/$env_dockerfile" "${GEN_DOCKERFILE_SET_REGISTRY_REPO:-${env_registry_repo:-$(basename -- "$GEN_DOCKERFILE_CWD")}}" "$env_git_repo_url"
+    __set_variables
+    printf_blue "Updating ${env_dockerfile} using $(basename -- "$env_file")"
+    __update_env_file_in_place "$env_file" || return 1
+    __update_dockerfile_in_place "$GEN_DOCKERFILE_CWD/$env_dockerfile" || return 1
+    updated_count=$((updated_count + 1))
+  done
+  shopt -u nullglob
+  [ "$updated_count" -gt 0 ] || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_gen_dockerfile() {
@@ -516,10 +928,13 @@ __docker_file() {
   [ -n "$file_version" ] && GEN_DOCKERFILE_DEFAULT_VERSION="$file_version"
   GEN_DOCKERFILE_SET_VERSION="${GEN_DOCKERFILE_DEFAULT_VERSION}"
   GEN_DOCKERFILE_SET_DISTRO_VERSION="${GEN_DOCKERFILE_DEFAULT_DISTRO_VERSION:-$GEN_DOCKERFILE_SET_DISTRO_VERSION}"
-  GEN_DOCKERFILE_SET_TAGS="$(echo "$GEN_DOCKERFILE_SET_TAGS $GEN_DOCKERFILE_DEFAULT_VERSION $GEN_DOCKERFILE_DEFAULT_TAGS" | tr ' ' '\n' | sort -urV | grep -vE '^$|^USE_DATE$' | tr '\n' ' ')"
-  GEN_DOCKER_USE_DATE_TAG="$(echo "$GEN_DOCKERFILE_SET_TAGS $GEN_DOCKERFILE_DEFAULT_VERSION $GEN_DOCKERFILE_DEFAULT_TAGS" | tr ' ' '\n' | sort -u | grep -v '^$' | grep '^USE_DATE$' | head -n1)"
+  GEN_DOCKERFILE_SET_TAGS="$(printf '%s\n' "$GEN_DOCKERFILE_SET_TAGS" "$GEN_DOCKERFILE_DEFAULT_VERSION" "$GEN_DOCKERFILE_DEFAULT_TAGS" | tr ' ' '\n' | sort -urV | grep -vE '^$|^USE_DATE$' | tr '\n' ' ')"
+  GEN_DOCKER_USE_DATE_TAG="$(printf '%s\n' "$GEN_DOCKERFILE_SET_TAGS" "$GEN_DOCKERFILE_DEFAULT_VERSION" "$GEN_DOCKERFILE_DEFAULT_TAGS" | tr ' ' '\n' | sort -u | grep -x 'USE_DATE' | head -n1)"
   # Rewite dockerfile to version number
-  echo "$file" | grep -v "Dockerfile" | grep -q "$file_version" && file="Dockerfile" && is_file_versioned="false"
+  if [ -n "$file_version" ] && [[ "$file" != *Dockerfile* ]] && [[ "$file" == *"$file_version"* ]]; then
+    file="Dockerfile"
+    is_file_versioned="false"
+  fi
   [ -n "$file_version" ] && [ "$is_file_versioned" = "false" ] && file="$file.$file_version" && dotenv_file="$GEN_DOCKERFILE_CWD/.env.scripts.$file_version"
   GEN_DOCKERFILE_DOCKERFILE_NAME="$(basename -- "$file")"
   # begin
@@ -538,15 +953,14 @@ __docker_file() {
   #
   [ -n "$GEN_DOCKERFILE_SET_DISTRO_NAME" ] || GEN_DOCKERFILE_SET_DISTRO_NAME="$GEN_DOCKERFILE_PULL_URL"
   [ -f "$dotenv_file" ] && printf_blue "Updating $dotenv_file" || printf_purple "Creating $dotenv_file"
-  dotenv_base_file="$(basename -- "$dotenv_file")"
-  cat <<EOF >"$dotenv_file"
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/dotenv.template")
-EOF
+  __write_env_file "$dotenv_file"
   [ "$GEN_DOCKER_INIT" != "true" ] || [ ! -f "$rootfs_dir/usr/local/bin/entrypoint.sh" ] || return
-  . $dotenv_file && __set_variables && repo="${GEN_DOCKERFILE_GIT_BASE:-$repo}"
+  . "$dotenv_file" && __set_variables && repo="${GEN_DOCKERFILE_GIT_REPO:-$repo}"
   if [ -f "$rootfs_dir/usr/local/bin/entrypoint.sh" ] && [ -f "$file.$GEN_DOCKERFILE_BACKUP_EXT" ]; then
     printf_cyan "Generating your Dockerfile using template: $GEN_DOCKERFILE_TEMPLATE"
     if __make_file "$GEN_DOCKERFILE_TEMPLATE" "$file"; then
+      __update_env_file_in_place "$dotenv_file" || exit 1
+      __update_dockerfile_in_place "$file" || exit 1
       printf_green "Your Dockerfile for $name has been created in: $(readlink -f "$GEN_DOCKERFILE_CWD")"
       exit 0
     else
@@ -556,6 +970,8 @@ EOF
   elif [ "$GEN_DOCKERFILE_TEMPLATE" = "scratch" ]; then
     if [ "$GEN_DOCKER_INIT" != "true" ]; then
       if __make_file "$GEN_DOCKERFILE_TEMPLATE" "$file"; then
+        __update_env_file_in_place "$dotenv_file" || exit 1
+        __update_dockerfile_in_place "$file" || exit 1
         printf_green "Your Dockerfile for $name has been created in: $(readlink -f "$GEN_DOCKERFILE_CWD")"
       else
         printf_green "Failed to create Dockerfile for $name"
@@ -578,6 +994,8 @@ EOF
     printf_cyan "Generating your Dockerfile using template: $GEN_DOCKERFILE_TEMPLATE"
     __make_file "$GEN_DOCKERFILE_TEMPLATE" "$file"
     if [ -f "$file" ]; then
+      __update_env_file_in_place "$dotenv_file" || exit 1
+      __update_dockerfile_in_place "$file" || exit 1
       printf_green "Your Dockerfile for $name has been created in: $(readlink -f "$file")"
       # Create directories
       if [ "$GEN_DOCKER_ONLY_DOCKERFILE" != "true" ]; then
@@ -649,7 +1067,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __make_file() {
-  template="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
+  template="${1,,}"
   GEN_DOCKERFILE_TEMPLATE="$template"
   case "$template" in
   alpine)
@@ -712,22 +1130,16 @@ __create_start_script() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_pkmgr_install_script() {
-  cat <<EOF | tee
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/pkmgr.template")
-EOF
+  . "$GEN_DOCKERFILE_TEMPLATE_DIR/pkmgr.template"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_actions_file() {
   name="${name:-$(__basename "$GEN_DOCKERFILE_CWD")}"
-  cat <<EOF | tee
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/actions.template")
-EOF
+  . "$GEN_DOCKERFILE_TEMPLATE_DIR/actions.template"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_env() {
-  cat <<EOF | tee -p "$1" &>/dev/null
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/envfile.template")
-EOF
+  . "$GEN_DOCKERFILE_TEMPLATE_DIR/envfile.template" >"$1"
   [ -f "$1" ] && printf_cyan "Created default env file in $1" || printf_red "failed to create $1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -736,13 +1148,9 @@ __scratch() {
   [ -n "$ENV_PACKAGES" ] && packages="$ENV_PACKAGES" || packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } "
   packages="$(__trim "$packages")"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/templates/scratch.template" ]; then
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_CONFIG_DIR/templates/scratch.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_CONFIG_DIR/templates/scratch.template"
   else
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template"
   fi
   [ -f "$Dfile" ] && return 0 || return 1
 
@@ -753,14 +1161,9 @@ __web() {
   [ -n "$ENV_PACKAGES" ] && packages="$ENV_PACKAGES" || packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_DEBIAN//,/ }"
   packages="$(__trim "$packages xorg x11-apps")"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/templates/web.template" ]; then
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_CONFIG_DIR/templates/web.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_CONFIG_DIR/templates/web.template"
   else
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/web.template")
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_TEMPLATE_DIR/web.template" "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template"
   fi
   [ -f "$Dfile" ] && return 0 || return 1
 }
@@ -770,14 +1173,9 @@ __xorg() {
   [ -n "$ENV_PACKAGES" ] && packages="$ENV_PACKAGES" || packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_DEBIAN//,/ }"
   packages="$(__trim "$packages xorg x11-apps")"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/templates/xorg.template" ]; then
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_CONFIG_DIR/templates/xorg.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_CONFIG_DIR/templates/xorg.template"
   else
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/xorg.template")
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_TEMPLATE_DIR/xorg.template" "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template"
   fi
   [ -f "$Dfile" ] && return 0 || return 1
 }
@@ -787,14 +1185,9 @@ __debian_file() {
   [ -n "$ENV_PACKAGES" ] && packages="$ENV_PACKAGES" || packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_DEBIAN//,/ }"
   packages="$(__trim "$packages")"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/templates/debian.template" ]; then
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_CONFIG_DIR/templates/debian.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_CONFIG_DIR/templates/debian.template"
   else
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/debian.template")
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_TEMPLATE_DIR/debian.template" "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template"
   fi
   [ -f "$Dfile" ] && return 0 || return 1
 }
@@ -804,14 +1197,9 @@ __ubuntu_file() {
   [ -n "$ENV_PACKAGES" ] && packages="$ENV_PACKAGES" || packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_UBUNTU//,/ }"
   packages="$(__trim "$packages")"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/templates/ubuntu.template" ]; then
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_CONFIG_DIR/templates/ubuntu.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_CONFIG_DIR/templates/ubuntu.template"
   else
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/ubuntu.template")
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_TEMPLATE_DIR/ubuntu.template" "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template"
   fi
   [ -f "$Dfile" ] && return 0 || return 1
 }
@@ -821,14 +1209,9 @@ __almalinux() {
   [ -n "$ENV_PACKAGES" ] && packages="$ENV_PACKAGES" || packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_RHEL//,/ }"
   packages="$(__trim "$packages")"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/templates/almalinux.template" ]; then
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_CONFIG_DIR/templates/almalinux.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_CONFIG_DIR/templates/almalinux.template"
   else
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/almalinux.template")
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_TEMPLATE_DIR/almalinux.template" "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template"
   fi
   [ -f "$Dfile" ] && return 0 || return 1
 }
@@ -837,15 +1220,10 @@ __alpine_file() {
   Dfile="${1:-$file}"
   [ -n "$ENV_PACKAGES" ] && packages="$ENV_PACKAGES" || packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_ALPINE//,/ }"
   packages="$(__trim "$packages")"
-  if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/alpinelinux.template" ]; then
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_CONFIG_DIR/templates/alpinelinux.template")
-EOF
+  if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/templates/alpinelinux.template" ]; then
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_CONFIG_DIR/templates/alpinelinux.template"
   else
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/alpinelinux.template")
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_TEMPLATE_DIR/alpinelinux.template" "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template"
   fi
   [ -f "$Dfile" ] && return 0 || return 1
 }
@@ -854,15 +1232,10 @@ __arch_file() {
   Dfile="${1:-$file}"
   [ -n "$ENV_PACKAGES" ] && packages="$ENV_PACKAGES" || packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_ARCH//,/ }"
   packages="$(__trim "$packages")"
-  if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/templates/archlinux" ]; then
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_CONFIG_DIR/templates/archlinux")
-EOF
+  if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/templates/archlinux.template" ]; then
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_CONFIG_DIR/templates/archlinux.template"
   else
-    cat <<EOF | tee -p "$Dfile" &>/dev/null
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/archlinux.template")
-$(. "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template")
-EOF
+    __render_templates_to_file "$Dfile" "$GEN_DOCKERFILE_TEMPLATE_DIR/archlinux.template" "$GEN_DOCKERFILE_TEMPLATE_DIR/scratch.template"
   fi
   [ -f "$Dfile" ] && return 0 || return 1
 }
@@ -888,17 +1261,39 @@ __configure_dockerfile() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_variables() {
+  local has_explicit_registry_override="false" has_explicit_git_override="false" push_path="" env_registry_host=""
+  __sync_repo_setting_aliases
+  [ -n "$GEN_DOCKERFILE_SET_REGISTRY_ORG" ] && has_explicit_registry_override="true"
+  [ -n "$GEN_DOCKERFILE_SET_REGISTRY_REPO" ] && has_explicit_registry_override="true"
+  [ -n "$GEN_DOCKERFILE_SET_GIT_ORG" ] && has_explicit_git_override="true"
+  [ -n "$GEN_DOCKERFILE_SET_GIT_REPO" ] && has_explicit_git_override="true"
+  [ -n "$GEN_DOCKERFILE_SET_GIT_REPO_URL" ] && has_explicit_git_override="true"
   # Set variables from .env.scripts file
   [ -n "$ENV_PACKAGES" ] && packages="$ENV_PACKAGES"
   [ -n "$ENV_VENDOR" ] && GEN_DOCKERFILE_VENDOR="$ENV_VENDOR"
   [ -n "$ENV_AUTHOR" ] && GEN_DOCKERFILE_AUTHOR="$ENV_AUTHOR"
-  [ -n "$ENV_HUB_BASE" ] && GEN_DOCKERFILE_HUB_BASE="$ENV_HUB_BASE"
+  [ -n "$ENV_REGISTRY_URL" ] && [ -z "$GEN_DOCKERFILE_SET_REGISTRY_URL" ] && GEN_DOCKERFILE_SET_REGISTRY_URL="$ENV_REGISTRY_URL"
+  [ -n "$GEN_DOCKERFILE_REGISTRY_URL" ] || GEN_DOCKERFILE_REGISTRY_URL="$GEN_DOCKERFILE_HUB_BASE"
+  [ -n "$GEN_DOCKERFILE_REGISTRY_URL" ] || GEN_DOCKERFILE_REGISTRY_URL="https://docker.io"
+  GEN_DOCKERFILE_HUB_BASE="$GEN_DOCKERFILE_REGISTRY_URL"
   [ -n "$ENV_MAINTAINER" ] && GEN_DOCKERFILE_MAINTAINER="$ENV_MAINTAINER"
   [ -n "$ENV_ADD_TAGS" ] && GEN_DOCKERFILE_SET_TAGS="$ENV_ADD_TAGS" || GEN_DOCKERFILE_SET_TAGS="$GEN_DOCKERFILE_DEFAULT_TAGS"
   [ -n "$ENV_USE_TEMPLATE" ] && GEN_DOCKERFILE_TEMPLATE="$ENV_USE_TEMPLATE" || GEN_DOCKERFILE_TEMPLATE="$GEN_DOCKERFILE_DEFAULT_TEMPLATE"
-  [ -n "$ENV_IMAGE_PUSH" ] && GEN_DOCKERFILE_PUSH_URL="$ENV_IMAGE_PUSH" || GEN_DOCKERFILE_PUSH_URL="${GEN_DOCKERFILE_DEFAULT_IMAGE:-$name}"
+  __normalize_registry_provider "${GEN_DOCKERFILE_SET_REGISTRY_URL:-${GEN_DOCKERFILE_REGISTRY_URL:-docker.io}}"
+  __resolve_repo_settings
+  if [ -n "$ENV_REGISTRY_PUSH" ] && [ "$has_explicit_registry_override" != "true" ]; then
+    push_path="$(__strip_registry_provider "$ENV_REGISTRY_PUSH")"
+    env_registry_host="$(__registry_host_from_ref "$ENV_REGISTRY_PUSH" 2>/dev/null || true)"
+    [ -n "$env_registry_host" ] && [ -z "$GEN_DOCKERFILE_SET_REGISTRY_URL" ] && __normalize_registry_provider "$env_registry_host"
+  else
+    push_path="${GEN_DOCKERFILE_DEFAULT_IMAGE:-$GEN_DOCKERFILE_RESOLVED_REGISTRY_REPO}"
+  fi
   [ -n "$ENV_IMAGE_TAG" ] && GEN_DOCKERFILE_SET_VERSION="$ENV_IMAGE_TAG" || GEN_DOCKERFILE_SET_VERSION="${GEN_DOCKERFILE_DEFAULT_VERSION:-latest}"
-  [ -n "$ENV_ORG_NAME" ] && GEN_DOCKERFILE_SET_ORG="$ENV_ORG_NAME" || GEN_DOCKERFILE_SET_ORG="${GEN_DOCKER_DEFAULT_ORG:-$GEN_DOCKER_REGISTRY_ORG}"
+  if [ -n "$ENV_REGISTRY_ORG" ] && [ "$has_explicit_registry_override" != "true" ]; then
+    GEN_DOCKERFILE_SET_ORG="$ENV_REGISTRY_ORG"
+  else
+    GEN_DOCKERFILE_SET_ORG="${GEN_DOCKERFILE_RESOLVED_ORG:-$GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG}"
+  fi
   [ -n "$ENV_DISTRO_TAG" ] && GEN_DOCKERFILE_SET_DISTRO_VERSION="$ENV_DISTRO_TAG" || GEN_DOCKERFILE_SET_DISTRO_VERSION="$GEN_DOCKERFILE_DEFAULT_DISTRO_VERSION"
   [ -n "$ENV_PULL_URL" ] && GEN_DOCKERFILE_SET_DISTRO_NAME="$ENV_PULL_URL" || GEN_DOCKERFILE_SET_DISTRO_NAME="${GEN_DOCKERFILE_DEFAULT_DISTRO_NAME_SOURCE:-$GEN_DOCKERFILE_DEFAULT_DISTRO_NAME}"
   # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -906,32 +1301,48 @@ __set_variables() {
   [ -n "$GEN_DOCKERFILE_SET_BUILD" ] || GEN_DOCKERFILE_SET_BUILD='${IMAGE_VERSION}'
   [ -n "$GEN_DOCKERFILE_SET_DISTRO_VERSION" ] || GEN_DOCKERFILE_SET_DISTRO_VERSION='${IMAGE_VERSION}'
   [ -z "$GEN_DOCKERFILE_SET_TAGS" ] || GEN_DOCKERFILE_SET_TAGS="$(__trim "${GEN_DOCKERFILE_SET_TAGS//,/ }")"
-  [ "$GEN_DOCKERFILE_PUSH_URL" != "$name" ] || GEN_DOCKERFILE_PUSH_URL="${GEN_DOCKERFILE_SET_ORG:-$GEN_DOCKER_REGISTRY_ORG}/$name"
+  [[ "$push_path" == */* ]] || push_path="${GEN_DOCKERFILE_SET_ORG:-$GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG}/$push_path"
+  GEN_DOCKERFILE_PUSH_URL="$push_path"
+  if [ "$GEN_DOCKERFILE_REGISTRY_PROVIDER_EXPLICIT" = "true" ] || [ "$GEN_DOCKERFILE_REGISTRY_HOST" != "docker.io" ]; then
+    GEN_DOCKERFILE_PUSH_URL="${GEN_DOCKERFILE_REGISTRY_HOST}/$push_path"
+  fi
   # - - - - - - - - - - - - - - - - - - - - - - - - -
-  [ -n "$GEN_DOCKERFILE_GIT_REPO" ] || GEN_DOCKERFILE_GIT_REPO="$GEN_DOCKERFILE_GIT_BASE/$GEN_DOCKER_GIT_ORG/$(basename -- "$name")"
-  [ -n "$GEN_DOCKERFILE_HUB_REPO" ] || GEN_DOCKERFILE_HUB_REPO="$GEN_DOCKERFILE_HUB_BASE/$GEN_DOCKER_REGISTRY_ORG/$(basename -- "$name")"
+  if [ "$has_explicit_git_override" = "true" ]; then
+    GEN_DOCKERFILE_GIT_REPO="${GEN_DOCKERFILE_RESOLVED_GIT_REPO:-$GEN_DOCKERFILE_GIT_REPO}"
+  else
+    [ -n "$GEN_DOCKERFILE_GIT_REPO" ] || GEN_DOCKERFILE_GIT_REPO="${GEN_DOCKERFILE_RESOLVED_GIT_REPO:-$GEN_DOCKERFILE_GIT_BASE/$GEN_DOCKERFILE_DEFAULT_GIT_ORG/$(basename -- "$GEN_DOCKERFILE_RESOLVED_GIT_REPO_NAME")}"
+  fi
+  GEN_DOCKERFILE_HUB_REPO="$GEN_DOCKERFILE_HUB_BASE/$push_path"
   # - - - - - - - - - - - - - - - - - - - - - - - - -
-  GEN_DOCKERFILE_SET_ORG="$(echo "$GEN_DOCKERFILE_SET_ORG" | tr '[:upper:]' '[:lower:]')"
-  GEN_DOCKERFILE_PUSH_URL="$(echo "$GEN_DOCKERFILE_PUSH_URL" | tr '[:upper:]' '[:lower:]')"
-  GEN_DOCKERFILE_SET_VERSION="$(echo "$GEN_DOCKERFILE_SET_VERSION" | tr '[:upper:]' '[:lower:]')"
-  GEN_DOCKERFILE_PULL_URL="$(echo "${GEN_DOCKERFILE_SET_DISTRO_NAME:-casjaysdev/$GEN_DOCKERFILE_TEMPLATE}" | tr '[:upper:]' '[:lower:]')"
-  GEN_DOCKERFILE_GIT_BASE="$(echo "${ENV_GIT_REPO_URL:-$GEN_DOCKERFILE_GIT_REPO}" | tr '[:upper:]' '[:lower:]')"
-  # Keep HUB_BASE as just the registry hostname, not the full path
-  GEN_DOCKERFILE_HUB_BASE="$(echo "${ENV_REGISTRY_URL:-$GEN_DOCKERFILE_HUB_BASE}" | tr '[:upper:]' '[:lower:]')"
+  GEN_DOCKERFILE_SET_ORG="$(__lower "$GEN_DOCKERFILE_SET_ORG")"
+  GEN_DOCKERFILE_PUSH_URL="$(__lower "$GEN_DOCKERFILE_PUSH_URL")"
+  GEN_DOCKERFILE_SET_VERSION="$(__lower "$GEN_DOCKERFILE_SET_VERSION")"
+  GEN_DOCKERFILE_PULL_URL="$(__lower "${GEN_DOCKERFILE_SET_DISTRO_NAME:-casjaysdev/$GEN_DOCKERFILE_TEMPLATE}")"
+  if [ "$has_explicit_git_override" = "true" ]; then
+    GEN_DOCKERFILE_GIT_REPO="$(__lower "$GEN_DOCKERFILE_GIT_REPO")"
+  else
+    GEN_DOCKERFILE_GIT_REPO="$(__lower "${ENV_GIT_REPO_URL:-$GEN_DOCKERFILE_GIT_REPO}")"
+  fi
+  GEN_DOCKERFILE_REGISTRY_URL="$(__lower "$GEN_DOCKERFILE_REGISTRY_URL")"
+  GEN_DOCKERFILE_HUB_BASE="$GEN_DOCKERFILE_REGISTRY_URL"
+  GEN_DOCKERFILE_HUB_REPO="$(__lower "$GEN_DOCKERFILE_HUB_REPO")"
   # - - - - - - - - - - - - - - - - - - - - - - - - -
-  [ "$GEN_DOCKER_REGISTRY_PUSH_ORG" = "_" ] && GEN_DOCKERFILE_PULL_URL="${GEN_DOCKERFILE_PULL_URL//*\//}"
-  GEN_DOCKER_FILE_EXPOSE_PORTS="$(echo "$GEN_DOCKER_FILE_EXPOSE_PORTS+" | tr ' ' '\n' | sort -uV | grep -v '^$' | tr '\n' ',')"
+  GEN_DOCKER_FILE_EXPOSE_PORTS="$(printf '%s\n' "$GEN_DOCKER_FILE_EXPOSE_PORTS+" | tr ' ' '\n' | sort -uV | grep -v '^$' | tr '\n' ',')"
   GEN_DOCKER_FILE_EXPOSE_PORTS="${GEN_DOCKER_FILE_EXPOSE_PORTS//,/ }"
   return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_make_file_variables() {
+  local input_repo="${3:-}"
   date="$(date +'%Y%m%d%H%M')"
   file="${1:-$GEN_DOCKERFILE_CWD/Dockerfile}"
-  [ -n "$ENV_IMAGE_NAME" ] && name="$ENV_IMAGE_NAME" || name="${2:-$(basename -- "$GEN_DOCKERFILE_CWD")}"
+  [ -n "$ENV_REGISTRY_REPO" ] && name="$ENV_REGISTRY_REPO" || name="${2:-$(basename -- "$GEN_DOCKERFILE_CWD")}"
+  [ -n "$GEN_DOCKERFILE_SET_REGISTRY_REPO" ] && name="$GEN_DOCKERFILE_SET_REGISTRY_REPO"
   [ -n "$GEN_DOCKERFILE_DEFAULT_VERSION" ] && version="$GEN_DOCKERFILE_DEFAULT_VERSION" || version="$GEN_DOCKERFILE_SET_VERSION"
   file="$(realpath "${ENV_DOCKERFILE:-$file}")"
-  repo="${ENV_GIT_REPO_URL:-$3}"
+  repo="${ENV_GIT_REPO_URL:-$input_repo}"
+  GEN_DOCKERFILE_SET_GIT_REPO_URL="${GEN_DOCKERFILE_SET_GIT_REPO_URL:-$input_repo}"
+  __sync_repo_setting_aliases
   tmpFile="$GEN_DOCKERFILE_CWD/init.$$"
   rootfs_dir="$GEN_DOCKERFILE_CWD/rootfs"
   shared_dir="$rootfs_dir/usr/local/share"
@@ -939,12 +1350,14 @@ __set_make_file_variables() {
   custom_init_dir="$rootfs_dir/root/docker/setup"
   init_dir="$rootfs_dir/usr/local/etc/docker/init.d"
   GEN_DOCKERFILE_TEMPLATE="${GEN_DOCKERFILE_TEMPLATE:-alpine}"
-  organization="${ENV_ORG_NAME:-$(basename -- "$(dirname "$GEN_DOCKERFILE_CWD")")}"
+  __resolve_repo_settings
   make_directories="$GEN_DOCKERFILE_CWD $rootfs_dir $shared_dir $template_dir/config $template_dir/data $template_dir/defaults"
-  file_version="$(echo "$version" | grep -v 'latest' | sed 's|[a-zA-Z]||g;s|^ ||g' | awk '{print $1}' | sed 's| ||g' | grep '[a-z]')"
-  file_version_is_named="$(echo "$version" | grep -v 'latest' | tr '[:upper:]' '[:lower:]' | awk '{print $1}' | sed 's| ||g' | grep '[0-9a-z]')"
+  file_version="$(printf '%s\n' "$version" | grep -v 'latest' | sed 's|[a-zA-Z]||g;s|^ ||g' | awk '{print $1}' | sed 's| ||g' | grep '[a-z]')"
+  file_version_is_named="$(printf '%s\n' "$version" | grep -v 'latest' | tr '[:upper:]' '[:lower:]' | awk '{print $1}' | sed 's| ||g' | grep '[0-9a-z]')"
   [ -n "$file_version_is_named" ] && [ -z "$file_version" ] && file_version="$file_version_is_named"
-  is_file_versioned="$(echo "$file" | grep -q "$file_version" || echo 'false')"
+  is_file_versioned="true"
+  [ -n "$file_version" ] && [[ "$file" != *"$file_version"* ]] && is_file_versioned="false"
+  repo="$GEN_DOCKERFILE_RESOLVED_GIT_REPO"
   IMAGE_REPO="${GEN_DOCKERFILE_HUB_BASE//http*:\/\//}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -980,15 +1393,37 @@ GEN_DOCKERFILE_NOTIFY_CLIENT_URGENCY="${GEN_DOCKERFILE_NOTIFY_CLIENT_URGENCY:-no
 GEN_DOCKERFILE_SET_TAGS=""
 GEN_DOCKERFILE_SET_BUILD=""
 GEN_DOCKERFILE_SET_VERSION=""
+GEN_DOCKERFILE_UPDATE="${GEN_DOCKERFILE_UPDATE:-false}"
 GEN_DOCKERFILE_SILENT="${GEN_DOCKERFILE_SILENT:-true}"
 GEN_DOCKER_FILE_OPTS="${GEN_DOCKER_FILE_OPTS:-set -ex;}"
 GEN_DOCKER_GIT_AUTO_INIT="${GEN_DOCKER_GIT_AUTO_INIT:-no}"
+GEN_DOCKERFILE_SCOPE="${GEN_DOCKERFILE_SCOPE:-}"
+GEN_DOCKERFILE_SCOPE_VALUE="${GEN_DOCKERFILE_SCOPE_VALUE:-}"
+GEN_DOCKERFILE_SET_GIT_ORG="${GEN_DOCKERFILE_SET_GIT_ORG:-}"
+GEN_DOCKERFILE_SET_REGISTRY_ORG="${GEN_DOCKERFILE_SET_REGISTRY_ORG:-}"
+GEN_DOCKERFILE_SET_GIT_REPO="${GEN_DOCKERFILE_SET_GIT_REPO:-}"
+GEN_DOCKERFILE_SET_REGISTRY_REPO="${GEN_DOCKERFILE_SET_REGISTRY_REPO:-}"
+GEN_DOCKERFILE_SET_GIT_REPO_URL="${GEN_DOCKERFILE_SET_GIT_REPO_URL:-}"
+GEN_DOCKERFILE_SET_REGISTRY_URL="${GEN_DOCKERFILE_SET_REGISTRY_URL:-${GEN_DOCKERFILE_SET_REGISTRY_PROVIDER:-}}"
+GEN_DOCKERFILE_SET_REGISTRY_PROVIDER="${GEN_DOCKERFILE_SET_REGISTRY_PROVIDER:-$GEN_DOCKERFILE_SET_REGISTRY_URL}"
+GEN_DOCKERFILE_REGISTRY_PROVIDER_EXPLICIT="${GEN_DOCKERFILE_REGISTRY_PROVIDER_EXPLICIT:-false}"
+GEN_DOCKERFILE_GIT_ORG_OVERRIDE="${GEN_DOCKERFILE_GIT_ORG_OVERRIDE:-}"
+GEN_DOCKERFILE_REGISTRY_ORG_OVERRIDE="${GEN_DOCKERFILE_REGISTRY_ORG_OVERRIDE:-}"
+GEN_DOCKERFILE_GIT_REPO_NAME_OVERRIDE="${GEN_DOCKERFILE_GIT_REPO_NAME_OVERRIDE:-}"
+GEN_DOCKERFILE_REGISTRY_REPO_OVERRIDE="${GEN_DOCKERFILE_REGISTRY_REPO_OVERRIDE:-}"
+GEN_DOCKERFILE_GIT_REPO_OVERRIDE="${GEN_DOCKERFILE_GIT_REPO_OVERRIDE:-}"
 GEN_DOCKERFILE_DEFAULT_IMAGE="${GEN_DOCKERFILE_DEFAULT_IMAGE:-}"
+GEN_DOCKERFILE_DEFAULT_REPO="${GEN_DOCKERFILE_DEFAULT_REPO:-}"
+GEN_DOCKERFILE_PROJECT_DIRS="${GEN_DOCKERFILE_PROJECT_DIRS:-$HOME/Documents $HOME/Projects $HOME/Developer $HOME/Development $HOME/Workspace $HOME/Workspaces $HOME/src}"
 GEN_DOCKER_VERSION_FORMAT="${GEN_DOCKER_VERSION_FORMAT:-${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}}"
-GEN_DOCKER_GIT_ORG="${GEN_DOCKER_GIT_ORG:-casjaysdevdocker}"
-GEN_DOCKER_REGISTRY_ORG="${GEN_DOCKER_REGISTRY_ORG:-casjaysdevdocker}"
+GEN_DOCKERFILE_DEFAULT_GIT_ORG="${GEN_DOCKERFILE_DEFAULT_GIT_ORG:-casjaysdevdocker}"
+GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG="${GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG:-casjaysdevdocker}"
+GEN_DOCKER_GIT_ORG="${GEN_DOCKER_GIT_ORG:-$GEN_DOCKERFILE_DEFAULT_GIT_ORG}"
+GEN_DOCKER_REGISTRY_ORG="${GEN_DOCKER_REGISTRY_ORG:-$GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG}"
 GEN_DOCKERFILE_GIT_BASE="${GEN_DOCKERFILE_GIT_BASE:-https://github.com}"
-GEN_DOCKERFILE_HUB_BASE="${GEN_DOCKERFILE_HUB_BASE:-https://hub.docker.com}"
+GEN_DOCKERFILE_REGISTRY_URL="${GEN_DOCKERFILE_REGISTRY_URL:-${GEN_DOCKERFILE_HUB_BASE:-https://docker.io}}"
+GEN_DOCKERFILE_HUB_BASE="${GEN_DOCKERFILE_HUB_BASE:-$GEN_DOCKERFILE_REGISTRY_URL}"
+GEN_DOCKERFILE_REGISTRY_HOST="${GEN_DOCKERFILE_REGISTRY_HOST:-docker.io}"
 BUILDX_BUILD_DATE_FORMAT="${BUILDX_BUILD_DATE_FORMAT:-%Y%m%d%H%M}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 GEN_DOCKERFILE_VENDOR="${GEN_DOCKERFILE_VENDOR:-CasjaysDev}"
@@ -1043,6 +1478,11 @@ GEN_DOCKER_FILE_PKGS_ARCH=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$GEN_DOCKERFILE_CONFIG_DIR/$GEN_DOCKERFILE_CONFIG_FILE" ] && . "$GEN_DOCKERFILE_CONFIG_DIR/$GEN_DOCKERFILE_CONFIG_FILE"
+if [ -d "$SCRIPT_SRC_DIR/../templates/dockerfiles" ] && [ -d "$SCRIPT_SRC_DIR/../functions" ]; then
+  CASJAYSDEVDIR="$(realpath "$SCRIPT_SRC_DIR/.." 2>/dev/null)"
+  GEN_DOCKERFILE_TEMPLATE_DIR="$CASJAYSDEVDIR/templates/dockerfiles"
+fi
+__sync_repo_setting_aliases
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$GEN_DOCKERFILE_LOG_DIR" ] || mkdir -p "$GEN_DOCKERFILE_LOG_DIR" |& __devnull
@@ -1074,14 +1514,15 @@ __notifications() {
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
-SETARGS=("$@")
+__normalize_cli_args "$@"
+SETARGS=("${GEN_DOCKERFILE_NORMALIZED_ARGS[@]}")
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force"
-LONGOPTS+=",dockerfile,startup,nogit,template:,image-name:,image-version:,org:,pkmgr"
-LONGOPTS+=",tag:,registry:,git:,distro-name:,distro-version:,add-tags:,x11,init,ports"
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force,update"
+LONGOPTS+=",dockerfile,startup,nogit,template:,org:,user:,repo:,pkmgr"
+LONGOPTS+=",tag:,registry:,distro-name:,distro-version:,add-tags:,x11,init,ports"
 LONGOPTS+=",apache,nginx,mysql,postgres,php,application:"
 LONGOPTS+=",alpine,almalinux,archlinux,debian,ubuntu"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1092,7 +1533,7 @@ LIST=""
 LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "${SETARGS[@]}" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
@@ -1176,6 +1617,11 @@ while :; do
     shift 1
     GEN_DOCKERFILE_FORCE="yes"
     ;;
+  --update)
+    shift 1
+    GEN_DOCKERFILE_UPDATE="true"
+    GEN_DOCKER_ONLY_DOCKERFILE="true"
+    ;;
   --dir)
     CWD_IS_SET="TRUE"
     GEN_DOCKERFILE_CWD="$2"
@@ -1212,27 +1658,23 @@ while :; do
     GEN_DOCKERFILE_DEFAULT_TEMPLATE="$2"
     shift 2
     ;;
-  --git)
-    GEN_DOCKER_GIT_ORG="$2"
-    shift 2
-    ;;
   --registry)
-    GEN_DOCKER_REGISTRY_PUSH_ORG="$2"
+    GEN_DOCKERFILE_SET_REGISTRY_URL="$2"
+    GEN_DOCKERFILE_SET_REGISTRY_PROVIDER="$GEN_DOCKERFILE_SET_REGISTRY_URL"
+    GEN_DOCKERFILE_REGISTRY_PROVIDER_EXPLICIT="true"
+    __normalize_registry_provider "$GEN_DOCKERFILE_SET_REGISTRY_URL"
     shift 2
     ;;
   --org)
-    GEN_DOCKER_GIT_ORG="$2"
-    GEN_DOCKER_DEFAULT_ORG="$2"
-    GEN_DOCKER_REGISTRY_ORG="$2"
+    __set_scoped_owner_override "$2"
     shift 2
     ;;
-  --image-name)
-    GEN_DOCKERFILE_DEFAULT_IMAGE="$2"
+  --user)
+    __set_scoped_owner_override "$2"
     shift 2
     ;;
-  --image-version)
-    GEN_DOCKERFILE_DEFAULT_VERSION="$2"
-    GEN_DOCKERFILE_SET_VERSION="$GEN_DOCKERFILE_DEFAULT_VERSION"
+  --repo)
+    __set_scoped_repo_override "$2"
     shift 2
     ;;
   --tag)
@@ -1352,6 +1794,7 @@ while :; do
     ;;
   esac
 done
+__sync_repo_setting_aliases
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get directory from args
 # set -- "$@"
@@ -1379,8 +1822,14 @@ else
 fi
 export GEN_DOCKERFILE_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Migrate legacy ENV_IMAGE_* variables once before normal processing
+__migrate_env_script
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
-[ "$(ls -A "$GEN_DOCKERFILE_CWD/Dockerfile"* 2>/dev/null | wc -l)" -ne 0 ] && GEN_DOCKER_ONLY_DOCKERFILE="true"
+shopt -s nullglob
+dockerfiles_in_dir=("$GEN_DOCKERFILE_CWD"/Dockerfile*)
+shopt -u nullglob
+[ "${#dockerfiles_in_dir[@]}" -ne 0 ] && GEN_DOCKER_ONLY_DOCKERFILE="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 #requiresudo "$0" "$@" || exit 2     # exit 2 if errors
@@ -1390,6 +1839,15 @@ export GEN_DOCKERFILE_CWD
 # APP Variables overrides
 GIT_COMMIT="${GIT_COMMIT:-$(git -C "$GEN_DOCKERFILE_CWD" rev-parse HEAD 2>/dev/null || echo 'unknown')}"
 export GIT_COMMIT
+
+if [ "$GEN_DOCKERFILE_UPDATE" = "true" ]; then
+  if [ "${GEN_DOCKERFILE_MIGRATE_ENV_ONLY:-false}" = "true" ]; then
+    __migrate_env_script || printf_exit "Failed to migrate .env.scripts files in $GEN_DOCKERFILE_CWD"
+  else
+    __update_generated_files || printf_exit "No .env.scripts files found to update in $GEN_DOCKERFILE_CWD"
+  fi
+  exit 0
+fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env

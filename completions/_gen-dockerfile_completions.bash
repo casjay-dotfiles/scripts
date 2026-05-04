@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605040349-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Tuesday, Aug 29, 2023 18:21 EDT
 # @@File             :  gen-dockerfile
 # @@Description      :  Create a Dockerfile
-# @@Changelog        :
+# @@Changelog        :  Add primary registry URL variable
 # @@TODO             :  Rewite/Cleanup variables
 # @@Other            :
 # @@Resource         :
@@ -29,12 +29,12 @@ _gen-dockerfile_completion() {
   #####################################################################
   ___jq() { jq -rc "$@" 2>/dev/null; }
   ___sed_env() { sed 's|"||g;s|.*=||g' 2>/dev/null || false; }
-  ___ls() { ls -A "$1" 2>/dev/null | grep -v '^$' | grep '^' || false; }
+  ___ls() { ls -A "$1" 2>/dev/null || false; }
   ___curl() { curl -q -LSsf --max-time 1 --retry 0 "$@" 2>/dev/null || return 1; }
-  ___grep_file() { grep --no-filename -vsR '#' "$@" 2>/dev/null | grep '^' || return 1; }
-  ___find_cmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | grep '^' || return 1; }
-  ___find_rel() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} -printf "%P\n" 2>/dev/null | grep '^' || return 1; }
-  ___grep_env() { GREP_COLORS="" grep -shE '^.*=*..*$' "$1" 2>/dev/null | grep -v '^#' | grep "${2:-^}" | sed 's|"||g' 2>/dev/null | grep '^' || false; }
+  ___grep_file() { grep --no-filename -vsR '#' "$@" 2>/dev/null || return 1; }
+  ___find_cmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null || return 1; }
+  ___find_rel() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} -printf "%P\n" 2>/dev/null || return 1; }
+  ___grep_env() { GREP_COLORS="" grep -shE '^.*=*..*$' "$1" 2>/dev/null | grep -v '^#' | grep "${2:-^}" | sed 's|"||g' 2>/dev/null || false; }
   #####################################################################
   cur="${COMP_WORDS[$COMP_CWORD]}"
   prev="${COMP_WORDS[$COMP_CWORD - 1]}"
@@ -50,9 +50,9 @@ _gen-dockerfile_completion() {
   SHORTOPTS=""
   SHORTOPTS+=""
   #####################################################################
-  LONGOPTS="--completions --config --debug --dir --help --options --raw --version --silent "
-  LONGOPTS+="--dockerfile --startup --nogit --template --image-name --image-version --org --pkmgr --distro-name "
-  LONGOPTS+="--distro-tag --add-tags --x11 --init --apache --nginx --mysql --postgres --php --application "
+  LONGOPTS="--completions --config --debug --dir --help --options --raw --version --silent --update "
+  LONGOPTS+="--dockerfile --startup --nogit --template --org --user --repo --pkmgr --distro-name --registry "
+  LONGOPTS+="--distro-version --add-tags --x11 --init --apache --nginx --mysql --postgres --php --application "
   LONGOPTS+="--alpine --almalinux --archlinux --debian --ubuntu "
   #####################################################################
   #NOOPTS="--no-* "
@@ -97,6 +97,12 @@ _gen-dockerfile_completion() {
     --template)
       prev="dir"
       COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))
+      ;;
+    --user | --org | --repo)
+      COMPREPLY=($(compgen -W 'git reg registry' -- "$cur"))
+      ;;
+    --registry)
+      COMPREPLY=($(compgen -W 'docker.io ghcr.io quay.io' -- "$cur"))
       ;;
     --pkmgr)
       [ "$cword" -le 2 ] && _filedir -d || COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))

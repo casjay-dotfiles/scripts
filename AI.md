@@ -25,7 +25,7 @@ This file serves as the **complete AI context and history** for all AI interacti
 ### Understanding User Intent
 - ✅ **Question mark (?)** = User asking a question, NOT giving instructions
 - ✅ **No question mark** = User giving instructions, act on them
-- ✅ **Multiple tasks** = Create TODO.AI.md immediately (see below)
+- ✅ **2 or more tasks** = MUST create/populate TODO.AI.md immediately, MUST update after each task (see "TODO.AI.md Workflow" below). Non-negotiable.
 
 ### What NOT to Ask
 - ❌ "Should I read this file?" (just do it)
@@ -45,16 +45,18 @@ This file serves as the **complete AI context and history** for all AI interacti
 
 (See "File Management" further down for the full TODO.md ↔ TODO.AI.md / PLAN.md ↔ PLAN.AI.md pairing and the empty-when-done convention.)
 
-### When to Create TODO.AI.md
+### Rule: 2+ tasks REQUIRES TODO.AI.md
 
-If the human has already written a clear `TODO.md`, AI works against that directly — no need to duplicate. Create `TODO.AI.md` only when the AI's task list needs to be different from (or refinement of) the human-authored one. The same logic applies to PLAN.md ↔ PLAN.AI.md.
+`TODO.AI.md` is the AI's own progress tracker. It is **mandatory** whenever AI is working on **2 or more tasks**, regardless of whether `TODO.md` already exists. `TODO.md` is the human's input; `TODO.AI.md` is where AI tracks its own state so it doesn't lose context between actions.
 
-**Create / populate TODO.AI.md when:**
-- ✅ More than 2 instructions given at once and no actionable TODO.md exists
-- ✅ More than 2 tasks to complete
+**MUST create/populate TODO.AI.md when:**
+- ✅ **2 or more tasks** in the current request — non-negotiable
 - ✅ Complex multi-step workflow
 - ✅ Multiple files to modify
-- ✅ The existing TODO.md is too loose to act on without restructuring
+
+**MUST update TODO.AI.md after each task** (move the completed task to the Completed section). This isn't optional — it's how AI preserves state across messages and how the user sees real-time progress.
+
+If `TODO.md` exists, AI may copy/refine its tasks into `TODO.AI.md` (since `TODO.md` is the human's source and may be too loose to act on directly). PLAN.md ↔ PLAN.AI.md follows the same pattern.
 
 ### Format
 ```markdown
@@ -73,14 +75,15 @@ If the human has already written a clear `TODO.md`, AI works against that direct
 ```
 
 ### Workflow
-1. User gives 3+ tasks → **populate TODO.AI.md immediately** (or use existing TODO.md if clear)
+1. User gives **2 or more tasks** → **populate TODO.AI.md immediately** (mandatory, even if TODO.md exists)
 2. Work on first task
-3. **Update TODO.AI.md** — move the task to the Completed section
+3. **Update TODO.AI.md** — move the task to the Completed section. **Do this after every task; not optional.**
 4. Work on next task
-5. **Update TODO.AI.md**
-6. When all done → **empty TODO.AI.md** (don't delete the file — the empty file signals "no work in progress"; delete only the contents)
-7. **Update AI.md** with a session-history entry
-8. **Create / update `.git/COMMIT_MESS`** with the full change summary
+5. **Update TODO.AI.md** again
+6. (repeat 4–5 until all tasks complete)
+7. When all done → **empty TODO.AI.md** (don't delete the file — the empty file signals "no work in progress"; remove only the contents)
+8. **Update AI.md** with a session-history entry
+9. **Create / update `.git/COMMIT_MESS`** with the full change summary
 
 ### Benefits
 - ✅ Keeps AI organized and focused
@@ -497,8 +500,8 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 - [ ] Understand current project state (`git status`, `git log -5`)
 
 **During Work:**
-- [ ] If >2 tasks and no clear TODO.md exists → populate TODO.AI.md immediately
-- [ ] Update TODO.AI.md (or TODO.md) after each task — move to Completed
+- [ ] **2 or more tasks → populate TODO.AI.md immediately (mandatory)**
+- [ ] **Update TODO.AI.md after every completed task — move to Completed (mandatory)**
 - [ ] Follow code standards (functions: `__`, variables: `SCRIPTNAME_`)
 - [ ] Comments above code (never inline)
 - [ ] Test changes (Docker-first, then local)

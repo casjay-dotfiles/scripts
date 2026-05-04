@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605041200-git
+##@Version           :  202605041300-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 21:22 EDT
 # @@File             :  buildx
 # @@Description      :  Docker buildx wrapper
-# @@Changelog        :  Fix log path, init log, registry parser UUOC
+# @@Changelog        :  Add __logging_build; split stdout/stderr logs; fix registry default
 # @@TODO             :  Refactor code: clean up arguments and variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605041200-git"
+VERSION="202605041300-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -593,7 +593,7 @@ __set_variables() {
         BUILDX_SET_IMAGE="${_fr_rest##*/}"
       else
         # Format: org/repo (Docker Hub assumed)
-        BUILDX_DEFAULT_REGISTRY="docker.io"
+        BUILDX_DEFAULT_REGISTRY="${BUILDX_DEFAULT_REGISTRY:-docker.io}"
         BUILDX_SET_ORG="${first_registry%%/*}"
         BUILDX_SET_IMAGE="${first_registry##*/}"
       fi
@@ -607,7 +607,7 @@ __set_variables() {
         # BUILDX_SET_IMAGE will use default (basename of PROJECT_ROOT)
       else
         # Format: org/repo (Docker Hub assumed)
-        BUILDX_DEFAULT_REGISTRY="docker.io"
+        BUILDX_DEFAULT_REGISTRY="${BUILDX_DEFAULT_REGISTRY:-docker.io}"
         BUILDX_SET_ORG="${first_registry%%/*}"
         BUILDX_SET_IMAGE="${first_registry#*/}"
       fi
@@ -1076,9 +1076,10 @@ __docker_init() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker_push() {
-  __docker push "$tagged_name" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" ||
-    __docker push "$tagged_name" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" ||
-    __docker push "$tagged_name" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" && true
+  local _push_cmd="$BUILDX_DOCKER_CMD push $tagged_name"
+  __logging_build "$_push_cmd" "$BUILDX_CUSTOM_LOG_FILE" ||
+    __logging_build "$_push_cmd" "$BUILDX_CUSTOM_LOG_FILE" ||
+    __logging_build "$_push_cmd" "$BUILDX_CUSTOM_LOG_FILE" && true
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1331,6 +1332,13 @@ __buildx_status() {
   return ${e:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__logging_build() {
+  local cmd="$1" logfile="$2" errfile="${2%.log}.err"
+  mkdir -p "${logfile%/*}"
+  { eval "$cmd" 2> >(tee -a "$errfile" >&2); } | tee -a "$logfile"
+  return "${PIPESTATUS[0]}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_docker_script() {
   set_build_command="$(<"$BUILDX_CWD/build.sh")"
   set_build_command="${set_build_command//  / }"
@@ -1351,8 +1359,8 @@ __run_docker_script() {
     printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
   fi
   sleep 2
-  printf 'Executing: %s\n' "$set_build_command" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
-  eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" || false
+  printf 'Executing: %s\n' "$set_build_command" >> "$BUILDX_CUSTOM_LOG_FILE"
+  __logging_build "$set_build_command" "$BUILDX_CUSTOM_LOG_FILE" || false
   return $?
 
 }
@@ -1377,8 +1385,8 @@ __run_dockermgr_script() {
     printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
   fi
   sleep 2
-  printf 'Executing: %s\n' "$build_command" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
-  eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" || false
+  printf 'Executing: %s\n' "$build_command" >> "$BUILDX_CUSTOM_LOG_FILE"
+  __logging_build "$set_build_command" "$BUILDX_CUSTOM_LOG_FILE" || false
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1410,7 +1418,7 @@ __run_buildx_script() {
   local build_exit_code=1
   
   while [ $retry_count -le $max_retries ]; do
-    if eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE"; then
+    if __logging_build "$set_build_command" "$BUILDX_CUSTOM_LOG_FILE"; then
       # Success
       build_exit_code=0
       break
@@ -1461,8 +1469,8 @@ __run_build_script() {
     printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
   fi
   sleep 2
-  printf 'Executing: %s\n' "$set_build_command" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
-  eval "$set_build_command" |& tee -a "$BUILDX_CUSTOM_LOG_FILE" || false
+  printf 'Executing: %s\n' "$set_build_command" >> "$BUILDX_CUSTOM_LOG_FILE"
+  __logging_build "$set_build_command" "$BUILDX_CUSTOM_LOG_FILE" || false
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -

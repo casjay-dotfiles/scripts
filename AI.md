@@ -1408,3 +1408,43 @@ tell anything had happened.
 - `man/buildx.1` — version bump
 - `completions/_buildx_completions.bash` — version bump
 
+---
+
+## Session 2026-05-04 (cont): buildx — log path + init log fix
+
+### Problem
+Log files landed in wrong locations (e.g. using git-dir org `dockersrc`
+instead of registry org `casjaysdev`). `mkdir` double-prefixed `$BUILDX_LOG_DIR`.
+Init/setup logs were mixed into the per-build log file.
+
+### Root Cause
+`logfolder` in `__execute_buildx` was derived from `BUILDX_DEFAULT_LOG_ORG`/
+`BUILDX_DEFAULT_LOG_REPO` which come from the git directory structure, not the
+actual push destination. The fallback value also started with `/` (not under
+`BUILDX_LOG_DIR`), and `mkdir -p "$BUILDX_LOG_DIR/$logfolder"` double-prepended
+the base dir since `logfolder` already included it.
+
+### Fixes Applied
+
+1. **`__execute_buildx` log path**: derive from `push_tag` (already fully
+   resolved to `registry/org/repo:version`) using pure bash parameter expansion.
+   Result: `$BUILDX_LOG_DIR/registry/org/repo/version.log` e.g.
+   `~/.local/log/buildx/ghcr.io/binmgr/tor/latest.log`
+2. **`mkdir` fix**: `mkdir -p "$BUILDX_LOG_DIR/$logfolder"` →
+   `mkdir -p "$logfolder"` (logfolder already absolute)
+3. **Init log**: `__set_variables` now sets `BUILDX_CUSTOM_LOG_FILE=
+   "$BUILDX_LOG_DIR/init.log"` (instead of per-build path). `__execute_buildx`
+   overrides it to the per-build path. All init/setup operations (`__reinit_buildx`,
+   `__buildx_init`) log to `init.log`.
+4. **`__set_variables` UUOC**: registry parser `echo|grep-q`/`echo|cut` →
+   `[[ ]]` / `${x%%/*}` / `${x#*/}` / `${x##*/}`;
+   `echo|awk|sed` version parse → pure bash; `basename/dirname` org_name →
+   parameter expansion
+5. **Main body UUOC**: `BUILDX_DEFAULT_LOG_ORG/REPO` `basename/dirname/sed`
+   subshells → `realpath` + parameter expansion
+
+### Files Modified
+- `bin/buildx` — all fixes above, version `202605041200-git`
+- `man/buildx.1` — version bump
+- `completions/_buildx_completions.bash` — version bump
+

@@ -90,16 +90,32 @@ This file serves as the **complete AI context and history** for all AI interacti
 ## 🔧 Git & Commit Workflow
 
 ### AI Access Rules
-- ✅ **Full access to read-only git commands**
-  - `git status`, `git diff`, `git log`, `git show`, `git branch`, etc.
-  - `gitcommit status`, `gitcommit log`, `gitcommit log show`, `gitcommit diff`, etc.
-  
-- ❌ **NEVER run commit commands**
-  - `git commit` - User handles all commits with GPG signing
-  - `gitcommit` (no args) - Triggers commit
-  - `gitcommit all` - Commits all changes
-  - `gitcommit push` - Pushes changes
-  - Any command that actually commits changes
+
+**Read-only — always allowed:**
+- `git status`, `git diff`, `git log`, `git show`, `git branch`, etc.
+- `gitcommit status`, `gitcommit log`, `gitcommit log show`, `gitcommit diff`, etc.
+
+**`gitcommit {command}` to commit — allowed after confirming `.git/COMMIT_MESS`:**
+- The AI may run `gitcommit all` (or another file-selection sub) **after** writing `.git/COMMIT_MESS` and verifying it accurately reflects the staged changes (no missing files, no stale content from a previous task)
+- The message file is **canonical** — never pass an inline `{message}` argument; let `gitcommit` read from the file
+- A successful `gitcommit` **also pushes** (no separate review step) — so the diff and message must be right *before* invocation
+- See `gitcommit --help` for the full sub list. Typical choices:
+  - File-selection: `all` (one combined commit), `modified` (one commit per file), `added`, `deleted`, `renamed`, `changed`
+  - Semantic types: `new`, `improved`, `fixes`, `bugs`, `docs`, `refactor`, `performance`, `breaking`
+
+**Off-limits subcommands** (each with the reason):
+- `ai` — generates a message via AI; redundant since the AI just wrote one in the message file
+- `random` — random message; bypasses the canonical file
+- `custom` — prompts for an inline message; bypasses the canonical file
+
+**Never run `git commit` directly** — use `gitcommit {command}` so signing and message-file integration are honored.
+
+**Pick the command carefully:**
+- `gitcommit all` — single combined commit using the message file. Use when you have one logical changeset.
+- `gitcommit modified` — **per-file** commits with auto-generated titles, ignores `.git/COMMIT_MESS`. Don't use when you wrote a unified message.
+- The subcommand picks the file subset; the message file must describe exactly that subset. If you wrote a single message but the working tree has unrelated changes, stash or split before committing.
+
+**Commit frequently** — run `gitcommit {cmd}` as soon as a logical unit of work (a fix, a refactor, a feature) is complete and verified. Don't batch unrelated tasks into one commit; small focused commits are preferred.
 
 ### COMMIT_MESS Workflow
 

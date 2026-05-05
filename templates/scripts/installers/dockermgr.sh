@@ -110,7 +110,7 @@ SET_INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 # Set default docker home for containers - $SET_APPDIR/$CONTAINER_NAME [APPDIR]
 SET_APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_REPO_NAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the base data directory - mounted files live in $SET_DATADIR/$CONTAINER_NAME/rootfs [DATADIR]
+# Set the base data directory - mounted files live in $SET_DATADIR/$CONTAINER_NAME/volumes [DATADIR]
 SET_DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_REPO_NAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the base database directory for the host
@@ -578,7 +578,7 @@ CONTAINER_MOUNT_DATA_MOUNT_DIR=""
 CONTAINER_MOUNT_CONFIG_ENABLED="yes"
 CONTAINER_MOUNT_CONFIG_MOUNT_DIR=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional mounts - add HOST/ to use $DATA_DIR/rootfs - [/dir:/dir,/otherdir:/otherdir]
+# Define additional mounts - add HOST/ to use $DATA_DIR/volumes - [/dir:/dir,/otherdir:/otherdir]
 CONTAINER_MOUNTS=""
 CONTAINER_MOUNTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -936,7 +936,7 @@ __create_uninstall() {
 INSTDIR="$INSTDIR"
 APPDIR="$APPDIR"
 DATADIR="$DATADIR"
-ROOTFS_DIR="$ROOTFS_DIR"
+VOLUMES_DIR="$VOLUMES_DIR"
 DOCKERMGR_CONFIG_DIR="$DOCKERMGR_CONFIG_DIR"
 CONTAINER_NAME="$CONTAINER_NAME"
 DOCKER_NAME="$CONTAINER_NAME"
@@ -1026,9 +1026,9 @@ CONTAINER_NAME="${CONTAINER_NAME:-$SET_CONTAINER_NAME}"
 export APPDIR="$SET_APPDIR"
 export DATADIR="$SET_DATADIR"
 export INSTDIR="$SET_INSTDIR"
-export HOST_ROOTFS_DIR="$SET_DATADIR/rootfs"
-export HOST_DATA_DIR="$HOST_ROOTFS_DIR/data"
-export HOST_CONFIG_DIR="$HOST_ROOTFS_DIR/config"
+export HOST_VOLUMES_DIR="$SET_DATADIR/volumes"
+export HOST_DATA_DIR="$HOST_VOLUMES_DIR/data"
+export HOST_CONFIG_DIR="$HOST_VOLUMES_DIR/config"
 export LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$HOST_DATA_DIR}"
 export LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2214,7 +2214,7 @@ if [ -n "$CONTAINER_MOUNTS" ]; then
         mnt="${mnt//HOST\//}"
         host_mnt="${mnt//:*/}"
         cont_mnt="${mnt//*:/}"
-        [ -n "$cont_mnt" ] && mnt="$HOST_ROOTFS_DIR/$host_mnt:$cont_mnt" || mnt="$HOST_ROOTFS_DIR/$host_mnt:$host_mnt"
+        [ -n "$cont_mnt" ] && mnt="$HOST_VOLUMES_DIR/$host_mnt:$cont_mnt" || mnt="$HOST_VOLUMES_DIR/$host_mnt:$host_mnt"
       fi
       [[ "$mnt" == *":"* ]] || mnt="$mnt:$mnt"
       DOCKER_SET_MNT+="--volume $mnt "
@@ -2578,7 +2578,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -d "$APPDIR/files" ] && { [ ! -d "$HOST_ROOTFS_DIR" ] && mv -f "$APPDIR/files" "$HOST_ROOTFS_DIR"; }
+[ -d "$APPDIR/files" ] && { [ ! -d "$HOST_VOLUMES_DIR" ] && mv -f "$APPDIR/files" "$HOST_VOLUMES_DIR"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone/update the repo
 if __am_i_online; then
@@ -2618,19 +2618,19 @@ CONTAINER_CREATE_DIRECTORY="$(__trim "$CONTAINER_CREATE_DIRECTORY")"
 if [ -n "$CONTAINER_CREATE_DIRECTORY" ]; then
   CONTAINER_CREATE_DIRECTORY="${CONTAINER_CREATE_DIRECTORY//, /}"
   for dir in $CONTAINER_CREATE_DIRECTORY; do
-    if [ -n "$dir" ] && [ ! -d "$HOST_ROOTFS_DIR/$dir" ]; then
-      mkdir -p "$HOST_ROOTFS_DIR/$dir"
-      chmod -f 777 "$HOST_ROOTFS_DIR/$dir"
-      chown -Rf $USER:$USER "$HOST_ROOTFS_DIR/$dir"
+    if [ -n "$dir" ] && [ ! -d "$HOST_VOLUMES_DIR/$dir" ]; then
+      mkdir -p "$HOST_VOLUMES_DIR/$dir"
+      chmod -f 777 "$HOST_VOLUMES_DIR/$dir"
+      chown -Rf $USER:$USER "$HOST_VOLUMES_DIR/$dir"
     fi
   done
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Copy over data files - keep the same stucture as -v HOST_ROOTFS_DIR/mnt:/mnt
+# Copy over data files - keep the same stucture as -v HOST_VOLUMES_DIR/mnt:/mnt
 INSTALLED_FILE_NAME="$APPDIR/.installed"
-if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$INSTALLED_FILE_NAME" ]; then
-  __printf_color "3" "Copying files to $HOST_ROOTFS_DIR"
-  __sudo_exec rsync -avhP "$INSTDIR/rootfs/." "$HOST_ROOTFS_DIR/" &>/dev/null
+if [ -d "$INSTDIR/volumes" ] && [ ! -f "$INSTALLED_FILE_NAME" ]; then
+  __printf_color "3" "Copying files to $HOST_VOLUMES_DIR"
+  __sudo_exec rsync -avhP "$INSTDIR/volumes/." "$HOST_VOLUMES_DIR/" &>/dev/null
   find "$DATADIR" -name ".gitkeep" -type f -exec rm -rf {} \; &>/dev/null
 fi
 if [ -f "$INSTALLED_FILE_NAME" ]; then
@@ -2643,31 +2643,31 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount /etc/resolv.conf file in the container
 if [ "$HOST_RESOLVE_ENABLED" = "yes" ]; then
-  mkdir -p "$INSTDIR/rootfs/etc"
+  mkdir -p "$INSTDIR/volumes/etc"
   [ -n "$HOST_ETC_RESOLVE_INIT_FILE" ] || HOST_ETC_RESOLVE_INIT_FILE="/etc/resolv.conf"
-  if [ ! -f "$INSTDIR/rootfs/etc/resolv.conf" ]; then
-    cp -Rf "$HOST_ETC_RESOLVE_INIT_FILE" "$INSTDIR/rootfs/etc/resolv.conf"
+  if [ ! -f "$INSTDIR/volumes/etc/resolv.conf" ]; then
+    cp -Rf "$HOST_ETC_RESOLVE_INIT_FILE" "$INSTDIR/volumes/etc/resolv.conf"
   fi
-  touch "$INSTDIR/rootfs/etc/resolv.conf"
+  touch "$INSTDIR/volumes/etc/resolv.conf"
   if [ "$HOST_ETC_RESOLVE_INIT_FILE" = "/usr/local/etc/resolv.conf" ]; then
-    DOCKER_SET_OPTIONS_VOLUME+=("--volume $INSTDIR/rootfs/etc/resolv.conf:/usr/local/etc/resolv.conf")
+    DOCKER_SET_OPTIONS_VOLUME+=("--volume $INSTDIR/volumes/etc/resolv.conf:/usr/local/etc/resolv.conf")
   else
-    DOCKER_SET_OPTIONS_VOLUME+=("--volume $INSTDIR/rootfs/etc/resolv.conf:/etc/resolv.conf")
+    DOCKER_SET_OPTIONS_VOLUME+=("--volume $INSTDIR/volumes/etc/resolv.conf:/etc/resolv.conf")
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount /etc/hosts file in the container
 if [ "$HOST_ETC_HOSTS_ENABLED" = "yes" ]; then
-  mkdir -p "$INSTDIR/rootfs/etc"
+  mkdir -p "$INSTDIR/volumes/etc"
   [ -n "$HOST_ETC_HOSTS_INIT_FILE" ] || HOST_ETC_HOSTS_INIT_FILE="/etc/hosts"
-  if [ ! -f "$INSTDIR/rootfs/etc/hosts" ]; then
-    cp -Rf "$HOST_ETC_HOSTS_INIT_FILE" "$INSTDIR/rootfs/etc/hosts"
+  if [ ! -f "$INSTDIR/volumes/etc/hosts" ]; then
+    cp -Rf "$HOST_ETC_HOSTS_INIT_FILE" "$INSTDIR/volumes/etc/hosts"
   fi
-  touch "$INSTDIR/rootfs/etc/hosts"
+  touch "$INSTDIR/volumes/etc/hosts"
   if [ "$HOST_ETC_HOSTS_INIT_FILE" = "/usr/local/etc/hosts" ]; then
-    DOCKER_SET_OPTIONS_VOLUME+=("--volume $INSTDIR/rootfs/etc/hosts:/usr/local/etc/hosts")
+    DOCKER_SET_OPTIONS_VOLUME+=("--volume $INSTDIR/volumes/etc/hosts:/usr/local/etc/hosts")
   else
-    DOCKER_SET_OPTIONS_VOLUME+=("--volume $INSTDIR/rootfs/etc/hosts:/etc/hosts")
+    DOCKER_SET_OPTIONS_VOLUME+=("--volume $INSTDIR/volumes/etc/hosts:/etc/hosts")
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2680,7 +2680,7 @@ EXECUTE_PRE_INSTALL="$(__trim "${SET_EXECUTE_PRE_INSTALL[*]}")"
 DOCKER_COMPOSE_CMD="$(docker compose 2>&1 | grep -q 'is not a docker command.' || echo "true")"
 if [ -f "$INSTDIR/docker-compose.yml" ] && [ "$DOCKER_COMPOSE_CMD" = "true" ]; then
   __printf_color "3" "Installing containers using docker-compose"
-  sed -i 's|REPLACE_DATADIR|'$HOST_ROOTFS_DIR'' "$INSTDIR/docker-compose.yml" &>/dev/null
+  sed -i 's|REPLACE_DATADIR|'$HOST_VOLUMES_DIR'' "$INSTDIR/docker-compose.yml" &>/dev/null
   if cd "$INSTDIR"; then
     docker compose pull &>/dev/null
     docker compose up -d &>/dev/null
@@ -2692,7 +2692,7 @@ if [ -f "$INSTDIR/docker-compose.yml" ] && [ "$DOCKER_COMPOSE_CMD" = "true" ]; t
   fi
 elif [ -f "$INSTDIR/docker-compose.yml" ] && [ -n "$(type -P docker-compose)" ]; then
   __printf_color "3" "Installing containers using docker-compose"
-  sed -i 's|REPLACE_DATADIR|'$HOST_ROOTFS_DIR'' "$INSTDIR/docker-compose.yml" &>/dev/null
+  sed -i 's|REPLACE_DATADIR|'$HOST_VOLUMES_DIR'' "$INSTDIR/docker-compose.yml" &>/dev/null
   if cd "$INSTDIR"; then
     docker-compose pull &>/dev/null
     docker-compose up -d &>/dev/null
@@ -2943,7 +2943,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     unset show_hosts_message_banner
   fi
   __printf_spacing_color "3" "The container name is:" "$CONTAINER_NAME"
-  __printf_spacing_color "3" "Containers data is saved in:" "$HOST_ROOTFS_DIR"
+  __printf_spacing_color "3" "Containers data is saved in:" "$HOST_VOLUMES_DIR"
   __printf_spacing_color "3" "The container is listening on:" "$HOST_LISTEN_ADDR"
   __printf_spacing_color "3" "The domain name is set to:" "$CONTAINER_DOMAINNAME"
   __printf_spacing_color "3" "The hostname name is set to:" "$CONTAINER_HOSTNAME"
@@ -3095,7 +3095,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     __printf_spacing_color 130 "$CONTAINER_DB_ENV_NAME:" "$CONTAINER_DB_ENV_STRING"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
-  if [ -f "$HOST_ROOTFS_DIR/config/auth/htpasswd" ]; then
+  if [ -f "$HOST_VOLUMES_DIR/config/auth/htpasswd" ]; then
     MESSAGE="true"
     __printf_spacing_color "5" "Username:" "root"
     __printf_spacing_color "5" "Password:" "${SET_USER_PASS:-toor}"

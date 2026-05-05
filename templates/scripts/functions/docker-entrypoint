@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605051712-git
+##@Version           :  202605051813-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -621,10 +621,29 @@ __copy_templates() {
 # /config/file > /etc/file
 __symlink() {
   local from="$1" to="$2"
-  if [ -e "$to" ]; then
-    [ -e "$from" ] && __rm "$from"
-    ln -sf "$to" "$from" && echo "Created symlink to $from > $to"
+  [ -e "$to" ] || return 0
+  [ "$from" = "$to" ] && return 0
+  # Already a correct symlink? nothing to do.
+  if [ -L "$from" ] && [ "$(readlink "$from")" = "$to" ]; then
+    return 0
   fi
+  # Both real dirs: don't rm -Rf $from (would nuke distro defaults).
+  # Iterate $to's entries and symlink each one into $from, only
+  # replacing the matching counterpart.
+  if [ -d "$from" ] && [ ! -L "$from" ] && [ -d "$to" ]; then
+    local item base
+    for item in "$to"/* "$to"/.[!.]*; do
+      [ -e "$item" ] || [ -L "$item" ] || continue
+      base="${item##*/}"
+      __rm "$from/$base"
+      ln -sf "$item" "$from/$base" && echo "Created symlink to $from/$base > $item"
+    done
+    return 0
+  fi
+  # Single file/symlink target: replace as before.
+  __rm "$from"
+  [ -d "${from%/*}" ] || mkdir -p "${from%/*}" 2>/dev/null
+  ln -sf "$to" "$from" && echo "Created symlink to $from > $to"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __file_copy() {
@@ -938,9 +957,7 @@ __create_env_file() {
     dir="$(dirname "$create_env")"
     [ -d "$dir" ] || mkdir -p "$dir"
     if [ -n "$create_env" ] && [ ! -f "$create_env" ]; then
-      cat <<EOF | tee -p "$create_env" >/dev/null
-$(<"$sample_file")
-EOF
+      cp -f "$sample_file" "$create_env"
     fi
     [ -f "$create_env" ] || envStatus=$((1 + envStatus))
   done
@@ -1006,7 +1023,10 @@ __start_init_scripts() {
     while :; do echo "Running: $(date)" >"/data/logs/init/keep_alive" && sleep 3600; done &
   else
     if [ -d "$init_dir" ]; then
-      [ -f "$init_dir/service.sample" ] && __rm "$init_dir"/*.sample
+      local sample
+      for sample in "$init_dir"/*.sample; do
+        [ -e "$sample" ] && __rm "$sample"
+      done
       chmod -Rf 755 "$init_dir"/*.sh
 
       echo "🚀 Starting container services initialization"
@@ -1129,7 +1149,7 @@ __setup_mta() {
     [ -f "/etc/ssmtp/ssmtp.conf" ] && __rm "/etc/ssmtp/ssmtp.conf"
     symlink_files="$(__find_file_relative "/config/ssmtp")"
     if [ ! -f "/config/ssmtp/ssmtp.conf" ]; then
-      cat <<EOF | tee -p "/config/ssmtp/ssmtp.conf" >/dev/null
+      cat >"/config/ssmtp/ssmtp.conf" <<EOF
 # ssmtp configuration.
 root=${account_user:-root}@${account_domain:-$HOSTNAME}
 mailhub=${relay_server:-172.17.0.1}:$relay_port
@@ -1169,7 +1189,7 @@ EOF
     [ -f "/etc/postfix/main.cf" ] && __rm "/etc/postfix/main.cf"
     symlink_files="$(__find_file_relative "/config/postfix")"
     if [ ! -f "/config/postfix/main.cf" ]; then
-      cat <<EOF | tee -p "/config/postfix/main.cf" >/dev/null
+      cat >"/config/postfix/main.cf" <<EOF
 # postfix configuration.
 smtpd_banner = \$myhostname ESMTP email server
 compatibility_level = 2

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602061352-git
+##@Version           :  202605051712-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -31,7 +31,7 @@ else
   set -o pipefail
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
+__remove_extra_spaces() { sed -E 's/  +/ /g; s|^ ||'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __log_debug() {
   [ "$DEBUGGER" = "on" ] && echo "[DEBUG] $*" >&2
@@ -76,201 +76,121 @@ __rm() {
   fi
   return 0
 }
-__grep_test() {
-  if grep -sh "$1" "$2" 2>/dev/null | grep -qwF "${3:-$1}"; then
-    return 0
-  else
-    return 1
-  fi
-}
+__grep_test() { grep -sh "$1" "$2" 2>/dev/null | grep -qwF "${3:-$1}"; }
 __netstat() {
-  if [ -n "$(command -v netstat 2>/dev/null)" ]; then
-    netstat "$@" 2>/dev/null
-  else
+  command -v netstat &>/dev/null || {
     [ "$DEBUGGER" = "on" ] && echo "Warning: netstat command not found" >&2
     return 10
-  fi
+  }
+  netstat "$@" 2>/dev/null
 }
 __cd() {
-  if [ ! -d "$1" ]; then
-    mkdir -p "$1" 2>/dev/null || return 1
-  fi
+  [ -d "$1" ] || mkdir -p "$1" 2>/dev/null || return 1
   builtin cd "$1" || return 1
 }
-__is_in_file() {
-  if [ -e "$2" ] && grep -Rsq "$1" "$2" 2>/dev/null; then
-    return 0
-  else
-    return 1
-  fi
-}
-__curl() {
-  if curl -q -sfI --max-time 3 -k -o /dev/null "$@" 2>/dev/null; then
-    return 0
-  else
-    return 10
-  fi
-}
+__is_in_file() { [ -e "$2" ] && grep -Rsq "$1" "$2" 2>/dev/null; }
+__curl() { curl -q -sfI --max-time 3 -k -o /dev/null "$@" 2>/dev/null || return 10; }
 __find() {
-  if find "$1" -mindepth 1 -type ${2:-f,d} 2>/dev/null | grep '.'; then
-    return 0
-  else
-    return 10
-  fi
+  local result
+  result=$(find "$1" -mindepth 1 -type "${2:-f,d}" 2>/dev/null)
+  [ -n "$result" ] || return 10
+  printf '%s\n' "$result"
 }
 __pcheck() {
-  if [ -n "$(which pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null; then
-    return 0
-  else
-    return 10
-  fi
+  command -v pgrep &>/dev/null && pgrep -x "$1" &>/dev/null || return 10
 }
-__file_exists_with_content() {
-  if [ -n "$1" ] && [ -f "$1" ] && [ -s "$1" ]; then
-    return 0
-  else
-    return 2
-  fi
-}
-__sed() {
-  if sed -i 's|'$1'|'$2'|g' "$3" 2>/dev/null; then
-    return 0
-  elif sed -i "s|$1|$2|g" "$3" 2>/dev/null; then
-    return 0
-  else
-    return 0
-  fi
-}
+__file_exists_with_content() { [ -n "$1" ] && [ -f "$1" ] && [ -s "$1" ] || return 2; }
+__sed() { sed -i "s|$1|$2|g" "$3" 2>/dev/null || return 1; }
 __ps() {
-  if [ -f "$(type -P ps 2>/dev/null)" ]; then
-    if ps "$@" 2>/dev/null | sed 's|:||g' | grep -Fw " ${1:-$SERVICE_NAME}$"; then
-      return 0
-    else
-      return 10
-    fi
-  else
-    return 10
-  fi
+  command -v ps &>/dev/null || return 10
+  ps "$@" 2>/dev/null | sed 's|:||g' | grep -Fw " ${1:-$SERVICE_NAME}$" || return 10
 }
 __is_dir_empty() {
-  if [ -n "$1" ]; then
-    if [ "$(ls -A "$1" 2>/dev/null | wc -l)" -eq 0 ]; then
-      return 0
-    else
-      return 1
-    fi
-  else
-    return 1
-  fi
+  [ -n "$1" ] && [ -d "$1" ] || return 1
+  [ -z "$(ls -A "$1" 2>/dev/null)" ]
 }
 __get_ip6() {
-  local ip6
-  ip6="$(ip a 2>/dev/null | grep -w 'inet6' | awk '{print $2}' | grep -vE '^::1|^fe' | sed 's|/.*||g' | head -n1 | grep '.')"
-  if [ -n "$ip6" ]; then
-    echo "$ip6"
-  else
-    echo ''
-  fi
+  ip a 2>/dev/null | awk '/^[[:space:]]*inet6 / {
+    split($2, a, "/"); ip = a[1]
+    if (ip !~ /^::1$/ && ip !~ /^fe/) { print ip; exit }
+  }'
 }
 __get_ip4() {
   local ip4
-  ip4="$(ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^127.0.0' | sed 's|/.*||g' | head -n1 | grep '.')"
-  if [ -n "$ip4" ]; then
-    echo "$ip4"
-  else
-    echo '127.0.0.1'
-  fi
+  ip4=$(ip a 2>/dev/null | awk '/^[[:space:]]*inet / {
+    split($2, a, "/"); ip = a[1]
+    if (ip !~ /^127\.0\.0/) { print ip; exit }
+  }')
+  echo "${ip4:-127.0.0.1}"
 }
 __find_and_remove() {
   find "${2:-/etc}" -iname "$1" -exec rm -Rfv {} \; 2>/dev/null || true
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __pgrep() {
-  local count=3
-  local srvc="${1:-SERVICE_NAME}"
-  local found=0
-  if [ -z "$srvc" ] || [ "$srvc" = "SERVICE_NAME" ]; then
-    return 10
-  fi
+  local srvc="$1" count=3
+  [ -z "$srvc" ] && return 10
   while [ $count -ge 0 ]; do
-    if pgrep -x "$srvc" >/dev/null 2>&1; then
-      found=1
-      break
-    elif pgrep -f "$srvc" >/dev/null 2>&1; then
-      found=1
-      break
-    elif ps -ef 2>/dev/null | grep -v grep | grep -qw "$srvc"; then
-      found=1
-      break
-    fi
-    if [ $count -gt 0 ]; then
-      sleep 1
-    fi
+    pgrep -x "$srvc" &>/dev/null && return 0
+    pgrep -f "$srvc" &>/dev/null && return 0
+    ps -ef 2>/dev/null | grep -v 'grep' | grep -qw "$srvc" && return 0
+    [ $count -gt 0 ] && sleep 1
     count=$((count - 1))
   done
-  if [ $found -eq 1 ]; then
-    return 0
-  else
-    return 10
-  fi
+  return 10
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __find_file_relative() {
-  if [ ! -e "$1" ]; then
-    return 0
-  fi
-  find "$1"/* -not -path '*env/*' -not -path '.git*' -type f 2>/dev/null | sed 's|'$1'/||g' | sort -u | grep -v '^$' | grep '.' || true
+  [ -e "$1" ] || return 0
+  find "$1"/* -not -path '*env/*' -not -path '.git*' -type f 2>/dev/null \
+    | sort -u \
+    | sed "s|^$1/||" || true
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __find_directory_relative() {
-  if [ ! -d "$1" ]; then
-    return 0
-  fi
-  find "$1"/* -not -path '*env/*' -not -path '.git*' -type d 2>/dev/null | sed 's|'$1'/||g' | sort -u | grep -v '^$' | grep '.' || true
+  [ -d "$1" ] || return 0
+  find "$1"/* -not -path '*env/*' -not -path '.git*' -type d 2>/dev/null \
+    | sort -u \
+    | sed "s|^$1/||" || true
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__pid_exists() {
-  local result=""
-  result="$(ps -ax --no-header 2>/dev/null | sed 's/^[[:space:]]*//g' | awk -F' ' '{print $1}' | sed 's|:||g' | grep '[0-9]' | sort -uV | grep "^$1$" 2>/dev/null || echo '')"
-  if [ -n "$result" ]; then
-    return 0
-  else
-    return 1
-  fi
-}
+__pid_exists() { [ -n "$1" ] && [ -d "/proc/$1" ]; }
 __is_running() {
-  local result=""
-  result="$(ps -eo args --no-header 2>/dev/null | awk '{print $1,$2,$3}' | sed 's|:||g' | sort -u | grep -vE 'grep|COMMAND|awk|tee|ps|sed|sort|tail' | grep "$1" | grep "${2:-^}" 2>/dev/null || echo '')"
-  if [ -n "$result" ]; then
-    return 0
+  local pat="$1"
+  [ -n "$2" ] && pat="$pat.*$2"
+  if command -v pgrep &>/dev/null; then
+    pgrep -f "$pat" &>/dev/null
   else
-    return 1
+    ps -eo args 2>/dev/null | grep -v grep | grep -Eq "$pat"
   fi
 }
 __get_pid() {
-  local result=""
   if [ -z "$1" ]; then
     [ "$DEBUGGER" = "on" ] && echo "Warning: __get_pid called without process name" >&2
     return 1
   fi
-  result="$(ps -ax --no-header 2>/dev/null | sed 's/^[[:space:]]*//g;s|;||g;s|:||g' | awk '{print $1,$5}' | sed 's|:||g' | grep "$1$" | grep -v 'grep' | awk -F' ' '{print $1}' | grep '[0-9]' | sort -uV | head -n1 | grep '.' 2>/dev/null || echo '')"
-  if [ -n "$result" ]; then
-    echo "$result"
+  local pid
+  pid=$(pgrep -x "$1" 2>/dev/null | head -n1)
+  if [ -n "$pid" ]; then
+    echo "$pid"
     return 0
-  else
-    [ "$DEBUGGER" = "on" ] && echo "Debug: No PID found for process: $1" >&2
-    return 1
   fi
+  [ "$DEBUGGER" = "on" ] && echo "Debug: No PID found for process: $1" >&2
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__format_variables() { printf '%s\n' "${@//,/ }" | tr ' ' '\n' | sort -RVu | grep -v '^$' | tr '\n' ' ' | __clean_variables | grep '.' || return 0; }
+__format_variables() {
+  local input="${*//,/ }"
+  [ -z "$input" ] && return 0
+  printf '%s\n' $input | sort -Ru | tr '\n' ' '
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __clean_variables() {
   local var="$*"
-  var="${var#"${var%%[![:space:]]*}"}" # remove leading whitespace characters
-  var="${var%"${var##*[![:space:]]}"}" # remove trailing whitespace characters
-  var="$(printf '%s\n' "$var" | sed 's/\( \)*/\1/g;s|^ ||g')"
-  printf '%s' "$var" | grep -v '^$'
+  var="${var#"${var%%[![:space:]]*}"}"
+  var="${var%"${var##*[![:space:]]}"}"
+  while [[ $var == *"  "* ]]; do var="${var//  / }"; done
+  [ -n "$var" ] && printf '%s' "$var"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __no_exit() {
@@ -315,10 +235,10 @@ __no_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __trim() {
   local var="${*//;/ }"
-  var="${var#"${var%%[![:space:]]*}"}" # remove leading whitespace characters
-  var="${var%"${var##*[![:space:]]}"}" # remove trailing whitespace characters
-  var="$(echo "$var" | __remove_extra_spaces | sed "s| |; |g;s|;$| |g" | __remove_extra_spaces)"
-  printf '%s' "$var" | sed 's|;||g' | grep -v '^$'
+  var="${var#"${var%%[![:space:]]*}"}"
+  var="${var%"${var##*[![:space:]]}"}"
+  while [[ $var == *"  "* ]]; do var="${var//  / }"; done
+  [ -n "$var" ] && printf '%s' "$var"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __banner() {
@@ -340,17 +260,21 @@ __service_banner() {
   printf '# - - - %s %-*s %s - - - #\n' "$icon" "$text_width" "$full_message" "$icon"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__find_php_bin() { find -L '/usr'/*bin -maxdepth 4 -name 'php-fpm*' 2>/dev/null | head -n1 | grep '.' || echo ''; }
-__find_php_ini() { find -L '/etc' -maxdepth 4 -name 'php.ini' 2>/dev/null | head -n1 | sed 's|/php.ini||g' | grep '.' || echo ''; }
+__find_php_bin() { find -L '/usr'/*bin -maxdepth 4 -name 'php-fpm*' 2>/dev/null | head -n1; }
+__find_php_ini() {
+  local f
+  f=$(find -L '/etc' -maxdepth 4 -name 'php.ini' 2>/dev/null | head -n1)
+  [ -n "$f" ] && printf '%s\n' "${f%/php.ini}"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__find_nginx_conf() { find -L '/etc' -maxdepth 4 -name 'nginx.conf' 2>/dev/null | head -n1 | grep '.' || echo ''; }
-__find_caddy_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'caddy.conf' 2>/dev/null | head -n1 | grep '.' || echo ''; }
-__find_lighttpd_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'lighttpd.conf' 2>/dev/null | head -n1 | grep '.' || echo ''; }
-__find_cherokee_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'cherokee.conf' 2>/dev/null | head -n1 | grep '.' || echo ''; }
-__find_httpd_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'httpd.conf' -o -iname 'apache2.conf' 2>/dev/null | head -n1 | grep '.' || echo ''; }
+__find_nginx_conf() { find -L '/etc' -maxdepth 4 -name 'nginx.conf' 2>/dev/null | head -n1; }
+__find_caddy_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'caddy.conf' 2>/dev/null | head -n1; }
+__find_lighttpd_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'lighttpd.conf' 2>/dev/null | head -n1; }
+__find_cherokee_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'cherokee.conf' 2>/dev/null | head -n1; }
+__find_httpd_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'httpd.conf' -o -iname 'apache2.conf' 2>/dev/null | head -n1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__find_mysql_conf() { find -L '/etc' -maxdepth 4 -type f -name 'my.cnf' 2>/dev/null | head -n1 | grep '.' || echo ''; }
-__find_pgsql_conf() { find -L '/var/lib' '/etc' -maxdepth 8 -type f -name 'postgresql.conf' 2>/dev/null | head -n1 | grep '.' || echo ''; }
+__find_mysql_conf() { find -L '/etc' -maxdepth 4 -type f -name 'my.cnf' 2>/dev/null | head -n1; }
+__find_pgsql_conf() { find -L '/var/lib' '/etc' -maxdepth 8 -type f -name 'postgresql.conf' 2>/dev/null | head -n1; }
 __find_couchdb_conf() { return; }
 __find_mongodb_conf() { return; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -517,7 +441,8 @@ __display_user_info() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_config_etc() {
   local copy="no"
-  local name="$(find "/etc/$SERVICE_NAME" -maxdepth 0 2>/dev/null | head -n1)"
+  local name=""
+  [ -e "/etc/$SERVICE_NAME" ] && name="/etc/$SERVICE_NAME"
   local etc_dir="${ETC_DIR:-/etc/$name}"
   local conf_dir="${CONF_DIR:-/config/$name}"
   __is_dir_empty "$conf_dir" && copy=yes
@@ -685,8 +610,8 @@ __find_replace() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # /config > /etc
 __copy_templates() {
-  local from="$1" to="$2"
-  is_link="$(ls -la "$dest" 2>/dev/null | awk '{print $NF}')"
+  local from="$1" to="$2" is_link=""
+  [ -L "$to" ] && is_link="$(readlink "$to")"
   [ "$from" != "$is_link" ] || return 0
   if [ -e "$from" ] && __is_dir_empty "$to"; then
     __file_copy "$from" "$to"
@@ -705,7 +630,8 @@ __symlink() {
 __file_copy() {
   local from="$1"
   local dest="$2"
-  is_link="$(ls -la "$dest" 2>/dev/null | awk '{print $NF}')"
+  local is_link=""
+  [ -L "$dest" ] && is_link="$(readlink "$dest")"
   if [ "$from" != "$is_link" ]; then
     if [ -n "$from" ] && [ -e "$from" ] && [ -n "$dest" ]; then
       if [ -d "$from" ]; then
@@ -802,12 +728,12 @@ __fix_permissions() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_gid() { grep "^$1:" /etc/group 2>/dev/null | awk -F ':' '{print $3}' || return 1; }
-__get_uid() { grep "^$1:" /etc/passwd 2>/dev/null | awk -F ':' '{print $3}' || return 1; }
-__check_for_uid() { awk -F ':' '{print $3}' /etc/passwd 2>/dev/null | sort -u | grep -q "^$1$" || return 1; }
-__check_for_guid() { awk -F ':' '{print $3}' /etc/group 2>/dev/null | sort -u | grep -q "^$1$" || return 1; }
-__check_for_user() { awk -F ':' '{print $1}' /etc/passwd 2>/dev/null | sort -u | grep -q "^$1$" || return 1; }
-__check_for_group() { awk -F ':' '{print $1}' /etc/group 2>/dev/null | sort -u | grep -q "^$1$" || return 1; }
+__get_gid() { awk -F: -v n="$1" '$1==n {print $3; found=1; exit} END {exit !found}' /etc/group 2>/dev/null; }
+__get_uid() { awk -F: -v n="$1" '$1==n {print $3; found=1; exit} END {exit !found}' /etc/passwd 2>/dev/null; }
+__check_for_uid() { awk -F: -v n="$1" '$3==n {found=1; exit} END {exit !found}' /etc/passwd 2>/dev/null; }
+__check_for_guid() { awk -F: -v n="$1" '$3==n {found=1; exit} END {exit !found}' /etc/group 2>/dev/null; }
+__check_for_user() { awk -F: -v n="$1" '$1==n {found=1; exit} END {exit !found}' /etc/passwd 2>/dev/null; }
+__check_for_group() { awk -F: -v n="$1" '$1==n {found=1; exit} END {exit !found}' /etc/group 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if process is already running
 __proc_check() {
@@ -828,7 +754,7 @@ __proc_check() {
     check_result=0
   elif [ -f "$SERVICE_PID_FILE" ]; then
     local pid_from_file
-    pid_from_file="$(cat "$SERVICE_PID_FILE" 2>/dev/null || echo "")"
+    pid_from_file=$(<"$SERVICE_PID_FILE") 2>/dev/null
     if [ -n "$pid_from_file" ] && kill -0 "$pid_from_file" 2>/dev/null; then
       check_result=0
     fi
@@ -1023,17 +949,17 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __exec_command() {
-  local bin=""
   local arg=("$@")
-  local exitCode="0"
+  local exitCode=0
   local cmdExec="${arg:-}"
   local pre_exec="--login -c"
-  local shell="$(type -P bash 2>/dev/null || type -P dash 2>/dev/null || type -P ash 2>/dev/null || type -P sh 2>/dev/null)"
-  bin="$(echo "${arg[*]}" | tr ' ' '\n' | grep -v '^$' | head -n1 | sed 's| ||g' || echo 'bash')"
+  local shell bin prog
+  shell=$(type -P bash || type -P dash || type -P ash || type -P sh) 2>/dev/null
+  bin="${arg[0]:-bash}"
   prog="$(type -P "$bin" 2>/dev/null || echo "$bin")"
-  if type -t $bin >/dev/null 2>&1; then
+  if type -t "$bin" &>/dev/null; then
     echo "${exec_message:-Executing command: $cmdExec}"
-    eval $shell $pre_exec "$cmdExec" || exitCode=1
+    eval "$shell" $pre_exec "$cmdExec"
     exitCode=$?
   elif [ -f "$prog" ]; then
     echo "$prog is not executable"
@@ -1062,7 +988,9 @@ __start_init_scripts() {
   local critical_failures="0"
   local pidFile="/run/__start_init_scripts.pid"
   local init_dir="${1:-/usr/local/etc/docker/init.d}"
-  local init_count="$(ls -A "$init_dir"/* 2>/dev/null | grep -v '\.sample' | wc -l)"
+  local init_files=("$init_dir"/*.sh)
+  local init_count=0
+  [ -e "${init_files[0]}" ] && init_count=${#init_files[@]}
   local exit_on_failure="${EXIT_ON_SERVICE_FAILURE:-true}"
 
   # Clean stale PID files from previous runs
@@ -1091,7 +1019,7 @@ __start_init_scripts() {
         if [ -x "$init" ]; then
           touch "$pidFile"
           name="${init##*/}"
-          service="$(printf '%s' "$name" | sed 's/^[^-]*-//;s|.sh$||g')"
+          service="${name#*-}"; service="${service%.sh}"
           __service_banner "🔧" "Executing service script:" "${init##*/}"
           # Execute the init script and capture the exit code
           if source "$init"; then
@@ -1120,7 +1048,7 @@ __start_init_scripts() {
                 retPID=""
                 local found_process=""
                 # Try multiple name variants to find the process
-                for name_variant in "$service" "${service}84" "${service}d" "$(echo "$service" | sed 's/-//g')" "$(echo "$service" | tr -d '-')"; do
+                for name_variant in "$service" "${service}84" "${service}d" "${service//-/}"; do
                   if [ -z "$retPID" ]; then
                     retPID=$(__get_pid "$name_variant" 2>/dev/null || echo "")
                     if [ -n "$retPID" ] && [ "$retPID" != "0" ]; then
@@ -1135,7 +1063,7 @@ __start_init_scripts() {
                   __service_banner "✅" "Service $service started successfully -" "PID: ${retPID} ($found_process)"
                 elif [ -f "$expected_pid_file" ]; then
                   # No running process but PID file exists - verify PID is valid
-                  file_pid="$(cat "$expected_pid_file" 2>/dev/null || echo "")"
+                  file_pid=$(<"$expected_pid_file") 2>/dev/null
                   if [ -n "$file_pid" ] && kill -0 "$file_pid" 2>/dev/null; then
                     initStatus="0"
                     __service_banner "✅" "Service $service started successfully -" "PID: $file_pid (from file)"
@@ -1194,9 +1122,9 @@ __setup_mta() {
   local local_hostname="${FULL_DOMAIN_NAME:-}"
   local account_user="${SERVER_ADMIN//@*/}"
   local account_domain="${EMAIL_DOMAIN//*@/}"
-  echo "$EMAIL_RELAY" | grep '[0-9][0-9]' || relay_port="465"
+  [[ $EMAIL_RELAY == *[0-9][0-9]* ]] || relay_port="465"
   ################# sSMTP relay setup
-  if [ -n "$(type -P 'ssmtp')" ]; then
+  if command -v ssmtp &>/dev/null; then
     [ -d "/config/ssmtp" ] || mkdir -p "/config/ssmtp"
     [ -f "/etc/ssmtp/ssmtp.conf" ] && __rm "/etc/ssmtp/ssmtp.conf"
     symlink_files="$(__find_file_relative "/config/ssmtp")"
@@ -1235,7 +1163,7 @@ EOF
     fi
 
     ################# postfix relay setup
-  elif [ -n "$(type -P 'postfix')" ]; then
+  elif command -v postfix &>/dev/null; then
     [ -d "/etc/postfix" ] || mkdir -p "/etc/postfix"
     [ -d "/config/postfix" ] || mkdir -p "/config/postfix"
     [ -f "/etc/postfix/main.cf" ] && __rm "/etc/postfix/main.cf"
@@ -1392,8 +1320,8 @@ __initialize_system_etc() {
   local file=()
   local directories=""
   if [ -n "$conf_dir" ] && [ -e "$conf_dir" ]; then
-    files="$(find "$conf_dir"/* -not -path '*/env/*' -type f 2>/dev/null | sed 's|'/config/'||g' | sort -u | grep -v '^$' | grep '.' || false)"
-    directories="$(find "$conf_dir"/* -not -path '*/env/*' -type d 2>/dev/null | sed 's|'/config/'||g' | sort -u | grep -v '^$' | grep '.' || false)"
+    files=$(find "$conf_dir"/* -not -path '*/env/*' -type f 2>/dev/null | sort -u | sed 's|/config/||')
+    directories=$(find "$conf_dir"/* -not -path '*/env/*' -type d 2>/dev/null | sort -u | sed 's|/config/||')
     echo "Copying config files to system: $conf_dir > /etc/${conf_dir//\/config\//}"
     if [ -n "$directories" ]; then
       for d in $directories; do
@@ -1550,7 +1478,7 @@ __is_htdocs_mounted() {
       unset IMPORT_FROM_GIT
     fi
   fi
-  if [ -n "$IMPORT_FROM_GIT" ] && [ "$(command -v "git" 2>/dev/null)" ]; then
+  if [ -n "$IMPORT_FROM_GIT" ] && command -v git &>/dev/null; then
     if __is_dir_empty "$WWW_ROOT_DIR"; then
       echo "Importing project from $IMPORT_FROM_GIT to $WWW_ROOT_DIR"
       git clone -q "$IMPORT_FROM_GIT" "$WWW_ROOT_DIR"
@@ -1627,16 +1555,16 @@ __switch_to_user() {
   if [ "$switch_user" = "root" ]; then
     su_exec=""
     su_cmd() { eval "$@" || return 1; }
-  elif [ "$(builtin type -P gosu)" ]; then
+  elif command -v gosu &>/dev/null; then
     su_exec="gosu $switch_user"
     su_cmd() { $su_exec "$@" || return 1; }
-  elif [ "$(builtin type -P runuser)" ]; then
+  elif command -v runuser &>/dev/null; then
     su_exec="runuser -u $switch_user"
     su_cmd() { $su_exec "$@" || return 1; }
-  elif [ "$(builtin type -P sudo)" ]; then
+  elif command -v sudo &>/dev/null; then
     su_exec="sudo -u $switch_user"
     su_cmd() { $su_exec "$@" || return 1; }
-  elif [ "$(builtin type -P su)" ]; then
+  elif command -v su &>/dev/null; then
     su_exec="su -s /bin/sh - $switch_user"
     su_cmd() { $su_exec -c "$@" || return 1; }
   else

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605052034-git
+##@Version           :  202605052042-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605052034-git"
+VERSION="202605052042-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1455,14 +1455,32 @@ __run_buildx_script() {
     else
       build_exit_code=$?
       retry_count=$((retry_count + 1))
-      
-      # Check if this looks like a push failure (build succeeded but push failed)
-      if tail -100 "${BUILDX_CUSTOM_ERR_FILE:-$BUILDX_CUSTOM_LOG_FILE}" 2>/dev/null | grep -qi "no active session\|context deadline\|failed to push"; then
+      local err_tail
+      err_tail="$(tail -100 "${BUILDX_CUSTOM_ERR_FILE:-$BUILDX_CUSTOM_LOG_FILE}" 2>/dev/null)"
+
+      # Builder error: the buildkit container died, was killed, or lost the
+      # connection (often shows as "rpc error: code = Unavailable" or
+      # "error reading from server: EOF"). Recreate the builder and retry.
+      if grep -qiE "rpc error.*code = Unavailable|error reading from server.*EOF|failed to receive status|buildx: failed to (connect|dial)|builder.*not found" <<<"$err_tail"; then
+        if [ $retry_count -le $max_retries ]; then
+          printf_yellow "Builder failure detected, recreating builder and retrying (attempt $retry_count of $max_retries)..."
+          printf '%s\n' "# Builder failure, forcing reinit (attempt $retry_count of $max_retries)" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
+          # Bypass __reinit_buildx's idempotency guard and force a clean rebuild
+          BUILDX_INIT_RAN=""
+          BUILDX_FORCE="yes"
+          BUILDX_FORCE_REINSTALL="yes"
+          __reinit_buildx
+          BUILDX_FORCE=""
+          BUILDX_FORCE_REINSTALL=""
+          sleep 5
+        fi
+      # Push failure: build itself completed, only the registry handoff failed
+      elif grep -qi "no active session\|context deadline\|failed to push" <<<"$err_tail"; then
         if [ $retry_count -le $max_retries ]; then
           printf_yellow "Push failed due to session timeout, retrying in ${retry_delay}s (attempt $retry_count of $max_retries)..."
           printf '%s\n' "# Push failed, retrying in ${retry_delay}s (attempt $retry_count of $max_retries)" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
           sleep $retry_delay
-          
+
           # For retry, use cache to avoid full rebuild - remove --no-cache and --pull for faster retry
           if [ "$retry_count" -gt 1 ]; then
             set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, $DOCKER_BUILD_ARGS,, $DOCKER_ANNOTATIONS,, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --push,, --progress plain --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
@@ -1471,12 +1489,12 @@ __run_buildx_script() {
             printf_cyan "Using cached layers for retry (removed --no-cache --pull)"
             printf '%s\n' "# Retry command: $set_build_command" | tee -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
           fi
-          
+
           retry_delay=$((retry_delay + 30))  # Increase delay each retry
         fi
       else
-        # Build failure, not push failure - don't retry
-        printf_red "Build failed (not a push timeout), skipping retries"
+        # Build failure (real Dockerfile error, OOM, etc.) - don't retry
+        printf_red "Build failed (not a push timeout or builder error), skipping retries"
         break
       fi
     fi

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605051905-git
+##@Version           :  202605052024-git
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
 # @@Contact          :  GEN_SCRIPT_REPLACE_EMAIL
 # @@License          :  GEN_SCRIPT_REPLACE_LICENSE
@@ -74,7 +74,13 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup debugging - https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
 [ -f "/config/.debug" ] && [ -z "$DEBUGGER_OPTIONS" ] && export DEBUGGER_OPTIONS="$(<"/config/.debug")" || DEBUGGER_OPTIONS="${DEBUGGER_OPTIONS:-}"
-{ [ "$DEBUGGER" = "on" ] || [ -f "/config/.debug" ]; } && echo "Enabling debugging" && set -xo pipefail -x$DEBUGGER_OPTIONS && export DEBUGGER="on" || set -o pipefail
+if [ "$DEBUGGER" = "on" ] || [ -f "/config/.debug" ]; then
+  echo "Enabling debugging"
+  set -xo pipefail -x$DEBUGGER_OPTIONS
+  export DEBUGGER="on"
+else
+  set -o pipefail
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 export PATH="/usr/local/etc/docker/bin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -98,7 +104,7 @@ if [ ! -f "/run/.start_init_scripts.pid" ]; then
 fi
 # Clean up any stale PID file for this service on startup
 if [ -n "$SERVICE_NAME" ] && [ -f "/run/init.d/$SERVICE_NAME.pid" ]; then
-  old_pid=$(cat "/run/init.d/$SERVICE_NAME.pid" 2>/dev/null)
+  old_pid=$(<"/run/init.d/$SERVICE_NAME.pid") 2>/dev/null
   if [ -n "$old_pid" ] && ! kill -0 "$old_pid" 2>/dev/null; then
     echo "🧹 Removing stale PID file for $SERVICE_NAME"
     rm -f "/run/init.d/$SERVICE_NAME.pid"
@@ -389,7 +395,7 @@ __post_execute() {
     __banner "$postMessageEnd: Status $retVal"
   ) 2>"/dev/stderr" | tee -p -a "/data/logs/init.txt" &
   pid=$!
-  if ps ax | awk '{print $1}' | grep -v grep | grep -q "$execPid$"; then
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     retVal=0
   else
     retVal=10
@@ -537,7 +543,7 @@ __run_start_script() {
           SERVICE_PORT=""
         fi
       fi
-      if [ -n "$pre" ] && [ -n "$(command -v "$pre" 2>/dev/null)" ]; then
+      if [ -n "$pre" ] && command -v "$pre" &>/dev/null; then
         export cmd_exec="$pre $cmd $args"
         message="Starting service: $name $args through $pre"
       else
@@ -569,9 +575,14 @@ execute_command="$execute_command"
 \$execute_command 2>"/dev/stderr" >>"\$LOG_DIR/\$SERVICE_NAME.log" &
 execPid=\$!
 sleep 1
-checkPID="\$(ps ax | awk '{print \$1}' | grep -v grep | grep "\$execPid$" || false)"
-[ -n "\$execPid"  ] && [ -n "\$checkPID" ] && echo "\$execPid" >"\$SERVICE_PID_FILE" && retVal=0 || retVal=10
-[ "\$retVal" = 0 ] && printf '%s\n' "\$SERVICE_NAME: \$execPid" >"/run/healthcheck/\$SERVICE_NAME" || echo "Failed to start $execute_command" >&2
+if [ -n "\$execPid" ] && kill -0 "\$execPid" 2>/dev/null; then
+  echo "\$execPid" >"\$SERVICE_PID_FILE"
+  retVal=0
+  printf '%s\n' "\$SERVICE_NAME: \$execPid" >"/run/healthcheck/\$SERVICE_NAME"
+else
+  retVal=10
+  echo "Failed to start $execute_command" >&2
+fi
 exit \$retVal
 
 EOF
@@ -595,9 +606,13 @@ execute_command="$execute_command"
 \$execute_command 2>>"/dev/stderr" >>"\$LOG_DIR/\$SERVICE_NAME.log" &
 execPid=\$!
 sleep 1
-checkPID="\$(ps ax | awk '{print \$1}' | grep -v grep | grep "\$execPid$" || false)"
-[ -n "\$execPid"  ] && [ -n "\$checkPID" ] && echo "\$execPid" >"\$SERVICE_PID_FILE" && retVal=0 || retVal=10
-[ "\$retVal" = 0 ] || echo "Failed to start $execute_command" >&2
+if [ -n "\$execPid" ] && kill -0 "\$execPid" 2>/dev/null; then
+  echo "\$execPid" >"\$SERVICE_PID_FILE"
+  retVal=0
+else
+  retVal=10
+  echo "Failed to start $execute_command" >&2
+fi
 exit \$retVal
 
 EOF
@@ -651,12 +666,11 @@ SERVICE_EXIT_CODE=0
 EXEC_CMD_NAME="${EXEC_CMD_BIN##*/}"
 SERVICE_PID_FILE="/run/init.d/$EXEC_CMD_NAME.pid"
 SERVICE_PID_NUMBER="$(__pgrep "$EXEC_CMD_NAME" 2>/dev/null || echo '')"
-if type -P "$EXEC_CMD_BIN" &>/dev/null; then
-  EXEC_CMD_BIN="$(type -P "$EXEC_CMD_BIN")"
-fi
-if type -P "$EXEC_PRE_SCRIPT" &>/dev/null; then
-  EXEC_PRE_SCRIPT="$(type -P "$EXEC_PRE_SCRIPT")"
-fi
+_resolved="$(type -P "$EXEC_CMD_BIN" 2>/dev/null)"
+[ -n "$_resolved" ] && EXEC_CMD_BIN="$_resolved"
+_resolved="$(type -P "$EXEC_PRE_SCRIPT" 2>/dev/null)"
+[ -n "$_resolved" ] && EXEC_PRE_SCRIPT="$_resolved"
+unset _resolved
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Only run check
 if __check_service "$1"; then

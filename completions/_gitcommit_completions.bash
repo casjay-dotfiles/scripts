@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605041330-git
+##@Version           :  202605061812-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -28,7 +28,7 @@ _gitcommit() {
   local LONGOPTS="--completions --debug --raw --options --version --help --config --silent --dir --message --amend --force --all"
   local SHORTOPTS="-m"
   local ARRAY="ai is all amend status s log l reset branch fixup fix fix-last squash push pull merge merge-resolve "
-  local ARRAY+="version files modified updated deleted added renamed changed restored spelling "
+  local ARRAY+="version files modified updated deleted added renamed changed restored spelling changelog "
   local ARRAY+="new improved fixes fixed release deploy docs test breaking refactor performance "
   local ARRAY+="permissions permission bugs bug docker node ruby php perl python scratchpad "
   local ARRAY+="todo recipe notes blog init setup emojify emj emojy random custom tag tar search alot "

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605011221-git
+##@Version           :  202605060643-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605011221-git"
+VERSION="202605060643-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -244,9 +244,40 @@ GITADMIN_ERROR_MESSAGE="${GITADMIN_ERROR_MESSAGE:-}"
 GITADMIN_NOTIFY_CLIENT_NAME="${GITADMIN_NOTIFY_CLIENT_NAME:-}"
 GITADMIN_NOTIFY_CLIENT_ICON="${GITADMIN_NOTIFY_CLIENT_ICON:-}"
 GITADMIN_NOTIFY_CLIENT_URGENCY="${GITADMIN_NOTIFY_CLIENT_URGENCY:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# GPG signing key. Used as a fallback when neither the repo-local
+# nor global git user.signingkey is set. Repo-local always wins.
+GITADMIN_SIGNING_KEY="${GITADMIN_SIGNING_KEY:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Target value (in seconds) for gpg-agent's default-cache-ttl when
+# 'gitadmin --config' runs. Set to 0/no/off/skip to disable the
+# gpg-agent.conf update entirely. Default: 28800 (8 hours).
+GITADMIN_GPG_CACHE_TTL="${GITADMIN_GPG_CACHE_TTL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Non-interactive GPG passphrase (CI/CD, AI agents). Pick one source:
+#   GITADMIN_GPG_PASSPHRASE       - literal env var
+#   GITADMIN_GPG_PASSPHRASE_FILE  - explicit file path (overrides
+#                                   the auto-detected default)
+#   GITADMIN_GPG_PASSPHRASE_STDIN=1 - read from stdin
+# When _FILE is unset, gitadmin auto-picks (in order):
+#   /var/run/secrets/gpg/pass     - k8s/CI secret mount
+#   ~/.gnupg/commit_pass.txt      - per-user stash
+# Files must contain at least one non-blank line of actual text;
+# empty or whitespace-only files are skipped. Optionally pin
+# GITADMIN_GPG_KEYGRIP if 'gpg --with-keygrip' lookup is unavailable.
+GITADMIN_GPG_PASSPHRASE="${GITADMIN_GPG_PASSPHRASE:-}"
+GITADMIN_GPG_PASSPHRASE_FILE="${GITADMIN_GPG_PASSPHRASE_FILE:-}"
+GITADMIN_GPG_PASSPHRASE_STDIN="${GITADMIN_GPG_PASSPHRASE_STDIN:-}"
+GITADMIN_GPG_KEYGRIP="${GITADMIN_GPG_KEYGRIP:-}"
 
 EOF
   if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  # Tune ~/.gnupg/gpg-agent.conf only on explicit --config runs, never
+  # during the auto-init flow that fires when the file is missing.
+  if [ "$INIT_CONFIG" != "TRUE" ] \
+     && builtin type -t __gitadmin_setup_gpg_agent | grep -q 'function'; then
+    __gitadmin_setup_gpg_agent
+  fi
   if [ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ]; then
     [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
     . "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
@@ -534,6 +565,9 @@ __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$GITADMIN_TEMP_FILE" ] && rm -Rf "$GITADMIN_TEMP_FILE" &>/dev/null
   #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __gitadmin_cleanup_loopback | grep -q 'function'; then
+    __gitadmin_cleanup_loopback
+  fi
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
 }
@@ -2088,7 +2122,7 @@ __bitbucket_workspace_push_repos() {
       else
         [ -f "$repo_dir/version.txt" ] && date +"$GITADMIN_DEFAULT_VERSION_FORMAT" >"$repo_dir/version.txt"
         git -C "$repo_dir" add . |& __devnull &&
-          git -C "$repo_dir" commit -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
+          git -C "$repo_dir" commit $(__gitadmin_sign_flag "$repo_dir") -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
           __git_push "$repo_dir" |& __devnull
         if [ $? -eq 0 ]; then
           printf_green "✅ git push completed for $workspace/$repo"
@@ -2234,7 +2268,7 @@ __codeberg_owner_push_repos() {
       else
         [ -f "$repo_dir/version.txt" ] && date +"$GITADMIN_DEFAULT_VERSION_FORMAT" >"$repo_dir/version.txt"
         git -C "$repo_dir" add . |& __devnull &&
-          git -C "$repo_dir" commit -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
+          git -C "$repo_dir" commit $(__gitadmin_sign_flag "$repo_dir") -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
           __git_push "$repo_dir" |& __devnull
         if [ $? -eq 0 ]; then
           printf_green "✅ git push completed for $owner/$repo"
@@ -2392,7 +2426,7 @@ __forgejo_owner_push_repos() {
       else
         [ -f "$repo_dir/version.txt" ] && date +"$GITADMIN_DEFAULT_VERSION_FORMAT" >"$repo_dir/version.txt"
         git -C "$repo_dir" add . |& __devnull &&
-          git -C "$repo_dir" commit -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
+          git -C "$repo_dir" commit $(__gitadmin_sign_flag "$repo_dir") -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
           __git_push "$repo_dir" |& __devnull
         if [ $? -eq 0 ]; then
           printf_green "✅ git push completed for $owner/$repo"
@@ -2551,7 +2585,7 @@ __gitea_owner_push_repos() {
       else
         [ -f "$repo_dir/version.txt" ] && date +"$GITADMIN_DEFAULT_VERSION_FORMAT" >"$repo_dir/version.txt"
         git -C "$repo_dir" add . |& __devnull &&
-          git -C "$repo_dir" commit -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
+          git -C "$repo_dir" commit $(__gitadmin_sign_flag "$repo_dir") -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
           __git_push "$repo_dir" |& __devnull
         if [ $? -eq 0 ]; then
           printf_green "✅ git push completed for $owner/$repo"
@@ -2710,7 +2744,7 @@ __gogs_owner_push_repos() {
       else
         [ -f "$repo_dir/version.txt" ] && date +"$GITADMIN_DEFAULT_VERSION_FORMAT" >"$repo_dir/version.txt"
         git -C "$repo_dir" add . |& __devnull &&
-          git -C "$repo_dir" commit -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
+          git -C "$repo_dir" commit $(__gitadmin_sign_flag "$repo_dir") -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
           __git_push "$repo_dir" |& __devnull
         if [ $? -eq 0 ]; then
           printf_green "✅ git push completed for $owner/$repo"
@@ -2861,7 +2895,7 @@ __azure_project_push_repos() {
       else
         [ -f "$repo_dir/version.txt" ] && date +"$GITADMIN_DEFAULT_VERSION_FORMAT" >"$repo_dir/version.txt"
         git -C "$repo_dir" add . |& __devnull &&
-          git -C "$repo_dir" commit -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
+          git -C "$repo_dir" commit $(__gitadmin_sign_flag "$repo_dir") -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
           __git_push "$repo_dir" |& __devnull
         if [ $? -eq 0 ]; then
           printf_green "✅ git push completed for $project/$repo"
@@ -3001,7 +3035,7 @@ __aws_push_all_repos() {
       else
         [ -f "$repo_dir/version.txt" ] && date +"$GITADMIN_DEFAULT_VERSION_FORMAT" >"$repo_dir/version.txt"
         git -C "$repo_dir" add . |& __devnull &&
-          git -C "$repo_dir" commit -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
+          git -C "$repo_dir" commit $(__gitadmin_sign_flag "$repo_dir") -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
           __git_push "$repo_dir" |& __devnull
         if [ $? -eq 0 ]; then
           printf_green "✅ git push completed for $repo"
@@ -4155,7 +4189,7 @@ __run_git_setup() {
   [ -f "$git_version_file" ] && date +"$git_version_fmt" >"$git_version_file"
   ls "$git_dir/README"* >/dev/null 2>&1 || __create_new_readme_template "$git_dir"
   ls "$git_dir/LICENSE"* >/dev/null 2>&1 || __create_new_license "$git_dir"
-  if git -C "$git_dir" init . |& __devnull && git -C "$git_dir" add . |& __devnull && git -C "$git_dir" commit -q -m "$GITCOMMIT_MESSAGE"; then
+  if git -C "$git_dir" init . |& __devnull && git -C "$git_dir" add . |& __devnull && git -C "$git_dir" commit $(__gitadmin_sign_flag "$git_dir") -q -m "$GITCOMMIT_MESSAGE"; then
     printf_green "✅ Success: $show_git_repo has been initialized"
   else
     printf_exit "Failed to initialize $show_git_repo"
@@ -4231,7 +4265,7 @@ __run_git_setup_automated() {
   [ -f "$git_version_file" ] && date +"$git_version_fmt" >"$git_version_file"
   ls "$git_dir/README"* >/dev/null 2>&1 || __create_new_readme_template "$git_dir"
   ls "$git_dir/LICENSE"* >/dev/null 2>&1 || __create_new_license "$git_dir"
-  if git -C "$git_dir" init . |& __devnull && git -C "$git_dir" add . |& __devnull && git -C "$git_dir" commit -q -m "$GITCOMMIT_MESSAGE"; then
+  if git -C "$git_dir" init . |& __devnull && git -C "$git_dir" add . |& __devnull && git -C "$git_dir" commit $(__gitadmin_sign_flag "$git_dir") -q -m "$GITCOMMIT_MESSAGE"; then
     printf_green "✅ Success: $(__git_repobase "$git_dir") has been initialized"
   else
     printf_exit "Failed to initialize $(__git_repobase "$git_dir")"
@@ -4688,7 +4722,7 @@ __repos_init() {
   if [ -f "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" ] && [ ! -L "$git_dir/.git/config" ]; then
     cp -Rf "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" "$git_dir/.git/config"
   fi
-  __devnull2 git -C "$git_dir" commit -m ' 🦈🏠🐜 Initial Commit 🐜🦈🏠 '
+  __devnull2 git -C "$git_dir" commit $(__gitadmin_sign_flag "$git_dir") -m ' 🦈🏠🐜 Initial Commit 🐜🦈🏠 '
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initializes a repo for github
@@ -4708,7 +4742,7 @@ __git_init() {
   if [ -f "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" ] && [ ! -L "$git_dir/.git/config" ]; then
     cp -Rf "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" "$git_dir/.git/config"
   fi
-  __devnull2 git -C "$git_dir" commit -m ' 🦈🏠🐜 Initial Commit 🐜🦈🏠 '
+  __devnull2 git -C "$git_dir" commit $(__gitadmin_sign_flag "$git_dir") -m ' 🦈🏠🐜 Initial Commit 🐜🦈🏠 '
   __devnull2 git -C "$git_dir" remote add origin "${remote:-https://github.com/$username/$reponame}"
   __git_push "$git_dir" -u origin "$GITADMIN_DEFAULT_BRANCH"
 }
@@ -5554,7 +5588,7 @@ __git_smart_merge() {
 
   no-ff)
     merge_msg="${custom_message:-Merge branch '$source_branch' into $current_branch}"
-    git -C "$git_dir" merge --no-ff -m "🔀 $merge_msg 🔀" "$source_branch"
+    git -C "$git_dir" merge --no-ff $(__gitadmin_sign_flag "$git_dir") -m "🔀 $merge_msg 🔀" "$source_branch"
     exitCode=$?
     ;;
 
@@ -5564,7 +5598,7 @@ __git_smart_merge() {
     exitCode=$?
     if [ $exitCode -eq 0 ]; then
       printf_custom "3" "📦 Changes squashed - creating commit 📦"
-      git -C "$git_dir" commit -m "📦 $merge_msg 📦"
+      git -C "$git_dir" commit $(__gitadmin_sign_flag "$git_dir") -m "📦 $merge_msg 📦"
       exitCode=$?
     fi
     ;;
@@ -5577,7 +5611,7 @@ __git_smart_merge() {
     else
       merge_msg="${custom_message:-Merge branch '$source_branch' into $current_branch}"
       printf_custom "3" "🔀 Creating merge commit 🔀"
-      git -C "$git_dir" merge --no-ff -m "🔀 $merge_msg 🔀" "$source_branch"
+      git -C "$git_dir" merge --no-ff $(__gitadmin_sign_flag "$git_dir") -m "🔀 $merge_msg 🔀" "$source_branch"
       exitCode=$?
     fi
     ;;
@@ -6186,7 +6220,7 @@ __github_org_push_repos() {
         else
           [ -f "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/version.txt" ] && date +"$GITADMIN_DEFAULT_VERSION_FORMAT" >"$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/version.txt"
           git -C "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i" add . |& __devnull &&
-            git -C "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i" commit -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
+            git -C "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i" commit $(__gitadmin_sign_flag "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i") -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " |& __devnull &&
             __git_push "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i" |& __devnull
           __getexitcode "$?" "$ERROR" "$SUCCES"
           exitCode=$((exitCode + $?))
@@ -6540,7 +6574,7 @@ __api_repo_verify() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_tag_add() {
   local repo="$GITADMIN_REMOTE_REPO"
-  if git -C "$GITADMIN_CWD" tag -a "$1" -m "${2:-🚀🌟 Added tag $1 🚀🌟}" >/dev/null 2>/dev/null; then
+  if git -C "$GITADMIN_CWD" tag $(__gitadmin_tag_sign_flag "$GITADMIN_CWD") -a "$1" -m "${2:-🚀🌟 Added tag $1 🚀🌟}" >/dev/null 2>/dev/null; then
     printf_green "Added tag $1"
     if git -C "$GITADMIN_CWD" push origin "$1" >/dev/null 2>/dev/null; then
       printf_cyan "🏷️ Pushed tag to $repo"
@@ -6573,8 +6607,317 @@ __git_signing_enabled() {
   return 1
 }
 # - - - - - - - - - - - - - - - - - - -
+# Resolve which GPG key to use for signing. Order:
+#   1. Repo-local user.signingkey (per-repo override always wins)
+#   2. $GITADMIN_SIGNING_KEY env var
+#   3. Global user.signingkey
+# Returns empty if no key configured anywhere.
+__gitadmin_signing_key() {
+  local git_dir="${1:-$GITADMIN_CWD}"
+  local key
+  key="$(git -C "$git_dir" config --local --get user.signingkey 2>/dev/null)"
+  if [ -z "$key" ] && [ -n "$GITADMIN_SIGNING_KEY" ]; then
+    key="$GITADMIN_SIGNING_KEY"
+  fi
+  if [ -z "$key" ]; then
+    key="$(git -C "$git_dir" config --global --get user.signingkey 2>/dev/null)"
+  fi
+  printf '%s' "$key"
+}
+# - - - - - - - - - - - - - - - - - - -
+# Build the commit sign flag. Returns '-S<key>' if a key is resolved
+# AND signing is enabled in git config; '-S' (bare) if signing is
+# enabled but no key is resolved (gpg picks default); empty when
+# signing is disabled, so callers can splat the result without an
+# extra conditional.
+__gitadmin_sign_flag() {
+  local git_dir="${1:-$GITADMIN_CWD}"
+  __git_signing_enabled "$git_dir" || return 0
+  local key
+  key="$(__gitadmin_signing_key "$git_dir")"
+  if [ -n "$key" ]; then
+    printf -- '-S%s' "$key"
+  else
+    printf -- '-S'
+  fi
+}
+# - - - - - - - - - - - - - - - - - - -
+# Same idea for `git tag`, which uses different flags (-s to sign,
+# -u <keyid> to pick the key). Empty when signing is disabled.
+__gitadmin_tag_sign_flag() {
+  local git_dir="${1:-$GITADMIN_CWD}"
+  __git_signing_enabled "$git_dir" || return 0
+  local key
+  key="$(__gitadmin_signing_key "$git_dir")"
+  if [ -n "$key" ]; then
+    printf -- '-s -u %s' "$key"
+  else
+    printf -- '-s'
+  fi
+}
+# - - - - - - - - - - - - - - - - - - -
+# Bump default-cache-ttl / max-cache-ttl in ~/.gnupg/gpg-agent.conf so
+# the user isn't asked for the GPG passphrase on every commit.
+# Idempotent: only invoked from __gen_config on explicit --config runs.
+__gitadmin_setup_gpg_agent() {
+  local raw="${GITADMIN_GPG_CACHE_TTL:-28800}"
+  case "$raw" in
+    0 | no | off | skip | false | disabled)
+      [ "$INIT_CONFIG" = "TRUE" ] || printf_blue "Skipping gpg-agent setup (GITADMIN_GPG_CACHE_TTL=$raw)"
+      return 0
+      ;;
+  esac
+  if ! [[ "$raw" =~ ^[0-9]+$ ]]; then
+    printf_red "Invalid GITADMIN_GPG_CACHE_TTL=$raw (must be a positive integer or one of: 0/no/off/skip)"
+    return 1
+  fi
+  if ! __cmd_exists gpg; then
+    printf_blue "Skipping gpg-agent setup (gpg not installed)"
+    return 0
+  fi
+  local target_default="$raw"
+  local target_max=86400
+  [ "$target_default" -gt "$target_max" ] 2>/dev/null && target_max="$target_default"
+
+  local conf="$HOME/.gnupg/gpg-agent.conf"
+  local conf_dir="${conf%/*}"
+  if [ ! -d "$conf_dir" ]; then
+    mkdir -p "$conf_dir" 2>/dev/null || {
+      printf_red "Could not create $conf_dir"
+      return 1
+    }
+    chmod 700 "$conf_dir" 2>/dev/null
+  fi
+  [ -f "$conf" ] || touch "$conf"
+
+  local changed=0
+  __gitadmin_gpg_set_directive() {
+    local key="$1" target="$2" existing
+    if grep -qE "^[[:space:]]*${key}[[:space:]]+" "$conf"; then
+      existing="$(grep -E "^[[:space:]]*${key}[[:space:]]+" "$conf" | head -1 | awk '{print $2}')"
+      if [[ "$existing" =~ ^[0-9]+$ ]] && [ "$existing" -ge "$target" ]; then
+        printf_blue "$key already $existing (>= $target), leaving as-is"
+        return 0
+      fi
+      sed -i.gitadmin.bak "s|^[[:space:]]*${key}[[:space:]].*|${key} ${target}|" "$conf"
+      rm -f "$conf.gitadmin.bak" 2>/dev/null
+      printf_green "$key: ${existing:-?} -> $target"
+    else
+      printf '%s %s\n' "$key" "$target" >>"$conf"
+      printf_green "Added $key $target"
+    fi
+    changed=1
+  }
+  __gitadmin_gpg_set_directive default-cache-ttl "$target_default"
+  __gitadmin_gpg_set_directive max-cache-ttl "$target_max"
+  unset -f __gitadmin_gpg_set_directive
+
+  __gitadmin_gpg_ensure_line() {
+    local key="$1"
+    if grep -qE "^[[:space:]]*${key}[[:space:]]*$" "$conf"; then
+      printf_blue "$key already present, leaving as-is"
+      return 0
+    fi
+    printf '%s\n' "$key" >>"$conf"
+    printf_green "Added $key"
+    changed=1
+  }
+  __gitadmin_gpg_ensure_line allow-preset-passphrase
+  __gitadmin_gpg_ensure_line allow-loopback-pinentry
+  unset -f __gitadmin_gpg_ensure_line
+
+  if [ "$changed" = "1" ] && __cmd_exists gpg-connect-agent; then
+    if gpg-connect-agent reloadagent /bye >/dev/null 2>&1; then
+      printf_green "gpg-agent reloaded"
+    else
+      printf_yellow "gpg-agent reload failed; new settings take effect on next agent start"
+    fi
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - -
+__gitadmin_passphrase_file_valid() {
+  local f="$1"
+  [ -n "$f" ] || return 1
+  [ -f "$f" ] || return 1
+  [ -s "$f" ] || return 1
+  grep -q '[^[:space:]]' "$f" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - -
+__gitadmin_read_passphrase_file() {
+  local f="$1"
+  __gitadmin_passphrase_file_valid "$f" || return 1
+  local content
+  content="$(awk 'NF' "$f" 2>/dev/null | head -n1)"
+  [ -n "$content" ] || return 1
+  printf '%s' "$content"
+}
+# - - - - - - - - - - - - - - - - - - -
+# Auto-detect a passphrase file in priority order:
+#   1. /var/run/secrets/gpg/pass     (k8s/CI secret mount)
+#   2. $HOME/.gnupg/commit_pass.txt  (per-user stash)
+__gitadmin_default_passphrase_file() {
+  local candidates=(
+    "/var/run/secrets/gpg/pass"
+    "$HOME/.gnupg/commit_pass.txt"
+  )
+  local f
+  for f in "${candidates[@]}"; do
+    if __gitadmin_passphrase_file_valid "$f"; then
+      printf '%s' "$f"
+      return 0
+    fi
+  done
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - -
+# Resolve a GPG passphrase for non-interactive contexts. Order:
+#   1. $GITADMIN_GPG_PASSPHRASE         (env var, literal)
+#   2. $GITADMIN_GPG_PASSPHRASE_FILE    (explicit file path)
+#   3. /var/run/secrets/gpg/pass        (auto-detected)
+#   4. $HOME/.gnupg/commit_pass.txt     (auto-detected)
+#   5. stdin, when $GITADMIN_GPG_PASSPHRASE_STDIN=1
+__gitadmin_resolve_passphrase() {
+  if [ -n "$GITADMIN_GPG_PASSPHRASE" ]; then
+    printf '%s' "$GITADMIN_GPG_PASSPHRASE"
+    return 0
+  fi
+  local content
+  if [ -n "$GITADMIN_GPG_PASSPHRASE_FILE" ]; then
+    if content="$(__gitadmin_read_passphrase_file "$GITADMIN_GPG_PASSPHRASE_FILE")"; then
+      printf '%s' "$content"
+      return 0
+    fi
+  fi
+  local default_file
+  if default_file="$(__gitadmin_default_passphrase_file)"; then
+    if content="$(__gitadmin_read_passphrase_file "$default_file")"; then
+      printf '%s' "$content"
+      return 0
+    fi
+  fi
+  case "${GITADMIN_GPG_PASSPHRASE_STDIN:-}" in
+    1 | true | yes | on)
+      cat
+      return 0
+      ;;
+  esac
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - -
+__gitadmin_find_preset_bin() {
+  local p
+  for p in \
+    /usr/lib/gnupg/gpg-preset-passphrase \
+    /usr/lib/gnupg2/gpg-preset-passphrase \
+    /usr/libexec/gpg-preset-passphrase \
+    /usr/libexec/gnupg/gpg-preset-passphrase \
+    /usr/local/lib/gnupg/gpg-preset-passphrase \
+    /opt/homebrew/lib/gnupg/gpg-preset-passphrase \
+    /opt/local/lib/gnupg/gpg-preset-passphrase; do
+    [ -x "$p" ] && {
+      printf '%s' "$p"
+      return 0
+    }
+  done
+  if __cmd_exists gpg-preset-passphrase; then
+    command -v gpg-preset-passphrase
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - -
+__gitadmin_resolve_keygrip() {
+  if [ -n "$GITADMIN_GPG_KEYGRIP" ]; then
+    printf '%s' "$GITADMIN_GPG_KEYGRIP"
+    return 0
+  fi
+  local key="${1:-$(__gitadmin_signing_key)}"
+  [ -n "$key" ] || return 1
+  __cmd_exists gpg || return 1
+  local grip
+  grip="$(gpg --batch --with-keygrip --with-colons --list-secret-keys "$key" 2>/dev/null \
+    | awk -F: '/^grp:/ { print $10; exit }')"
+  if [ -n "$grip" ]; then
+    printf '%s' "$grip"
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - -
+__gitadmin_preset_passphrase() {
+  local pass="$1"
+  [ -n "$pass" ] || return 1
+  local bin grip
+  bin="$(__gitadmin_find_preset_bin)" || return 1
+  grip="$(__gitadmin_resolve_keygrip)" || return 1
+  printf '%s' "$pass" | "$bin" --preset "$grip" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - -
+__gitadmin_setup_loopback_wrapper() {
+  local pass="$1"
+  [ -n "$pass" ] || return 1
+  local tmpdir
+  tmpdir="$(mktemp -d "${GITADMIN_TEMP_DIR:-/tmp}/gpg-loopback.XXXXXX" 2>/dev/null)" || return 1
+  chmod 700 "$tmpdir"
+  local passfile="$tmpdir/pass"
+  local wrapper="$tmpdir/gpg-wrap.sh"
+  ( umask 077 && printf '%s' "$pass" >"$passfile" ) || {
+    rm -rf "$tmpdir"
+    return 1
+  }
+  cat >"$wrapper" <<EOF
+#!/bin/sh
+exec gpg --batch --pinentry-mode loopback --passphrase-file "$passfile" "\$@"
+EOF
+  chmod 700 "$wrapper"
+  GITADMIN_GPG_WRAPPER="$wrapper"
+  GITADMIN_GPG_WRAPPER_DIR="$tmpdir"
+  export GITADMIN_GPG_WRAPPER GITADMIN_GPG_WRAPPER_DIR
+  local idx="${GIT_CONFIG_COUNT:-0}"
+  export "GIT_CONFIG_KEY_${idx}=gpg.program"
+  export "GIT_CONFIG_VALUE_${idx}=$wrapper"
+  GIT_CONFIG_COUNT=$((idx + 1))
+  export GIT_CONFIG_COUNT
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - -
+__gitadmin_cleanup_loopback() {
+  if [ -n "$GITADMIN_GPG_WRAPPER_DIR" ] && [ -d "$GITADMIN_GPG_WRAPPER_DIR" ]; then
+    rm -rf "$GITADMIN_GPG_WRAPPER_DIR" 2>/dev/null
+  fi
+  unset GITADMIN_GPG_WRAPPER GITADMIN_GPG_WRAPPER_DIR
+}
+# - - - - - - - - - - - - - - - - - - -
+# Bring up the passphrase machinery exactly once per script run.
+# Tries preset first, then falls back to loopback. Silent when no
+# passphrase source is configured (preserves the interactive flow).
+__gitadmin_init_passphrase() {
+  [ "$GITADMIN_PASSPHRASE_INITIALIZED" = "1" ] && return 0
+  GITADMIN_PASSPHRASE_INITIALIZED=1
+  export GITADMIN_PASSPHRASE_INITIALIZED
+  local pass
+  pass="$(__gitadmin_resolve_passphrase 2>/dev/null)" || return 0
+  [ -n "$pass" ] || return 0
+  if __gitadmin_preset_passphrase "$pass"; then
+    [ -n "$_DEBUG" ] && printf_blue "GPG passphrase preset to gpg-agent"
+    unset pass
+    return 0
+  fi
+  if __gitadmin_setup_loopback_wrapper "$pass"; then
+    [ -n "$_DEBUG" ] && printf_blue "GPG loopback wrapper installed at $GITADMIN_GPG_WRAPPER"
+    unset pass
+    return 0
+  fi
+  printf_yellow "Could not preload GPG passphrase (preset failed and loopback wrapper setup failed)"
+  unset pass
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - -
 __git_release() {
   local tag="$1"
+  local sign_flag
+  sign_flag="$(__gitadmin_tag_sign_flag "$GITADMIN_CWD")"
   # Delete local and remote tag if they exist
   if git -C "$GITADMIN_CWD" tag -l "$tag" | grep -q "^$tag$"; then
     printf_yellow "Deleting existing tag $tag"
@@ -6583,7 +6926,7 @@ __git_release() {
   fi
   # Create new tag and push
   printf_cyan "Adding the tag: $tag"
-  git -C "$GITADMIN_CWD" tag "$tag" >/dev/null 2>&1
+  git -C "$GITADMIN_CWD" tag $sign_flag "$tag" >/dev/null 2>&1
   printf_green "Pushing tag to remote"
   git -C "$GITADMIN_CWD" push origin "$tag" >/dev/null 2>&1
 }
@@ -6591,11 +6934,8 @@ __git_release() {
 __git_release_version() {
   local version="$1"
   local message="${2:-}"
-  local sign_flag=""
-  # Check if signing is enabled
-  if __git_signing_enabled "$GITADMIN_CWD"; then
-    sign_flag="-s"
-  fi
+  local sign_flag
+  sign_flag="$(__gitadmin_tag_sign_flag "$GITADMIN_CWD")"
   # Prepend 'v' if version starts with a number
   if [[ "$version" =~ ^[0-9] ]]; then
     version="v$version"
@@ -6647,6 +6987,18 @@ GITADMIN_ERROR_MESSAGE="${GITADMIN_ERROR_MESSAGE:-Errors were reported}"
 GITADMIN_NOTIFY_CLIENT_NAME="${GITADMIN_NOTIFY_CLIENT_NAME:-$APPNAME}"
 GITADMIN_NOTIFY_CLIENT_ICON="${GITADMIN_NOTIFY_CLIENT_ICON:-notification-new}"
 GITADMIN_NOTIFY_CLIENT_URGENCY="${GITADMIN_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# GPG signing key fallback (repo-local user.signingkey wins).
+GITADMIN_SIGNING_KEY="${GITADMIN_SIGNING_KEY:-}"
+# Target gpg-agent default-cache-ttl applied on `gitadmin --config`.
+GITADMIN_GPG_CACHE_TTL="${GITADMIN_GPG_CACHE_TTL:-28800}"
+# Non-interactive GPG passphrase sources. Empty by default for the
+# env var; the file path auto-detects /var/run/secrets/gpg/pass first
+# and falls back to ~/.gnupg/commit_pass.txt.
+GITADMIN_GPG_PASSPHRASE="${GITADMIN_GPG_PASSPHRASE:-}"
+GITADMIN_GPG_PASSPHRASE_FILE="${GITADMIN_GPG_PASSPHRASE_FILE:-$(__gitadmin_default_passphrase_file 2>/dev/null)}"
+GITADMIN_GPG_PASSPHRASE_STDIN="${GITADMIN_GPG_PASSPHRASE_STDIN:-}"
+GITADMIN_GPG_KEYGRIP="${GITADMIN_GPG_KEYGRIP:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 GITADMIN_DEFAULT_USERNAME="${GITADMIN_DEFAULT_USERNAME:-$GITHUB_USERNAME}"
@@ -6718,6 +7070,11 @@ GITADMIN_TEMP_FILE="${GITADMIN_TEMP_FILE:-$(mktemp $GITADMIN_TEMP_DIR/XXXXXX 2>/
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
 trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Preload the GPG passphrase if a source is configured. No-op when
+# none of $GITADMIN_GPG_PASSPHRASE / _FILE / _STDIN are set, so the
+# interactive flow for human users is unchanged.
+__gitadmin_init_passphrase
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
 __notifications() {
@@ -7325,9 +7682,9 @@ lfs)
       for repo_file in $GITADMIN_LFS_FILE_TYPES; do
         printf_cyan "Adding $repo_file to LFS"
         git -C "$GITADMIN_CWD" lfs track "$repo_file" &>/dev/null
-        git -C "$GITADMIN_CWD" commit -m "🔵 Added LFS object: $repo_file 🔵" --quiet
+        git -C "$GITADMIN_CWD" commit $(__gitadmin_sign_flag "$GITADMIN_CWD") -m "🔵 Added LFS object: $repo_file 🔵" --quiet
       done
-      git -C "$GITADMIN_CWD" add .gitattributes &>/dev/null && git -C "$GITADMIN_CWD" commit -m "🔵 Added .gitattributes 🔵" --quiet
+      git -C "$GITADMIN_CWD" add .gitattributes &>/dev/null && git -C "$GITADMIN_CWD" commit $(__gitadmin_sign_flag "$GITADMIN_CWD") -m "🔵 Added .gitattributes 🔵" --quiet
       exitCode=$?
       [ $exitCode -eq 0 ] && { [ "$GITADMIN_SETUP_PUSH" != "no" ] && git -C "$GITADMIN_CWD" push --quiet && exitCode=0 || exitCode=1; }
     fi
@@ -7355,7 +7712,7 @@ lfs)
       repo_file="${file//$GITADMIN_CWD\//}"
       printf_cyan "Adding $repo_file to LFS"
       git -C "$GITADMIN_CWD" lfs track "$repo_file" &>/dev/null
-      git -C "$GITADMIN_CWD" commit -m "🔵 Added LFS object: $repo_file 🔵" --quiet
+      git -C "$GITADMIN_CWD" commit $(__gitadmin_sign_flag "$GITADMIN_CWD") -m "🔵 Added LFS object: $repo_file 🔵" --quiet
       git -C "$GITADMIN_CWD" lfs migrate import --no-rewrite --yes --include="$repo_file"
     done
     if [ "$GITADMIN_SETUP_PUSH" != "no" ]; then
@@ -8721,7 +9078,7 @@ private)
         (git -C "$GITADMIN_CWD" remote add origin $GITADMIN_PRIVATE_GIST_SERVER/init && git -C "$GITADMIN_CWD" push -u origin __main >/dev/null) 2>&1
         exitCode=$?
       else
-        (git -C "$GITADMIN_CWD" init && git -C "$GITADMIN_CWD" add . && git -C "$GITADMIN_CWD" commit -m "🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠" && git -C "$GITADMIN_CWD" remote add origin $GITADMIN_PRIVATE_GIST_SERVER/init) >/dev/null 2>&1
+        (git -C "$GITADMIN_CWD" init && git -C "$GITADMIN_CWD" add . && git -C "$GITADMIN_CWD" commit $(__gitadmin_sign_flag "$GITADMIN_CWD") -m "🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠" && git -C "$GITADMIN_CWD" remote add origin $GITADMIN_PRIVATE_GIST_SERVER/init) >/dev/null 2>&1
         results="$(git -C "$GITADMIN_CWD" push -u origin __main 2>&1 | grep 'remote: Your new gist has been created here' | sed 's|.*been created here: ||g;s| ||g' | grep '://')"
         if [ -n "$results" ]; then
           if git remote set-url origin "$results" >/dev/null 2>&1; then
@@ -8745,7 +9102,7 @@ private)
       shift 1
       message="🦈🏠🐜❗ Updated Gist ❗🐜🦈🏠"
       [ -d "$GITADMIN_CWD/.git" ] || printf_exit "$GITADMIN_CWD is not a git repo"
-      git -C "$GITADMIN_CWD" add . && git -C "$GITADMIN_CWD" commit -m "$message" 2>&1 && printf_green "Commited $GITADMIN_CWD: $message" || printf_return "Failed to commit $GITADMIN_CWD"
+      git -C "$GITADMIN_CWD" add . && git -C "$GITADMIN_CWD" commit $(__gitadmin_sign_flag "$GITADMIN_CWD") -m "$message" 2>&1 && printf_green "Commited $GITADMIN_CWD: $message" || printf_return "Failed to commit $GITADMIN_CWD"
       exit $?
       ;;
     push)

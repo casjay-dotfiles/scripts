@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605041900-git
+##@Version           :  202605052030-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605041900-git"
+VERSION="202605052030-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -626,6 +626,16 @@ __set_variables() {
   BUILDX_DEFAULT_ORG="${BUILDX_DEFAULT_ORG##*/}"
   BUILDX_GIT_REPO_USER="${BUILDX_SET_GIT_USER:-$BUILDX_GIT_REPO_USER}"
   BUILDX_PROJECT_DIR="${BUILDX_PROJECT_DIR:-$HOME/Projects/github/$BUILDX_DEFAULT_REPO}"
+  # Project-scope the builder name so concurrent buildx invocations across
+  # projects don't share the same buildkit container (and so cleanup at the
+  # end of one build doesn't kill another build still in progress).
+  if [ -z "$BUILDX_BUILDER_NAME" ] || [ "$BUILDX_BUILDER_NAME" = "mybuilder" ]; then
+    if [ -n "$BUILDX_DEFAULT_REPO" ]; then
+      BUILDX_BUILDER_NAME="mybuilder-${BUILDX_DEFAULT_REPO}"
+    else
+      BUILDX_BUILDER_NAME="mybuilder"
+    fi
+  fi
   local _ver="${BUILDX_SET_VERSION:-$BUILDX_DEFAULT_VERSION}"
   _ver="${_ver%%[[:space:]]*}"; _ver="${_ver//\"/}"
   BUILDX_DEFAULT_VERSION="$_ver"
@@ -1176,9 +1186,12 @@ __buildx_cleanup() {
   local exitCodeClean=""
   if [ "$BUILDX_CLEANUP" = "true" ] && [ "$BUILDX_IS_RUNNING" = "true" ]; then
     if [ "$BUILDX_BUILD_ALL" != "true" ] && [ "$BUILDX_RAN_CLEANUP" != "true" ]; then
-      printf_yellow "Cleaning up containers"
+      printf_yellow "Cleaning up project builder: ${BUILDX_BUILDER_NAME:-mybuilder}"
     fi
-    __docker rm -f --volumes $builder_id $qemu_imagename $binfmt_imagename &>/dev/null
+    # Only remove the project-scoped builder. The qemu / binfmt helper
+    # containers are shared across all projects — leave them so the next
+    # build (any project) doesn't have to re-init the whole stack.
+    [ -n "$builder_id" ] && __docker rm -f --volumes $builder_id &>/dev/null
     BUILDX_RAN_CLEANUP="true"
     if __is_initialized; then exitCodeClean=1; else exitCodeClean=0; fi
   fi

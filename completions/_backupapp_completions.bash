@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605071853-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -28,7 +28,7 @@ _backupapp_completion() {
   #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1" | sort -u)"
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
-  local LONGOPTS="--completions --debug --raw --options --config --version --help --silent --dir --term --cron --once --console "
+  local LONGOPTS="--completions --debug --raw --options --config --version --help --silent --dir --term --cron --once --console --yes --auto "
   local SHORTOPTS=""
   local ARRAY="cron create"
 

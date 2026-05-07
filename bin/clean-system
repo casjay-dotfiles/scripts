@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605071902-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 22:30 EDT
 # @@File             :  clean-system
 # @@Description      :  remove old logs
-# @@Changelog        :  New script
+# @@Changelog        :  Fix `set -o pipefail braceexpand glob` clobbering $@ (broke every CLI option), stop deleting logrotate cron jobs, restart uptimed/downtimed after cleanup, fix /root/* and ~/* glob bugs, age-guard /var/log year-named prune, quoting and typo cleanup
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202602020740-git"
+VERSION="202605071902-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -44,7 +44,7 @@ export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # pipes fail
-set -o pipefail braceexpand glob
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -70,14 +70,14 @@ __devnull() {
   tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # See if the executable exists
 __cmd_exists() {
   local exitCode=0
@@ -192,7 +192,7 @@ __help() {
   __printf_opts "clean-system:  remove old logs - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: clean-system [options]"
-  __printf_line "*                               - Clean all old log files and temp files"
+  __printf_line "(no args)                       - Clean rotated logs in /var/log + old user logs/tmp"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -200,22 +200,29 @@ __help() {
   __printf_line "--config                        - Generate user config file"
   __printf_line "--version                       - Show script version"
   __printf_line "--options                       - Shows all available options"
+  __printf_line "--silent                        - Suppress non-error output"
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--raw                           - Removes all formatting on output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# check if arg is a builtin option
-__is_an_option() { if [[ "$ARRAY" == *"${1:-^}"* ]]; then return 1; else return 0; fi; }
+# check if arg is a builtin option (whole-word match against $ARRAY)
+__is_an_option() {
+  local item
+  for item in $ARRAY; do
+    [ "$item" = "${1:-^}" ] && return 1
+  done
+  return 0
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
-  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+  { [ "$(id -u)" -eq 0 ] || [ "$EUID" -eq 0 ] || [ "${WHOAMI:-$USER}" = "root" ]; } && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user not root
 __user_is_not_root() {
-  if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
+  if { [ "$(id -u)" -eq 0 ] || [ "$EUID" -eq 0 ] || [ "${WHOAMI:-$USER}" = "root" ]; }; then return 1; else return 0; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if user is a member of sudo
@@ -267,8 +274,7 @@ __sudo() {
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
   [ "${SUDO##*/}" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
-    export PATH="$PATH"
-    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS
     exitCode=$?
   else
     printf '%s\n' "This requires root to run"
@@ -281,7 +287,7 @@ __sudo() {
 __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$CLEAN_SYSTEM_TEMP_FILE" ] && rm -Rf "$CLEAN_SYSTEM_TEMP_FILE" &>/dev/null
-  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
 }
@@ -302,7 +308,6 @@ __rm_after() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __logrotate() {
   __cmd_exists logrotate || return 2
-  rm -Rf /etc/cron.*/*logrotate* &>/dev/null
   logrotate "$@" |& __devnull
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -379,7 +384,7 @@ SETARGS=("$@")
 SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,help,options,raw,version,silent,"
+LONGOPTS="completions:,config,debug,help,options,raw,version,silent"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
@@ -390,7 +395,7 @@ LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
-eval set -- "${setopts[@]}" 2>/dev/null
+eval set -- "$setopts" 2>/dev/null
 while :; do
   case "$1" in
   --raw)
@@ -526,41 +531,37 @@ printf_red "Cleaning old logs"
 if __user_is_root || __can_i_sudo; then
   __logrotate -f /etc/logrotate.conf
   __rm_now /var/log/bandwidth
-  __rm_now /var/log/*.gz
-  __rm_now /var/log/*/*.gz
-  __rm_now /var/log/*/*/*.gz
-  __rm_now /var/log/*.old
-  __rm_now /var/log/*/*.old
-  __rm_now /var/log/*/*/*.old
-  __rm_now /var/log/*.{0,1,2,3,4,5,6,7,8,9}
-  __rm_now /var/log/*/*.{0,1,2,3,4,5,6,7,8,9}
-  __rm_now /var/log/*/*/*.{0,1,2,3,4,5,6,7,8,9}
-  __rm_now /var/log/*{0,1,2,3,4,5,6,7,8,9}.gz
-  __rm_now /var/log/*$CLEAN_SYSTEM_CURRENT_YEAR*
-  __rm_now /var/log/*/*$CLEAN_SYSTEM_CURRENT_YEAR*
-  __rm_now /var/log/*/*/*$CLEAN_SYSTEM_CURRENT_YEAR*
-  __rm_now /var/log/*$CLEAN_SYSTEM_PREVIOUS_YEAR*
-  __rm_now /var/log/*/*$CLEAN_SYSTEM_PREVIOUS_YEAR*
-  __rm_now /var/log/*/*/*$CLEAN_SYSTEM_PREVIOUS_YEAR*
+  # Remove rotated/archived logs at depths 1-3 in /var/log:
+  #   *.gz, *.old, *.<digits>, year-stamped names
+  # Limited to files older than 7 days so active logs aren't yanked.
+  find /var/log -mindepth 1 -maxdepth 4 -type f -mtime +7 \
+    \( -name '*.gz' \
+       -o -name '*.old' \
+       -o -regex '.*\.[0-9]+$' \
+       -o -name "*$CLEAN_SYSTEM_CURRENT_YEAR*" \
+       -o -name "*$CLEAN_SYSTEM_PREVIOUS_YEAR*" \) \
+    -delete 2>/dev/null
   if [ -f "$HOME/.config/logrotate/config" ]; then
     __logrotate -fv "$HOME/.config/logrotate/config"
   fi
   if [ -d "/var/spool/uptimed" ]; then
     systemctl stop uptimed |& __devnull
     __rm_now /var/spool/uptimed/*
+    systemctl start uptimed |& __devnull
   fi
   if [ -d "/var/lib/downtimed/downtimedb" ]; then
-    systemctl stop downtimed
+    systemctl stop downtimed |& __devnull
     __rm_now /var/lib/downtimed/downtimedb/*
     touch /var/lib/downtimed/downtimedb/downtime.db |& __devnull
+    systemctl start downtimed |& __devnull
   fi
-  __rm_after 1 /root/*/.local/tmp/*
-  __rm_after 7 /root/*/.local/log/*
+  __rm_after 1 /root/.local/tmp/*
+  __rm_after 7 /root/.local/log/*
   __rm_after 1 /home/*/.local/tmp/*
   __rm_after 7 /home/*/.local/log/*
 else
   __rm_after 1 ~/.local/tmp/*
-  __rm_after 7 ~/*/.local/log/*
+  __rm_after 7 ~/.local/log/*
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code

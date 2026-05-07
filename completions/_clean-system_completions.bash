@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605071902-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -12,7 +12,7 @@
 # @TODO              :
 # @Other             :
 # @Resource          :
-# - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 _clean-system() {
   ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
   local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -26,7 +26,7 @@ _clean-system() {
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
   local OPTS=""
-  local LONGOPTS="--completions --debug --raw --options --config --version --help --silent --dir"
+  local LONGOPTS="--completions --debug --raw --options --config --version --help --silent"
   local SHORTOPTS=""
   local ARRAY="show__none"
 
@@ -63,12 +63,6 @@ _clean-system() {
     --version)
       local prev="--version"
       COMPREPLY=($(compgen -W '' -- "${cur}"))
-      ;;
-
-    --dir)
-      local prev="dir"
-      _filedir
-      return
       ;;
 
     *)

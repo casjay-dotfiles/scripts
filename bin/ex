@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605071925-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -9,8 +9,8 @@
 # @@Copyright        :  Copyright: (c) 2023 Jason Hempstead, Casjays Developments
 # @@Created          :  Monday, Mar 13, 2023 10:32 EDT
 # @@File             :  ex
-# @@Description      :
-# @@Changelog        :  New script
+# @@Description      :  Extract archives (auto-detect format)
+# @@Changelog        :  Add zst/xz/lz/lzma/lzo/cpio/deb/rpm/jar/war/apk; case-insensitive matching; honor --silent; surface extractor stderr on failure; refactor case to table-driven dispatch
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202602020740-git"
+VERSION="202605071925-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -70,23 +70,27 @@ __devnull() {
   tee &>/dev/null && EX_EXIT_STATUS=0 || EX_EXIT_STATUS=1
   return ${EX_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && EX_EXIT_STATUS=0 || EX_EXIT_STATUS=1
   return ${EX_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # See if the executable exists
 __cmd_exists() {
-  EX_EXIT_STATUS=0
-  [ -n "$1" ] && local EX_EXIT_STATUS="" || return 0
+  local exitCode=0
+  [ -n "$1" ] || return 0
   for cmd in "$@"; do
-    builtin command -v "$cmd" &>/dev/null && EX_EXIT_STATUS+=$(($EX_EXIT_STATUS + 0)) || EX_EXIT_STATUS+=$(($EX_EXIT_STATUS + 1))
+    if builtin command -v "$cmd" &>/dev/null; then
+      exitCode=$((exitCode + 0))
+    else
+      exitCode=$((exitCode + 1))
+    fi
   done
-  [ $EX_EXIT_STATUS -eq 0 ] || EX_EXIT_STATUS=3
-  return ${EX_EXIT_STATUS:-0}
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
@@ -185,11 +189,21 @@ EOF
 # Help function - Align to 50
 __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "ex:  - $VERSION"
+  __printf_opts "ex:  Extract archives (auto-detect format) - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: ex [options] [commands] [file]"
-  __printf_line "[file]                          - Specify the file to extract"
-  __printf_line "--dir                           - Sets the working directory"
+  __printf_line "Usage: ex [options] [file]"
+  __printf_line "[file]                          - Archive to extract"
+  __printf_line "--dir <path>                    - Change to <path> before extracting"
+  __printf_line "-f, --file <path>               - Same as positional [file]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Supported formats (case-insensitive)"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "tar bundles                     - .tar .tar.gz/.tgz .tar.bz2/.tbz2/.tbz"
+  __printf_line "                                  .tar.xz/.txz .tar.zst/.tzst"
+  __printf_line "single-stream                   - .gz .bz2 .xz .zst .lz .lzma .lzo .Z"
+  __printf_line "zip family                      - .zip .jar .war .apk"
+  __printf_line "rar / 7z / iso                  - .rar .7z .iso"
+  __printf_line "package archives                - .deb .rpm .cpio"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -197,6 +211,7 @@ __help() {
   __printf_line "--config                        - Generate user config file"
   __printf_line "--version                       - Show script version"
   __printf_line "--options                       - Shows all available options"
+  __printf_line "--silent                        - Suppress non-error output"
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--raw                           - Removes all formatting on output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -204,17 +219,23 @@ __help() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep() { grep "$@" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# check if arg is a builtin option
-__is_an_option() { if [[ "$ARRAY" == *"${1:-^}"* ]]; then return 1; else return 0; fi; }
+# check if arg is a builtin option (whole-word match against $ARRAY)
+__is_an_option() {
+  local item
+  for item in $ARRAY; do
+    [ "$item" = "${1:-^}" ] && return 1
+  done
+  return 0
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
-  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+  { [ "$(id -u)" -eq 0 ] || [ "$EUID" -eq 0 ] || [ "${WHOAMI:-$USER}" = "root" ]; } && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user not root
 __user_is_not_root() {
-  if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
+  if { [ "$(id -u)" -eq 0 ] || [ "$EUID" -eq 0 ] || [ "${WHOAMI:-$USER}" = "root" ]; }; then return 1; else return 0; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if user is a member of sudo
@@ -265,8 +286,7 @@ __sudo() {
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
   [ "${SUDO##*/}" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
-    export PATH="$PATH"
-    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS
     EX_EXIT_STATUS=$?
   else
     printf '%s\n' "This requires root to run"
@@ -279,12 +299,29 @@ __sudo() {
 __trap_exit() {
   EX_EXIT_STATUS=${EX_EXIT_STATUS:-0}
   [ -f "$EX_TEMP_FILE" ] && rm -Rf "$EX_TEMP_FILE" &>/dev/null
-  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $EX_EXIT_STATUS
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+# Run an extractor with the file path appended as the last arg.
+# Captures stderr to a temp file; on failure, dumps it to the user
+# instead of leaving them with a generic "Failed to extract" message.
+__extract_run() {
+  local human="$1" cmd="$2"
+  shift 2
+  __cmd_exists "$cmd" || printf_exit "Please install $cmd"
+  [ "$EX_SILENT" = "true" ] || printf_blue "Attempting to extract $EX_FILE_LOCATION using $human"
+  local err="$EX_TEMP_DIR/.extract.$$.err"
+  if "$cmd" "$@" "$EX_FILE_LOCATION" 2>"$err" >/dev/null; then
+    rm -f "$err"
+    return 0
+  fi
+  [ -s "$err" ] && cat "$err" >&2
+  rm -f "$err"
+  return 1
+}
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -296,7 +333,7 @@ EX_CONFIG_FILE="${EX_CONFIG_FILE:-settings.conf}"
 EX_CONFIG_DIR="${EX_CONFIG_DIR:-$HOME/.config/myscripts/ex}"
 EX_CONFIG_BACKUP_DIR="${EX_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/ex/backups}"
 EX_LOG_DIR="${EX_LOG_DIR:-$HOME/.local/log/ex}"
-EX_RUN_DIR="${EX_RUN_DIR:-$HOME/.local/run/system_scripts/$EX_SCRIPTS_PREFIX}"
+EX_RUN_DIR="${EX_RUN_DIR:-$HOME/.local/run/system_scripts/ex}"
 EX_TEMP_DIR="${EX_TEMP_DIR:-$HOME/.local/tmp/system_scripts/ex}"
 EX_CACHE_DIR="${EX_CACHE_DIR:-$HOME/.cache/ex}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -372,7 +409,7 @@ LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
-eval set -- "${setopts[@]}" 2>/dev/null
+eval set -- "$setopts" 2>/dev/null
 while :; do
   case "$1" in
   --raw)
@@ -499,7 +536,6 @@ export EX_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 #requiresudo "$0" "$@" || exit 2     # exit 2 if errors
-cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
@@ -522,144 +558,62 @@ fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
+# Match extension case-insensitively so foo.ZIP / foo.TAR.GZ also work.
+shopt -s nocasematch
 case "$EX_FILE_LOCATION" in
-*.tar.bz2)
-  __cmd_exists tar || printf_exit "Please install tar"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using tar"
-  if tar xjf "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
+*.tar.bz2 | *.tbz2 | *.tbz) __extract_run tar tar xjf ;;
+*.tar.gz | *.tgz)           __extract_run tar tar xzf ;;
+*.tar.xz | *.txz)           __extract_run tar tar xJf ;;
+*.tar.zst | *.tzst)         __extract_run tar tar --zstd -xf ;;
+*.tar)                      __extract_run tar tar xf ;;
+*.bz2)                      __extract_run bunzip2 bunzip2 ;;
+*.gz)                       __extract_run gunzip gunzip ;;
+*.xz)                       __extract_run unxz unxz ;;
+*.zst)                      __extract_run unzstd unzstd ;;
+*.lz)                       __extract_run lzip lzip -d ;;
+*.lzma)                     __extract_run unlzma unlzma ;;
+*.lzo)                      __extract_run lzop lzop -d ;;
+*.Z)                        __extract_run uncompress uncompress ;;
+*.zip | *.jar | *.war | *.apk) __extract_run unzip unzip ;;
+*.rar)                      __extract_run unrar unrar x ;;
+*.7z | *.iso)               __extract_run 7z 7z x -y -bb0 -bd -o"$PWD" ;;
+*.deb)                      __extract_run ar ar x ;;
+*.cpio)
+  # cpio reads the archive from stdin, so it needs its own handler.
+  __cmd_exists cpio || printf_exit "Please install cpio"
+  [ "$EX_SILENT" = "true" ] || printf_blue "Attempting to extract $EX_FILE_LOCATION using cpio"
+  err="$EX_TEMP_DIR/.extract.$$.err"
+  if cpio -id <"$EX_FILE_LOCATION" 2>"$err" >/dev/null; then
+    rm -f "$err"
   else
-    exitCode=1
+    [ -s "$err" ] && cat "$err" >&2
+    rm -f "$err"
+    false
   fi
   ;;
-
-*.tar.gz)
-  __cmd_exists tar || printf_exit "Please install tar"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using tar"
-  if tar xzf "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
+*.rpm)
+  # rpm payloads are extracted via rpm2cpio | cpio.
+  __cmd_exists rpm2cpio || printf_exit "Please install rpm2cpio"
+  __cmd_exists cpio || printf_exit "Please install cpio"
+  [ "$EX_SILENT" = "true" ] || printf_blue "Attempting to extract $EX_FILE_LOCATION using rpm2cpio | cpio"
+  err="$EX_TEMP_DIR/.extract.$$.err"
+  if rpm2cpio "$EX_FILE_LOCATION" 2>"$err" | cpio -id 2>>"$err" >/dev/null; then
+    rm -f "$err"
   else
-    exitCode=1
+    [ -s "$err" ] && cat "$err" >&2
+    rm -f "$err"
+    false
   fi
   ;;
-
-*.bz2)
-  __cmd_exists bunzip2 || printf_exit "Please install bunzip2"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using bunzip2"
-  if bunzip2 "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
-  else
-    exitCode=1
-  fi
-  ;;
-
-*.rar)
-  __cmd_exists unrar || printf_exit "Please install unrar"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using unrar"
-  if unrar x "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
-  else
-    exitCode=1
-  fi
-  ;;
-
-*.gz)
-  __cmd_exists gunzip || printf_exit "Please install gunzip"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using gunzip"
-  if gunzip "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
-  else
-    exitCode=1
-  fi
-  ;;
-
-*.tar)
-  __cmd_exists tar || printf_exit "Please install tar"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using tar"
-  if tar xf "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
-  else
-    exitCode=1
-  fi
-  ;;
-
-*.tbz2)
-  __cmd_exists tar || printf_exit "Please install tar"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using tar"
-  if tar xjf "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
-  else
-    exitCode=1
-  fi
-  ;;
-
-*.tgz)
-  __cmd_exists tar || printf_exit "Please install tar"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using tar"
-  if tar xzf "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
-  else
-    exitCode=1
-  fi
-  ;;
-
-*.zip)
-  __cmd_exists unzip || printf_exit "Please install unzip"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using unzip"
-  if unzip "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
-  else
-    exitCode=1
-  fi
-  ;;
-
-*.Z)
-  __cmd_exists uncompress || printf_exit "Please install uncompress"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using uncompress"
-  if uncompress "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
-  else
-    exitCode=1
-  fi
-  ;;
-
-*.7z)
-  __cmd_exists 7z || printf_exit "Please install 7z"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using 7z"
-  if 7z x "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
-  else
-    exitCode=1
-  fi
-  ;;
-
-*.xz)
-  __cmd_exists unxz || printf_exit "Please install unxz"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using unxz"
-  if unxz "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
-  else
-    exitCode=1
-  fi
-  ;;
-
-*.iso)
-  __cmd_exists 7z || printf_exit "Please install 7z"
-  printf_blue "Attempting to extract $EX_FILE_LOCATION using 7z"
-  if 7z x -y -bb0 -bd -o"$PWD" "$EX_FILE_LOCATION" &>/dev/null; then
-    exitCode=0
-  else
-    exitCode=1
-  fi
-  ;;
-
 *)
-  printf_red "$EX_FILE_LOCATION cannot be extracted "
-  exitCode=1
+  printf_red "$EX_FILE_LOCATION cannot be extracted"
+  false
   ;;
 esac
+exitCode=$?
+shopt -u nocasematch
 if [ "$exitCode" = 0 ]; then
-  printf_green "File has been extracted"
+  [ "$EX_SILENT" = "true" ] || printf_green "File has been extracted"
 else
   printf_red "Failed to extract file"
 fi

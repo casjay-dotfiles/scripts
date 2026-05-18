@@ -1,39 +1,44 @@
 .\" Manpage for for_each_in
-.TH FOR_EACH_IN 1 "May 2026" "202605151243-git" "for_each_in"
+.TH FOR_EACH_IN 1 "May 2026" "202605181200-git" "for_each_in"
 
 .SH NAME
-for_each_in \- loop over a glob pattern and run a command for each match
+for_each_in \- run a command for each item matching a glob, with registry-aware injection
 
 .SH SYNOPSIS
 .B for_each_in
-[\fIoptions\fR] \fI"PATTERN"\fR [\fIconditions\fR] \fICOMMAND\fR [\fIARGS\fR...]
+[\fIoptions\fR] \fIPATTERN\fR [\fB--not\fR] [\fB\-FLAG\fR \fIPATH\fR]... \fICOMMAND\fR [\fIARGS\fR...]
 
 .SH DESCRIPTION
 .B for_each_in
 expands a quoted glob pattern and runs a command once for each matching
-filesystem entry.  Conditions (bash test flags) filter which entries are
-processed.  Placeholders inside command arguments are replaced with
-per-entry values before the command is executed.
+filesystem entry.  Conditions filter which entries are processed.  The
+loop item is injected into the command automatically based on a built-in
+command registry — no placeholders required.
 
 .SH PATTERN
 A quoted glob string such as
-.I "./*"
+.IR "*" ,
+.IR "../*" ,
 or
 .IR "./*/*" .
 Quoting is required to prevent the shell from expanding it before
 .B for_each_in
-receives it.
+receives it.  May also be supplied via
+.BR --dir .
 
 .SH CONDITIONS
-Conditions are standard bash test flags.  All conditions are ANDed: every
-one must pass for an entry to be processed.  Conditions may be repeated and
-may be mixed with
-.BR --not .
+Conditions are standard bash test flags.  All conditions are ANDed — every
+one must pass for an entry to be processed.  Conditions may be repeated.
+
+.TP
+.BI \-FLAG " PATH"
+.I PATH
+is relative to the loop item.  Use
+.B .
+to test the item itself.
 .TP
 .BI \-e " PATH"
-Entry passes if
-.I item/PATH
-exists (any type).
+Exists (any type).
 .TP
 .BI \-f " PATH"
 Regular file.
@@ -54,47 +59,67 @@ Non-empty file.
 Block device / character device / named pipe / socket.
 .TP
 .BI \-u / \-g / \-k " PATH"
-Setuid / setgid / sticky bit set.
-.PP
-If
-.I PATH
-is empty or
-.BR . ,
-the test is applied to the loop entry itself.
+Setuid / setgid / sticky bit.
 
 .SH NEGATION
 .TP
 .BI \-\-not " \-FLAG PATH"
-Invert the immediately following condition.
-Example:
+Invert the immediately following condition.  Example:
 .B --not -L .
 skips symbolic links.
 
-.SH SOURCE AND DESTINATION
-.TP
-.BI \-\-source " PATH"
-Declare
-.B {source}
-and verify that
-.I PATH
-exists before the loop starts.  Error if it does not exist or if
-.B {source}
-appears in the command without this flag.
-.TP
-.BI \-\-dest " PATH"
-Declare
-.B {dest}
-and implicitly add a
-.BI \-e " PATH"
-condition (entry is skipped unless
-.I item/PATH
-exists).  Shorthand for
-.BI \-e " PATH"
-combined with the
-.B {dest}
-placeholder.
+.SH COMMAND INJECTION
+The command name is looked up in a built-in registry that determines
+where the loop item is injected.
 
-.SH LOOP BEHAVIOUR
+.TP
+.B dash-C group:\ git, tig, make
+Item injected as
+.B -C item
+before the subcommand.
+.RS
+.nf
+git pull       \[->]  git -C item pull
+make install   \[->]  make -C item install
+.fi
+.RE
+
+.TP
+.B dir-flag group:\ gitadmin, gitcommit, gitignore, gen-*, publishit,
+.B backupapp, run_server, setupmgr, pkmgr, dockermgr, composemgr,
+.B tryforever, run_command, timeit, logr, virtmgr, lxcmgr, virt-check,
+.B update-lecerts, update-ip, update-motd, update-resolv, reqpkgs
+Item injected as
+.B --dir item
+before the subcommand.
+.RS
+.nf
+gitadmin pull      \[->]  gitadmin --dir item pull
+gen-readme update  \[->]  gen-readme --dir item update
+.fi
+.RE
+
+.TP
+.B destdir group:\ cp, mv, rsync, ln, install
+Item appended as the destination (last argument).
+.RS
+.nf
+cp -Rfv ./AI.md    \[->]  cp -Rfv ./AI.md item
+rsync -avhP ./src/ \[->]  rsync -avhP ./src/ item
+.fi
+.RE
+
+.TP
+.B default (everything else)
+Item appended as the last argument.
+.RS
+.nf
+unlink     \[->]  unlink item
+chmod 755  \[->]  chmod 755 item
+.fi
+.RE
+
+.SH OPTIONS
 .TP
 .BR \-n , " \-\-dry\-run"
 Print each command before it would run; do not execute anything.
@@ -103,86 +128,15 @@ Print each command before it would run; do not execute anything.
 Print each command before executing it.
 .TP
 .B \-\-stop\-on\-error
-Halt the loop on the first non-zero exit from a command.
+Halt the loop on the first non-zero exit.
 .TP
 .B \-\-summary
-Print a processed / skipped / failed count at the end of the loop.
+Print a processed / skipped / failed count at the end.
 .TP
-.B \-\-delete
-Remove the target with
-.B rm -Rf
-before each command executes.  When
-.B --dest
-is set the target is
-.IR item/dest ;
-otherwise it is
-.I item
-itself.
-
-.SH PLACEHOLDERS
-Substrings inside any command argument are replaced before execution.
-.TP
-.B {item}
-Full path of the current loop entry.
-.TP
-.B {dir}
-Alias for
-.BR {item} .
-.TP
-.B {item/.}
-.I item/.
-\(em directory-contents form for
-.BR cp ,
-.BR mv ,
-.BR rsync .
-.TP
-.B {dir/.}
-Alias for
-.BR {item/.} .
-.TP
-.B {base}
-Basename of the entry (e.g.\&
-.IR AI.md ).
-.TP
-.B {name}
-Basename without extension (e.g.\&
-.IR AI ).
-.TP
-.B {ext}
-Extension including the dot (e.g.\&
-.IR .md ).
-Empty string when there is no extension.
-.TP
-.B {parent}
-Parent directory of the entry.
-.TP
-.B {source}
-Value supplied to
-.BR --source .
-.TP
-.B {source/.}
-.I source/.
-\(em directory-contents form.
-.TP
-.B {dest}
-.I item/value-of-dest
-(e.g.\&
-.IR ./proj/AI.md ).
-.TP
-.B {dest/.}
-.I item/dest/.
-\(em directory-contents form.
-.PP
-An empty string argument
-.RB ( "" )
-is expanded to the full entry path.
-
-.SH OPTIONS
-.TP
-.BI \-\-dir " PATH"
-Change the working directory to
-.I PATH
-before the loop runs.
+.BI \-\-dir " PATTERN"
+Glob pattern — alias for the positional
+.I PATTERN
+argument.
 .TP
 .B \-\-config
 Generate (or regenerate) the user settings file.
@@ -217,50 +171,83 @@ Display the built-in help and exit.
 
 .SH EXAMPLES
 .TP
-Copy
-.I ./AI.md
-into every subdirectory that already contains a file named
-.IR AI.md :
+Pull every git repo under the current directory:
 .PP
 .RS
 .nf
-for_each_in "./*" -d . --source "./AI.md" --dest "AI.md" \\
-    cp -Rfv "{source}" "{dest}"
+for_each_in "*" -d .git gitadmin pull
 .fi
 .RE
 .TP
-Rsync a template directory's contents into each matching subdirectory:
+Commit all repos:
 .PP
 .RS
 .nf
-for_each_in "./*" -d . --source "./tmpl" --dest "conf" \\
-    rsync -avhP "{source/.}" "{dest}/"
+for_each_in "*" -d .git gitcommit all
 .fi
 .RE
 .TP
-Dry-run with a summary:
+Regenerate readme in every project that already has one:
 .PP
 .RS
 .nf
-for_each_in -n --summary "./*" -d . \\
-    --source "./AI.md" --dest "AI.md" cp -Rfv "{source}" "{dest}"
+for_each_in "*" -f README.md gen-readme update
 .fi
 .RE
 .TP
-Delete dest then replace it (cp):
+Copy AI.md into every project dir under the parent:
 .PP
 .RS
 .nf
-for_each_in "./*" -d . --source "./AI.md" --dest "AI.md" \\
-    --delete cp -Rf "{source}" "{dest}"
+for_each_in "../*" -d . cp -Rfv ./AI.md
 .fi
 .RE
 .TP
-Skip symlinks, stop on first error:
+Rsync a template directory into every matching subdir:
 .PP
 .RS
 .nf
-for_each_in --stop-on-error "./*" --not -L . mv -fv "{item/.}" /archive/
+for_each_in "../*" -d . rsync -avhP ./tmpl/
+.fi
+.RE
+.TP
+Remove all symlinks under a two-level glob:
+.PP
+.RS
+.nf
+for_each_in "./*/*" -L . unlink
+.fi
+.RE
+.TP
+Run make in every dir with a Makefile, stop on first error:
+.PP
+.RS
+.nf
+for_each_in --stop-on-error "*" -f Makefile make build
+.fi
+.RE
+.TP
+Multiple conditions — repo must have both .git and a Makefile:
+.PP
+.RS
+.nf
+for_each_in "*" -d .git -f Makefile make install
+.fi
+.RE
+.TP
+Skip symlinks:
+.PP
+.RS
+.nf
+for_each_in "../*/src" --not -L . cp -Rfv ./conf.d
+.fi
+.RE
+.TP
+Dry-run with summary:
+.PP
+.RS
+.nf
+for_each_in -n --summary "*" -d .git gitadmin pull
 .fi
 .RE
 
@@ -294,12 +281,9 @@ Default value for
 Default value for
 .BR --summary .
 .TP
-.B FOR_EACH_IN_DELETE
-Default value for
-.BR --delete .
-
-.SH TODO
-Better documentation.
+.B FOR_EACH_IN_PATTERN
+Default glob pattern — equivalent to passing
+.BR --dir .
 
 .SH LICENSE
 WTFPL

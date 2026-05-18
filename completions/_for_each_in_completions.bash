@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605151243-git
+##@Version           :  202605181200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -51,7 +51,7 @@ _for_each_in_completion() {
   SHORTOPTS+=""
   #####################################################################
   LONGOPTS="--completions --config --reset-config --debug --dir --help --options --no-color --version --silent"
-  LONGOPTS+=" --dry-run --verbose --stop-on-error --summary --delete --source --dest --not"
+  LONGOPTS+=" --dry-run --verbose --stop-on-error --summary --not"
   LONGOPTS+=" --no- --yes-"
   #####################################################################
   ARRAY=""

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605151243-git
+##@Version           :  202605181200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -9,9 +9,9 @@
 # @@Copyright        :  Copyright: (c) 2026 Jason Hempstead, Casjays Developments
 # @@Created          :  Friday, May 15, 2026 12:43 EDT
 # @@File             :  for_each_in
-# @@Description      :  Loop over a glob pattern and run a command for each match
-# @@Changelog        :  Rename printf_* to __printf_*, ANSI escapes, remove unused functions and variables
-# @@TODO             :  Better documentation
+# @@Description      :  Run a command for each item matching a glob — registry-aware injection
+# @@Changelog        :  Rewrite: drop placeholder system, add command registry for --dir/-C/destdir injection
+# @@TODO             :
 # @@Other            :
 # @@Resource         :
 # @@Terminal App     :  no
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605151243-git"
+VERSION="202605181200-git"
 USER="${SUDO_USER:-$USER}"
 export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -86,15 +86,14 @@ __gen_config() {
 # Settings for for_each_in
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Loop Behaviour Settings
+# Loop behaviour defaults
 FOR_EACH_IN_DRY_RUN="${FOR_EACH_IN_DRY_RUN:-no}"
 FOR_EACH_IN_VERBOSE="${FOR_EACH_IN_VERBOSE:-no}"
 FOR_EACH_IN_STOP_ON_ERROR="${FOR_EACH_IN_STOP_ON_ERROR:-no}"
 FOR_EACH_IN_SUMMARY="${FOR_EACH_IN_SUMMARY:-no}"
-FOR_EACH_IN_DELETE="${FOR_EACH_IN_DELETE:-no}"
 
 EOF
-  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if builtin type -t __gen_config_local | grep -q -- 'function'; then __gen_config_local; fi
   if [ -f "$FOR_EACH_IN_CONFIG_DIR/$FOR_EACH_IN_CONFIG_FILE" ]; then
     [ "$INIT_CONFIG" = "TRUE" ] || __printf_green "Your config file for $APPNAME has been created"
     . "$FOR_EACH_IN_CONFIG_DIR/$FOR_EACH_IN_CONFIG_FILE"
@@ -111,77 +110,80 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "for_each_in:  - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: for_each_in [options] \"PATTERN\" [CONDITIONS] COMMAND [ARGS...]"
+  __printf_line "Usage: for_each_in [options] PATTERN [--not] [-FLAG PATH]... COMMAND [ARGS...]"
   __printf_line " - "
-  __printf_line "  PATTERN              Quoted glob                  e.g. \"./*\"  \"./*/*\""
+  __printf_line "  PATTERN              Quoted glob passed to --dir or as first positional arg"
+  __printf_line "                       e.g.  \"*\"  \"../*\"  \"./*/*\"  \"../*/src\""
   __printf_line " - "
   __printf_line "Conditions (bash test flags, all ANDed, repeatable):"
-  __printf_line "  -e PATH              [ -e item/PATH ] — exists (any type)"
-  __printf_line "  -f PATH              [ -f item/PATH ] — regular file"
-  __printf_line "  -d PATH              [ -d item/PATH ] — directory"
-  __printf_line "  -L PATH              [ -L item/PATH ] — symlink"
+  __printf_line "  -FLAG PATH           [ -FLAG item/PATH ] — PATH relative to loop item"
+  __printf_line "  -FLAG .              [ -FLAG item ]      — test the item itself"
+  __printf_line "  -e PATH              exists (any type)"
+  __printf_line "  -f PATH              regular file"
+  __printf_line "  -d PATH              directory"
+  __printf_line "  -L PATH              symlink"
   __printf_line "  -r/-w/-x PATH        readable / writable / executable"
   __printf_line "  -s PATH              non-empty"
   __printf_line "  -b/-c/-p/-S PATH     block dev / char dev / pipe / socket"
   __printf_line "  -u/-g/-k PATH        setuid / setgid / sticky bit"
-  __printf_line "  (empty or . as PATH → test the loop item itself)"
-  __printf_line " - "
-  __printf_line "Negation:"
   __printf_line "  --not -FLAG PATH     invert the immediately following condition"
   __printf_line " - "
-  __printf_line "Source / destination (validated before loop starts):"
-  __printf_line "  --source PATH        declare {source}; error if PATH does not exist"
-  __printf_line "  --dest   PATH        declare {dest} AND gate on [ -e item/PATH ]"
-  __printf_line "                       (shorthand for -e PATH + {dest} placeholder)"
+  __printf_line "Command injection — the script detects the command and injects the"
+  __printf_line "loop item in the right place automatically:"
   __printf_line " - "
-  __printf_line "Loop behaviour:"
-  __printf_line "  -n / --dry-run       print commands, do not run them"
-  __printf_line "  -v / --verbose       print each command before running it"
-  __printf_line "  --stop-on-error      halt on first non-zero exit"
-  __printf_line "  --summary            print processed/skipped/failed count at end"
-  __printf_line "  --delete             rm -Rf target before each command:"
-  __printf_line "                         with --dest → removes {dest} (item/dest)"
-  __printf_line "                         without     → removes {item} itself"
+  __printf_line "  git / tig / make     item injected as -C item  (before subcommand)"
+  __printf_line "    git pull           → git -C item pull"
+  __printf_line "    make install       → make -C item install"
   __printf_line " - "
-  __printf_line "Placeholders (substring-replaced inside any command argument):"
-  __printf_line "  {item}  {dir}  \"\"    current loop item (full path)"
-  __printf_line "  {item/.}  {dir/.}   item/.  — directory-contents form (cp/mv/rsync)"
-  __printf_line "  {base}               basename of item              e.g. AI.md"
-  __printf_line "  {name}               basename without extension     e.g. AI"
-  __printf_line "  {ext}                extension with dot             e.g. .md"
-  __printf_line "  {parent}             parent directory of item"
-  __printf_line "  {source}             value of --source"
-  __printf_line "  {source/.}           source/.  — directory-contents form"
-  __printf_line "  {dest}               item/value-of-dest            e.g. ./proj/AI.md"
-  __printf_line "  {dest/.}             item/dest/.  — directory-contents form"
+  __printf_line "  gitadmin / gitcommit / gitignore / gen-* / publishit / backupapp"
+  __printf_line "  run_server / setupmgr / pkmgr / dockermgr / composemgr / tryforever"
+  __printf_line "  run_command / timeit / logr / virtmgr / lxcmgr / virt-check"
+  __printf_line "  update-lecerts / update-ip / update-motd / update-resolv / reqpkgs"
+  __printf_line "                       item injected as --dir item  (before subcommand)"
+  __printf_line "    gitadmin pull      → gitadmin --dir item pull"
+  __printf_line "    gen-readme update  → gen-readme --dir item update"
+  __printf_line " - "
+  __printf_line "  cp / mv / rsync / ln / install"
+  __printf_line "                       item appended as destination (last arg)"
+  __printf_line "    cp -Rfv ./AI.md    → cp -Rfv ./AI.md item"
+  __printf_line "    rsync -avhP ./src/ → rsync -avhP ./src/ item"
+  __printf_line " - "
+  __printf_line "  anything else        item appended as last arg"
+  __printf_line "    unlink             → unlink item"
+  __printf_line "    chmod 755          → chmod 755 item"
   __printf_line " - "
   __printf_line "Examples:"
-  __printf_line "  # Default pattern: copy source into every subdir that already has dest"
-  __printf_line "  for_each_in \"./*\" -d . --source \"./AI.md\" --dest \"AI.md\" cp -Rfv \"{source}\" \"{dest}\""
+  __printf_line "  # Pull every git repo under current dir"
+  __printf_line "  for_each_in \"*\" -d .git gitadmin pull"
   __printf_line " - "
-  __printf_line "  # Rsync a directory's contents into each matching subdir"
-  __printf_line "  for_each_in \"./*\" -d . --source \"./tmpl\" --dest \"conf\" rsync -avhP \"{source/.}\" \"{dest}/\""
+  __printf_line "  # Commit all repos"
+  __printf_line "  for_each_in \"*\" -d .git gitcommit all"
   __printf_line " - "
-  __printf_line "  # Copy dir contents without a fixed dest"
-  __printf_line "  for_each_in \"./*\" -d . cp -Rfv \"{item/.}\" /backup/"
+  __printf_line "  # Regenerate readme in every project that has one"
+  __printf_line "  for_each_in \"*\" -f README.md gen-readme update"
+  __printf_line " - "
+  __printf_line "  # Copy AI.md into every project dir under parent"
+  __printf_line "  for_each_in \"../*\" -d . cp -Rfv ./AI.md"
+  __printf_line " - "
+  __printf_line "  # Rsync a template into every matching subdir"
+  __printf_line "  for_each_in \"../*\" -d . rsync -avhP ./tmpl/"
+  __printf_line " - "
+  __printf_line "  # Remove all symlinks under a two-level glob"
+  __printf_line "  for_each_in \"./*/*\" -L . unlink"
+  __printf_line " - "
+  __printf_line "  # Run make in each dir that has a Makefile, stop on first error"
+  __printf_line "  for_each_in --stop-on-error \"*\" -f Makefile make build"
   __printf_line " - "
   __printf_line "  # Dry-run with summary"
-  __printf_line "  for_each_in -n --summary \"./*\" -d . --source \"./AI.md\" --dest \"AI.md\" cp -Rfv \"{source}\" \"{dest}\""
+  __printf_line "  for_each_in -n --summary \"*\" -d .git gitadmin pull"
   __printf_line " - "
-  __printf_line "  # Skip symlinks, stop on first error"
-  __printf_line "  for_each_in --stop-on-error \"./*\" --not -L . mv -fv \"{item/.}\" /archive/"
+  __printf_line "  # Multiple conditions (all must pass)"
+  __printf_line "  for_each_in \"*\" -d .git -f Makefile make install"
   __printf_line " - "
-  __printf_line "  # Delete dest then copy source into it (cp variant)"
-  __printf_line "  for_each_in \"./*\" -d . --source \"./AI.md\" --dest \"AI.md\" --delete cp -Rf \"{source}\" \"{dest}\""
-  __printf_line "  # equivalent to: [ -e \"\$dir/AI.md\" ] && rm -Rf \"\$dir/AI.md\"; cp -Rf \"./AI.md\" \"\$dir/AI.md\""
+  __printf_line "  # Skip symlinks"
+  __printf_line "  for_each_in \"../*/src\" --not -L . cp -Rfv ./conf.d"
   __printf_line " - "
-  __printf_line "  # Delete dest then move source into it (mv variant)"
-  __printf_line "  for_each_in \"./*\" -d . --source \"./AI.md\" --dest \"AI.md\" --delete mv -fv \"{source}\" \"{dest}\""
-  __printf_line " - "
-  __printf_line "  # Delete the item dir itself then replace with source"
-  __printf_line "  for_each_in \"./*\" -d . --source \"./tmpl\" --delete cp -Rfv \"{source/.}\" \"{item}/\""
-  __printf_line " - "
-  __printf_line "--dir                           - Sets the working directory"
+  __printf_line "--dir PATTERN                   - Glob pattern (alias for positional arg)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -191,8 +193,6 @@ __help() {
   __printf_line "--options                       - Shows all available options"
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--no-color                      - Disable ANSI color output"
-  __printf_line "--no                            - No options"
-  __printf_line "--yes                           - Yes options"
   __printf_line ""
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
@@ -200,66 +200,69 @@ __help() {
 __trap_exit_for_each_in() {
   FOR_EACH_IN_EXIT_STATUS=${FOR_EACH_IN_EXIT_STATUS:-0}
   [ -f "$FOR_EACH_IN_TEMP_FILE" ] && rm -Rf "$FOR_EACH_IN_TEMP_FILE" &>/dev/null
-  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  if builtin type -t __trap_exit_local | grep -q -- 'function'; then __trap_exit_local; fi
   return $FOR_EACH_IN_EXIT_STATUS
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
 trap '__trap_exit_for_each_in' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Create a --no-* options function
-__options_function_no() {
-  local options="${1//=*/}"
-  local argument="${1//*=/}"
-  case "$options" in
-  *) echo "${argument:-No argument provided}" && shift ;;
+# Command registry — determines how the loop item is injected into the command
+#
+#   dash-C   : git / tig / make    → cmd -C {item} [subcmd] [args]
+#   dir-flag : known bin/ scripts  → cmd --dir {item} [subcmd] [args]
+#   destdir  : cp / mv / rsync / ln / install → cmd [args] {item}
+#   append   : everything else     → cmd [args] {item}
+#
+__injection_mode() {
+  local _bin="${1##*/}"
+  case "$_bin" in
+  git|tig|make)
+    echo "dash-C"
+    ;;
+  gitadmin|gitcommit|gitignore|\
+  gen-changelog|gen-gitattr|gen-readme|gen-license|gen-header|gen-script|\
+  gen-dockerfile|gen-dockermgr|gen-caddy|gen-nginx|gen-apache|gen-traefik|\
+  gen-ssl|gen-vars|gen-links|gen-passwd|gen-dns|gen-network|gen-mydomain|\
+  gen-completion|gen-html|gen-playlist|\
+  publishit|backupapp|run_server|setupmgr|pkmgr|dockermgr|composemgr|\
+  tryforever|run_command|timeit|logr|virtmgr|lxcmgr|virt-check|\
+  update-lecerts|update-ip|update-motd|update-resolv|reqpkgs)
+    echo "dir-flag"
+    ;;
+  cp|mv|rsync|ln|install)
+    echo "destdir"
+    ;;
+  *)
+    echo "append"
+    ;;
   esac
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Create a --yes-* options function
-__options_function_yes() {
-  local options="${1//=*/}"
-  local argument="${1//*=/}"
-  case "$options" in
-  *) echo "${argument:-No argument provided}" && shift ;;
-  esac
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# User defined functions
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __for_each_in_main() {
-  local pattern="${1:-}"
-  shift || true
+  # Pattern: from --dir flag or first positional arg
+  local _pattern="${FOR_EACH_IN_PATTERN:-}"
+  if [ -z "$_pattern" ]; then
+    _pattern="${1:-}"
+    shift || true
+  fi
+  if [ -z "$_pattern" ]; then
+    __printf_red "Usage: $APPNAME [options] PATTERN [--not] [-FLAG PATH]... COMMAND [ARGS...]"
+    return 2
+  fi
 
-  # Collect standard bash test flag + relative-path pairs.
-  # Each condition is stored as three elements: negate(""|"!"), flag, path.
-  # An empty or "." path tests the loop item itself; otherwise "$item/$path".
-  # All conditions are ANDed — every one must pass for the item to be processed.
+  # Parse conditions: triples of (negate, flag, path)
+  # PATH is always required — use . to test the item itself
   local -a _conds=()
-  local _negate="" _source="" _dest=""
-  local _dry_run="${FOR_EACH_IN_DRY_RUN:-no}"
-  local _verbose="${FOR_EACH_IN_VERBOSE:-no}"
-  local _stop_on_error="${FOR_EACH_IN_STOP_ON_ERROR:-no}"
-  local _summary="${FOR_EACH_IN_SUMMARY:-no}"
-  local _delete="${FOR_EACH_IN_DELETE:-no}"
-
+  local _negate=""
   while true; do
     case "${1:-}" in
-    --not)           _negate="!";          shift 1 ;;
-    --source)        _source="${2:-}";     shift 2 ;;
-    --delete)        _delete="yes";        shift 1 ;;
-    --dest)
-      # --dest PATH: set {dest} placeholder AND implicitly gate on [ -e item/PATH ]
-      _dest="${2:-}"
-      _conds+=("" "-e" "$_dest")
-      shift 2
+    --not)
+      _negate="!"
+      shift 1
       ;;
-    --dry-run|-n)    _dry_run="yes";       shift 1 ;;
-    --verbose|-v)    _verbose="yes";       shift 1 ;;
-    --stop-on-error) _stop_on_error="yes"; shift 1 ;;
-    --summary)       _summary="yes";       shift 1 ;;
     -b|-c|-d|-e|-f|-g|-G|-h|-k|-L|-N|-O|-p|-r|-s|-S|-u|-w|-x)
-      _conds+=("$_negate" "$1" "${2:-}")
+      _conds+=("$_negate" "$1" "${2:-.}")
       _negate=""
       shift 2
       ;;
@@ -267,58 +270,34 @@ __for_each_in_main() {
     esac
   done
 
-  # Remaining args are the command + its arguments
-  local -a cmd=("$@")
-
-  # Validate pattern first
-  if [ -z "$pattern" ]; then
-    __printf_red "Usage: $APPNAME \"PATTERN\" [CONDITIONS] [OPTIONS] COMMAND [ARGS...]"
-    return 2
-  fi
-
-  if [ ${#cmd[@]} -eq 0 ]; then
+  # Remaining args are the command and its arguments
+  local -a _cmd=("$@")
+  if [ ${#_cmd[@]} -eq 0 ]; then
     __printf_red "No command specified"
     return 2
   fi
 
-  # Validate {source} / {source/.} — must be declared if used, and must exist before loop starts
-  local _cmd_str="${cmd[*]}"
-  if [[ "$_cmd_str" == *"{source"* ]]; then
-    if [ -z "$_source" ]; then
-      __printf_red "{source} used in command but --source was not specified"
-      return 2
-    fi
-    if [ ! -e "$_source" ]; then
-      __printf_red "Source does not exist: $_source"
-      return 2
-    fi
-  fi
+  local _mode
+  _mode="$(__injection_mode "${_cmd[0]}")"
 
-  # Validate {dest} / {dest/.} — must be declared via --dest if used
-  if [[ "$_cmd_str" == *"{dest"* ]] && [ -z "$_dest" ]; then
-    __printf_red "{dest} used in command but --dest was not specified"
-    return 2
-  fi
-
-  # Expand the glob inside the script (nullglob so unmatched patterns yield nothing)
+  # Glob expansion — nullglob so unmatched patterns yield nothing
   local _nullglob_was_set=0
   shopt -q nullglob && _nullglob_was_set=1
   shopt -s nullglob
-  local -a _items=($pattern)
+  local -a _items=($_pattern)
   (( _nullglob_was_set )) || shopt -u nullglob
 
   if [ ${#_items[@]} -eq 0 ]; then
-    __printf_yellow "No matches for pattern: $pattern"
+    __printf_yellow "No matches for pattern: $_pattern"
     return 0
   fi
 
-  local _item _arg _neg _flag _rel _tp _i _skip _ret=0
-  local _base _name _ext _parent
+  local _item _neg _flag _rel _tp _i _skip _ret=0
   local _count_processed=0 _count_skipped=0 _count_failed=0
   local -a _run_cmd
 
   for _item in "${_items[@]}"; do
-    # Evaluate every condition; skip item on first failure
+    # Evaluate all conditions — every one must pass (AND)
     _skip=0
     for (( _i=0; _i<${#_conds[@]}; _i+=3 )); do
       _neg="${_conds[$_i]}"
@@ -340,78 +319,27 @@ __for_each_in_main() {
       continue
     fi
 
-    # --delete: remove the target before the main command runs.
-    # Target is {dest} (item/dest) when --dest is set, otherwise {item} itself.
-    if [ "$_delete" = "yes" ]; then
-      local _del_target
-      if [ -n "$_dest" ]; then
-        _del_target="$_item/$_dest"
-      else
-        _del_target="$_item"
-      fi
-      if [ -e "$_del_target" ]; then
-        if [ "$_verbose" = "yes" ] || [ "$_dry_run" = "yes" ]; then
-          __printf_cyan "$(printf '%q ' rm -Rf "$_del_target")"
-        fi
-        if [ "$_dry_run" != "yes" ]; then
-          rm -Rf "$_del_target" || {
-            _ret=$?
-            (( _count_failed++ )) || true
-            __printf_red "Failed to delete: $_del_target (exit $_ret)"
-            [ "$_stop_on_error" = "yes" ] && break
-            continue
-          }
-        fi
-      fi
-    fi
+    # Build the command with item injected per registry mode
+    case "$_mode" in
+    dash-C)
+      # git -C item subcmd [args]
+      _run_cmd=("${_cmd[0]}" "-C" "$_item" "${_cmd[@]:1}")
+      ;;
+    dir-flag)
+      # cmd --dir item subcmd [args]
+      _run_cmd=("${_cmd[0]}" "--dir" "$_item" "${_cmd[@]:1}")
+      ;;
+    destdir|append|*)
+      # cmd [args] item
+      _run_cmd=("${_cmd[@]}" "$_item")
+      ;;
+    esac
 
-    # Compute derived placeholders
-    _base="$(basename -- "$_item")"
-    _parent="$(dirname -- "$_item")"
-    _ext="${_base##*.}"
-    [ "$_ext" = "$_base" ] && _ext="" || _ext=".$_ext"
-    _name="${_base%.*}"
-
-    # Build the command with placeholder substitution (substring replacement).
-    # {item} {dir} ""   →  current loop item (full path)
-    # {item/.} {dir/.}  →  item/. — directory contents form for cp/mv/rsync
-    # {base}            →  basename of item
-    # {name}            →  basename without extension
-    # {ext}             →  file extension including dot (e.g. .md)
-    # {parent}          →  parent directory of item
-    # {source}          →  value of --source (validated above)
-    # {source/.}        →  source/. — directory contents form
-    # {dest}            →  value of --dest (relative path within item)
-    # {dest/.}          →  dest/. — directory contents form
-    _run_cmd=()
-    for _arg in "${cmd[@]}"; do
-      if [ -z "$_arg" ]; then
-        _run_cmd+=("$_item")
-        continue
-      fi
-      # /. variants must be substituted before their base forms
-      _arg="${_arg//\{item\/.\}/$_item/.}"
-      _arg="${_arg//\{dir\/.\}/$_item/.}"
-      _arg="${_arg//\{source\/.\}/$_source/.}"
-      _arg="${_arg//\{dest\/.\}/$_item/$_dest/.}"
-      _arg="${_arg//\{item\}/$_item}"
-      _arg="${_arg//\{dir\}/$_item}"
-      _arg="${_arg//\{base\}/$_base}"
-      _arg="${_arg//\{name\}/$_name}"
-      _arg="${_arg//\{ext\}/$_ext}"
-      _arg="${_arg//\{parent\}/$_parent}"
-      _arg="${_arg//\{source\}/$_source}"
-      _arg="${_arg//\{dest\}/$_item/$_dest}"
-      _run_cmd+=("$_arg")
-    done
-
-    # Show command when verbose or dry-run
-    if [ "$_verbose" = "yes" ] || [ "$_dry_run" = "yes" ]; then
+    if [ "$FOR_EACH_IN_VERBOSE" = "yes" ] || [ "$FOR_EACH_IN_DRY_RUN" = "yes" ]; then
       __printf_cyan "$(printf '%q ' "${_run_cmd[@]}")"
     fi
 
-    # Dry-run: count as processed but do not execute
-    if [ "$_dry_run" = "yes" ]; then
+    if [ "$FOR_EACH_IN_DRY_RUN" = "yes" ]; then
       (( _count_processed++ )) || true
       continue
     fi
@@ -422,23 +350,21 @@ __for_each_in_main() {
       _ret=$?
       (( _count_failed++ )) || true
       __printf_red "Failed (exit $_ret): $(printf '%q ' "${_run_cmd[@]}")"
-      [ "$_stop_on_error" = "yes" ] && break
+      [ "$FOR_EACH_IN_STOP_ON_ERROR" = "yes" ] && break
     fi
   done
 
-  # Summary line
-  if [ "$_summary" = "yes" ] || [ "$_verbose" = "yes" ]; then
+  if [ "$FOR_EACH_IN_SUMMARY" = "yes" ] || [ "$FOR_EACH_IN_VERBOSE" = "yes" ]; then
     __printf_blue "Done — processed: $_count_processed  skipped: $_count_skipped  failed: $_count_failed"
   fi
 
   return $_ret
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default exit code
 FOR_EACH_IN_EXIT_STATUS=0
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Application Folders
+# Application folders
 FOR_EACH_IN_CONFIG_DIR="${FOR_EACH_IN_CONFIG_DIR:-$HOME/.config/myscripts/for_each_in}"
 FOR_EACH_IN_CONFIG_BACKUP_DIR="${FOR_EACH_IN_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/for_each_in/backups}"
 FOR_EACH_IN_TEMP_DIR="${FOR_EACH_IN_TEMP_DIR:-$HOME/.local/tmp/system_scripts/for_each_in}"
@@ -446,23 +372,25 @@ FOR_EACH_IN_TEMP_DIR="${FOR_EACH_IN_TEMP_DIR:-$HOME/.local/tmp/system_scripts/fo
 # File settings
 FOR_EACH_IN_CONFIG_FILE="${FOR_EACH_IN_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Loop Behaviour Settings
+# Loop behaviour defaults (overridable by config or env)
 FOR_EACH_IN_DRY_RUN="${FOR_EACH_IN_DRY_RUN:-no}"
 FOR_EACH_IN_VERBOSE="${FOR_EACH_IN_VERBOSE:-no}"
 FOR_EACH_IN_STOP_ON_ERROR="${FOR_EACH_IN_STOP_ON_ERROR:-no}"
 FOR_EACH_IN_SUMMARY="${FOR_EACH_IN_SUMMARY:-no}"
-FOR_EACH_IN_DELETE="${FOR_EACH_IN_DELETE:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate config files
+# Pattern set via --dir flag (empty = use positional arg)
+FOR_EACH_IN_PATTERN="${FOR_EACH_IN_PATTERN:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config file on first run
 [ -f "$FOR_EACH_IN_CONFIG_DIR/$FOR_EACH_IN_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$FOR_EACH_IN_CONFIG_DIR/$FOR_EACH_IN_CONFIG_FILE" ] && . "$FOR_EACH_IN_CONFIG_DIR/$FOR_EACH_IN_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
+# Ensure temp directory exists
 [ -d "$FOR_EACH_IN_TEMP_DIR" ] || mkdir -p "$FOR_EACH_IN_TEMP_DIR" |& __devnull
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-FOR_EACH_IN_TEMP_FILE="${FOR_EACH_IN_TEMP_FILE:-$(mktemp $FOR_EACH_IN_TEMP_DIR/XXXXXX 2>/dev/null)}"
+FOR_EACH_IN_TEMP_FILE="${FOR_EACH_IN_TEMP_FILE:-$(mktemp "$FOR_EACH_IN_TEMP_DIR/XXXXXX" 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
 SETARGS=("$@")
@@ -546,9 +474,7 @@ while :; do
     FOR_EACH_IN_SILENT="true"
     ;;
   --dir)
-    CWD_IS_SET="TRUE"
-    FOR_EACH_IN_CWD="$2"
-    [ -d "$FOR_EACH_IN_CWD" ] || mkdir -p "$FOR_EACH_IN_CWD" |& __devnull
+    FOR_EACH_IN_PATTERN="$2"
     shift 2
     ;;
   --dry-run|-n)
@@ -567,23 +493,12 @@ while :; do
     shift 1
     FOR_EACH_IN_SUMMARY="yes"
     ;;
-  --no-*)
-    __options_function_no "$@"
-    shift 1
-    ;;
-  --yes-*)
-    __options_function_yes "$@"
-    shift 1
-    ;;
   --)
     shift 1
     break
     ;;
   esac
 done
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-FOR_EACH_IN_CWD="$(realpath "${FOR_EACH_IN_CWD:-$PWD}" 2>/dev/null)"
-export FOR_EACH_IN_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 __for_each_in_main "$@"

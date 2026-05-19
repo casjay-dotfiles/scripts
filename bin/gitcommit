@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605171300-git
+##@Version           :  202605191300-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605171300-git"
+VERSION="202605191300-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -2157,6 +2157,24 @@ __git_custom_push() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# When no remote is configured, infer the GitHub URL from the directory
+# structure (parent dir = org/user, basename = repo), create the remote
+# repo via gitadmin if it doesn't exist, and wire up origin.
+__gitcommit_setup_remote() {
+  local git_dir="${1:-$GITCOMMIT_ROOT_DIR}"
+  local inferred_user="${GIT_USERNAME:-$(basename -- "$(dirname "$git_dir")")}"
+  local inferred_repo="${git_dir##*/}"
+  local inferred_url
+  [ -n "$inferred_user" ] && [ -n "$inferred_repo" ] || return 1
+  inferred_url="https://github.com/$inferred_user/$inferred_repo.git"
+  printf_cyan "🔗 No remote found — setting up GitHub repo $inferred_user/$inferred_repo..."
+  __github_create_repo "$inferred_user/$inferred_repo" || return 1
+  if ! git -C "$git_dir" remote get-url origin &>/dev/null; then
+    git -C "$git_dir" remote add origin "$inferred_url" &>/dev/null || return 1
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_push() {
   local GITCOMMIT_EXITCODE=0 git_dir="" git_repo="" git_remote=""
   local git_failed="" git_succes="" git_push="" git_repo_clean=""
@@ -2166,6 +2184,11 @@ __git_push() {
   git_icon_failed="😿 "
   git_remote="$(__git_remote_push 2>/dev/null || echo "")"
   if __git_push_check; then
+    if [ -z "$git_remote" ]; then
+      if __gitcommit_setup_remote "$git_dir"; then
+        git_remote="$(__git_remote_push 2>/dev/null || echo "")"
+      fi
+    fi
     if [ -z "$git_remote" ]; then
       printf_yellow "⚠️ No remote configured - skipping push ⚠️"
       return 0
@@ -2322,6 +2345,11 @@ __git_auto_push() {
 
   remote_origin="$(__git_remote_push 2>/dev/null)"
 
+  if [ -z "$remote_origin" ]; then
+    if __gitcommit_setup_remote "$git_dir"; then
+      remote_origin="$(__git_remote_push 2>/dev/null)"
+    fi
+  fi
   if [ -z "$remote_origin" ]; then
     printf_yellow "⚠️  No remote configured for $(basename "$git_dir") - skipping push"
     return 0
@@ -2715,6 +2743,11 @@ __commit_custom() {
     __update_version
     if [ ! -f "$GITCOMMIT_ROOT_DIR/.no_push" ] && __git_check_push; then
       git_repo="$(__git_remote_fetch "$GITCOMMIT_ROOT_DIR" 2>/dev/null || echo "")"
+      if [ -z "$git_repo" ]; then
+        if __gitcommit_setup_remote "$GITCOMMIT_ROOT_DIR"; then
+          git_repo="$(__git_remote_fetch "$GITCOMMIT_ROOT_DIR" 2>/dev/null || echo "")"
+        fi
+      fi
       if [ -z "$git_repo" ]; then
         printf_yellow "⚠️ No remote configured - skipping push ⚠️"
       else
@@ -3871,6 +3904,14 @@ export GITCOMMIT_CWD
 GITCOMMIT_RAN=""
 GITCOMMIT_CWD="${GITCOMMIT_CWD:-$PWD}"
 GITCOMMIT_ROOT_DIR="$(__git_root "$GITCOMMIT_CWD" || echo "$GITCOMMIT_CWD")"
+# Auto-init git repo if the directory exists but has no .git
+if [ -d "$GITCOMMIT_ROOT_DIR" ] && ! git -C "$GITCOMMIT_ROOT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+  printf_cyan "🌱 $GITCOMMIT_ROOT_DIR is not a git repo — initializing..."
+  git -C "$GITCOMMIT_ROOT_DIR" init &>/dev/null || printf_exit "Failed to initialize git repo in $GITCOMMIT_ROOT_DIR"
+  __gitignore_init "$GITCOMMIT_ROOT_DIR" &>/dev/null
+  gen-gitattr --dir "$GITCOMMIT_ROOT_DIR" save &>/dev/null
+  GITCOMMIT_ROOT_DIR="$(__git_root "$GITCOMMIT_CWD")"
+fi
 # Check for git lock file before proceeding
 __git_check_lock "$GITCOMMIT_ROOT_DIR" || exit 5
 REMOTE_REPO="$(__git_remote_fetch "$GITCOMMIT_ROOT_DIR" 2>/dev/null || echo "localdir")"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602020740-git
+##@Version           :  202605191200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Oct 03, 2022 17:20 EDT
 # @@File             :  devenvmgr
 # @@Description      :  Setup a development environment with modern frameworks and Docker support
-# @@Changelog        :  Enhanced spec command with template support from specmgr GitHub organization
+# @@Changelog        :  Non-interactive when --dir is set; skip all prompts, derive project dir/name from --dir
 # @@TODO             :  Create user config
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202602020740-git"
+VERSION="202605191200-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -490,7 +490,8 @@ __fnm_setup() {
 # Initialize node env
 __execute_npm() {
   local exitCode=0
-  local DEVENV_PROJECT_BASE="${DEVENV_PROJECT_NAME:-$(basename $(realpath "$DEVENV_PROJECT_DIR"))}"
+  local _abs_npm="$(realpath "$DEVENV_PROJECT_DIR")"
+  local DEVENV_PROJECT_BASE="${DEVENV_PROJECT_NAME:-${_abs_npm##*/}}"
   if __cmd_exists npm; then
     __execute_npm_modules && exitCode=0 || exitCode=1
     if [ $exitCode = 0 ]; then
@@ -530,8 +531,10 @@ __execute_npm_modules() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Start a static server
 __run_static_site() {
-  printf_blue "Enter location for your new or existing site"
-  printf_read_input "3" "enter . for current:" "200" "DEVENV_PROJECT_DIR" "-i ${DEVENV_PROJECT_DIR:-$DEVENVMGR_BASEDIR/$DEVENVMG_PROGRAM_NAME}"
+  if [ "$CWD_IS_SET" != "TRUE" ] && [ -z "$DEVENV_PROJECT_DIR" ]; then
+    printf_blue "Enter location for your new or existing site"
+    printf_read_input "3" "enter . for current:" "200" "DEVENV_PROJECT_DIR" "-i ${DEVENV_PROJECT_DIR:-$DEVENVMGR_BASEDIR/$DEVENVMG_PROGRAM_NAME}"
+  fi
   __run_new_site
   if cd "$DEVENV_PROJECT_DIR"; then
     if __cmd_exists run_server && __cmd_exists caddy; then
@@ -549,7 +552,9 @@ __run_static_site() {
 __run_import_site() {
   local import=""
   printf_read_input "3" "Enter the url to your git repo:" "200" "import"
-  printf_read_input "3" "Enter location for your new site: " "200" "DEVENV_PROJECT_DIR" "-i ${DEVENV_PROJECT_DIR:-$DEVENVMGR_BASEDIR/$DEVENVMG_PROGRAM_NAME}"
+  if [ "$CWD_IS_SET" != "TRUE" ] && [ -z "$DEVENV_PROJECT_DIR" ]; then
+    printf_read_input "3" "Enter location for your new site: " "200" "DEVENV_PROJECT_DIR" "-i ${DEVENV_PROJECT_DIR:-$DEVENVMGR_BASEDIR/$DEVENVMG_PROGRAM_NAME}"
+  fi
   [ -n "$DEVENV_PROJECT_DIR" ] || [ -n "$import" ] || printf_exit "Something went wrong"
   [ -d "$DEVENV_PROJECT_DIR" ] || __mkd "$DEVENV_PROJECT_DIR"
   if git clone "$import" "$DEVENV_PROJECT_DIR" -q &>/dev/null; then
@@ -564,14 +569,21 @@ __run_import_site() {
 # Set site directory
 __set_sitedir() {
   if [ -z "$DEVENV_PROJECT_DIR" ]; then
-    printf_green "Enter the full path for your new project!"
-    printf_read_input "3" "enter . for current:" "300" "NEW_DEVENV_PROJECT_DIR" "-r"
+    if [ "$CWD_IS_SET" = "TRUE" ]; then
+      DEVENV_PROJECT_DIR="$(realpath "$DEVENVMGR_CWD")"
+    else
+      printf_green "Enter the full path for your new project!"
+      printf_read_input "3" "enter . for current:" "300" "NEW_DEVENV_PROJECT_DIR" "-r"
+    fi
   fi
   [ -n "$NEW_DEVENV_PROJECT_DIR" ] && DEVENV_PROJECT_DIR="$(realpath "$NEW_DEVENV_PROJECT_DIR")" || DEVENV_PROJECT_DIR="$(realpath "${DEVENV_PROJECT_DIR:-$PWD}")"
-  DEVENV_PROJECT_BASE="$(basename $(realpath "$DEVENV_PROJECT_DIR"))"
-  printf_green "Enter a project name!"
-  printf_read_input "3" "enter . to use folder:" "300" "DEVENV_PROJECT_NAME" "-r -i ."
-  [ -n "$DEVENV_PROJECT_NAME" ] && [ "$DEVENV_PROJECT_NAME" != "." ] && DEVENV_PROJECT_NAME="$(basename -- "$DEVENV_PROJECT_NAME")" || DEVENV_PROJECT_NAME="$DEVENV_PROJECT_BASE"
+  local _abs_dir="$DEVENV_PROJECT_DIR"
+  DEVENV_PROJECT_BASE="${_abs_dir##*/}"
+  if [ "$CWD_IS_SET" != "TRUE" ] && [ -z "$DEVENV_PROJECT_NAME" ]; then
+    printf_green "Enter a project name!"
+    printf_read_input "3" "enter . to use folder:" "300" "DEVENV_PROJECT_NAME" "-r -i ."
+  fi
+  [ -n "$DEVENV_PROJECT_NAME" ] && [ "$DEVENV_PROJECT_NAME" != "." ] && DEVENV_PROJECT_NAME="${DEVENV_PROJECT_NAME##*/}" || DEVENV_PROJECT_NAME="$DEVENV_PROJECT_BASE"
   export DEVENV_PROJECT_DIR DEVENV_PROJECT_NAME DEVENV_PROJECT_BASE
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -580,7 +592,8 @@ __run_new_site() {
   __set_sitedir || return 1
   [ -d "$DEVENV_PROJECT_DIR" ] || __mkd "$DEVENV_PROJECT_DIR"
   cd "$DEVENV_PROJECT_DIR" || printf_exit 1 1 "$DEVENV_PROJECT_DIR doesn't exist"
-  local DEVENV_PROJECT_BASE="${DEVENV_PROJECT_NAME:-$(basename $(realpath "$DEVENV_PROJECT_DIR"))}"
+  local _abs_new="$(realpath "$DEVENV_PROJECT_DIR")"
+  local DEVENV_PROJECT_BASE="${DEVENV_PROJECT_NAME:-${_abs_new##*/}}"
   export DEVENV_PROJECT_DIR DEVENV_PROJECT_NAME
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1223,7 +1236,8 @@ __setup_git() {
   author="$(__git_globaluser)"
   email="$(__git_globalemail)"
   reponame="${DEVENVMGR_DEFAULT_GITHUB_ORG:-$(__git_globaluser | sed 's| |_|g')}"
-  DEVENV_PROJECT_BASE="${DEVENV_PROJECT_NAME:-$(basename $(realpath "$DEVENV_PROJECT_DIR"))}"
+  local _abs_spec="$(realpath "$DEVENV_PROJECT_DIR")"
+  DEVENV_PROJECT_BASE="${DEVENV_PROJECT_NAME:-${_abs_spec##*/}}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_git() {

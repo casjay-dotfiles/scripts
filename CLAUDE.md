@@ -51,6 +51,20 @@ grep -- '^'                   # never: grep '^'
 `printf_column` must be defined in **both** branches of the colorization block.
 Only inline functions the script actually calls (audit by grep, not the `@@sudo/root` header).
 
+### External → internal function migration
+
+The project is moving away from the sourced external functions file. When editing any script:
+
+- **Replace `cmd_exists`** with the inline `__cmd_exists` + `printf_exit`:
+  ```bash
+  # before
+  cmd_exists --error tmux || exit 3
+  # after
+  __cmd_exists tmux || printf_exit "tmux is not installed" 3
+  ```
+- Apply this to every `cmd_exists` call in the file being edited — do not leave mixed usage.
+- Other external-only helpers (`requiresudo`, `am_i_online`, etc.) get the same treatment as encountered: find or add the inline equivalent, remove the external call.
+
 ### No UUOC
 
 ```bash

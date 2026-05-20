@@ -455,7 +455,7 @@ HOST_NETWORK_ADDR="all"
 # Set docker Security options [unconfined]
 HOST_DOCKER_SECOPT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to the protocol the the container will use - [http/https/git/ftp/postgres/mysql/mongodb]
+# Set this to the protocol the container will use - [http/https/git/ftp/postgres/mysql/mongodb]
 CONTAINER_PROTOCOL="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set containers dns [127.0.0.1,1.1.1.1,8.8.8.8]

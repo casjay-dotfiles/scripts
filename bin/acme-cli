@@ -564,16 +564,24 @@ __certbot_ip_find_webroot() {
   return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Write a deploy hook that reloads services after IP cert renewal
+# Write a deploy hook that reloads/restarts services after IP cert renewal
 __certbot_ip_write_hooks() {
   local hook_dir="${ACME_CLI_IP_HOOK_DIR:-/etc/letsencrypt/renewal-hooks/deploy}"
   local deploy_hook="$hook_dir/acme-cli-ip-reload.sh"
   \mkdir -p "$hook_dir"
+  # Hook runs as a standalone script — ACME_CLI_* vars are not available.
+  # HTTP servers support graceful reload; mail/other daemons need full restart
+  # to pick up new TLS material.
   cat >"$deploy_hook" <<'HOOK'
 #!/bin/bash
-# Deploy hook: reload services after IP address certificate renewal
-for svc in ${ACME_CLI_SERVICE_RESTART:-nginx httpd apache2}; do
+# Deploy hook: reload/restart services after IP address certificate renewal
+# HTTP servers: graceful reload (no dropped connections)
+for svc in nginx httpd apache2; do
   systemctl is-active --quiet "$svc" 2>/dev/null && systemctl reload "$svc" 2>/dev/null || true
+done
+# Mail/other daemons: full restart required to re-read TLS cert
+for svc in postfix dovecot proftpd cockpit; do
+  systemctl is-active --quiet "$svc" 2>/dev/null && systemctl restart "$svc" 2>/dev/null || true
 done
 HOOK
   \chmod 755 "$deploy_hook"

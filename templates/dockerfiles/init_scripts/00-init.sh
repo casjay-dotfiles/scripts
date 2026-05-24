@@ -37,7 +37,7 @@ if [ -d "/usr/local/share/template-files/defaults" ]; then rm -Rf "/usr/local/sh
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the exit code
-#exitCode=\$?
+exitCode=\$?
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 exit \$exitCode
 # - - - - - - - - - - - - - - - - - - - - - - - - -

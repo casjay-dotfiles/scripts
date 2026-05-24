@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605151200-git
+##@Version           :  202605240855-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605151200-git"
+VERSION="202605240855-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -580,6 +580,17 @@ __trap_exit() {
 __jq() { jq "$@" 2>/dev/null | grep -v '^$' | grep '^' || return 1; }
 __test_if_number() { test -n "$1" && test -z "${1//[0-9]/}" || return 1; }
 __test_if_url() { grep -E $1 'http://|https://|git://|ssh://' || return 1; }
+# Check whether a GitHub user or org exists; returns 1 with an error message if not found.
+__github_entity_exists() {
+  local name="${1:-}"
+  local response
+  response="$(__curl_gh_api "https://api.github.com/users/$name" 2>/dev/null)"
+  if printf '%s' "$response" | \grep -q -- '"message"'; then
+    printf_red "⛔ '$name' was not found — user or org does not exist on GitHub ⛔"
+    return 1
+  fi
+  return 0
+}
 __if_is_url() { echo "$1" | grep -Eq 'http://|https://|git://|ssh://' || return 1; }
 __file_exists_and_not_empty() { [ -f "$1" ] && [ -s "$1" ] && return 0 || return 2; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3646,10 +3657,11 @@ __api_user() {
 # Set Message for token - org
 __api_org_token() {
   local user="${1:-}" org=""
+  __github_entity_exists "$user" || return 1
   export GITHUBAPIPAGES="$(__github_api_org_page_count "$user")"
   export GITADMIN_GITHUB_API_REPO="https://api.github.com/orgs/$user/repos?per_page=100&sort=full_name&type=owner"
   export MESSAGE="Getting the repos for org: $user"
-  org="$(__curl_gh_api "$GITADMIN_GITHUB_API_REPO" | __jq -r '.[]|.name' | grep -v '^$' | grep '^' || __api_user "$user" | __jq -r '.[]|.name' | grep -v '^$' | grep '^')"
+  org="$(__curl_gh_api "$GITADMIN_GITHUB_API_REPO" | __jq -r '.[]|.name // empty' | grep -v '^$' | grep '^' || __api_user "$user" | __jq -r '.[]|.name // empty' | grep -v '^$' | grep '^')"
   repo_count="$(printf '%s' "$org" | grep -v '^$' | wc -l | grep '^')"
   if [ -n "$org" ]; then
     [ "$repo_count" != 0 ] && printf '%s\n' "$org" | sort -u >"$GITADMIN_TEMP_FILE" || return 1
@@ -6982,8 +6994,8 @@ __git_release_version() {
   git -C "$GITADMIN_CWD" push origin "$version" >/dev/null 2>&1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__github_api_org_page_count() { curl -q -LSsfI "https://api.github.com/orgs/$1/repos" | grep 'link:' | sed 's|.*, ||g;s|>;.*||g' | awk -F'=' '{print $2}'; }
-__github_api_user_page_count() { curl -q -LSsfI "https://api.github.com/users/$1/repos" | grep 'link:' | sed 's|.*, ||g;s|>;.*||g' | awk -F'=' '{print $2}'; }
+__github_api_org_page_count() { curl -q -LSsI "https://api.github.com/orgs/$1/repos" 2>/dev/null | \grep -- 'link:' | \sed 's|.*, ||g;s|>;.*||g' | \awk -F'=' '{print $2}'; }
+__github_api_user_page_count() { curl -q -LSsI "https://api.github.com/users/$1/repos" 2>/dev/null | \grep -- 'link:' | \sed 's|.*, ||g;s|>;.*||g' | \awk -F'=' '{print $2}'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 GITADMIN_REPO_URL="${GITADMIN_REPO_URL:-}"
@@ -8510,7 +8522,7 @@ org)
       __api_org_token "$username" || continue
       __curl_gh_api $GITADMIN_GITHUB_API_REPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
       repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
-      [ -n "$repo_count" ] || { printf_yellow "No repos found for $username"; continue; }
+      [ "${repo_count:-0}" -gt 0 ] || { printf_yellow "No repos found for $username"; continue; }
       printf_green "$MESSAGE"
       printf_blue "There's currently $repo_count repos available"
       printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
@@ -8545,7 +8557,7 @@ org)
       __api_user_token "$username"
       __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
       repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
-      [ -n "$repo_count" ] || { printf_yellow "No repos found for $username"; continue; }
+      [ "${repo_count:-0}" -gt 0 ] || { printf_yellow "No repos found for $username"; continue; }
       printf_green "$MESSAGE"
       printf_blue "There's currently $repo_count repos available"
       __main "$username"
@@ -8583,7 +8595,7 @@ org)
       __api_org_token "$username" || continue
       __curl_gh_api $GITADMIN_GITHUB_API_REPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
       repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
-      [ -n "$repo_count" ] || { printf_yellow "No repos found for $username"; continue; }
+      [ "${repo_count:-0}" -gt 0 ] || { printf_yellow "No repos found for $username"; continue; }
       printf_green "$MESSAGE"
       printf_blue "There's currently $repo_count repos available"
       __main "$GITADMIN_DEFAULT_REPO_BASE"

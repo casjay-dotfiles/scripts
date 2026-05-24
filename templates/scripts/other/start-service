@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605052024-git
+##@Version           :  202605241142-git
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
 # @@Contact          :  GEN_SCRIPT_REPLACE_EMAIL
 # @@License          :  GEN_SCRIPT_REPLACE_LICENSE
@@ -24,7 +24,8 @@ set -e
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # run trap command on exit
 trap '__trap_err_handler' ERR
-trap 'retVal=$?;if [ "$SERVICE_IS_RUNNING" != "yes" ] && [ -f "$SERVICE_PID_FILE" ]; then rm -Rf "$SERVICE_PID_FILE"; fi;exit $retVal' SIGINT SIGTERM SIGPWR
+trap 'retVal=$?;if [ "$SERVICE_IS_RUNNING" != "yes" ] && [ -f "$SERVICE_PID_FILE" ]; then rm -Rf "$SERVICE_PID_FILE"; fi;exit $retVal' SIGINT SIGTERM
+trap 'retVal=$?;if [ "$SERVICE_IS_RUNNING" != "yes" ] && [ -f "$SERVICE_PID_FILE" ]; then rm -Rf "$SERVICE_PID_FILE"; fi;exit $retVal' SIGPWR 2>/dev/null || true
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ERR trap handler - smart about critical vs non-critical errors
 __trap_err_handler() {
@@ -76,7 +77,8 @@ fi
 [ -f "/config/.debug" ] && [ -z "$DEBUGGER_OPTIONS" ] && export DEBUGGER_OPTIONS="$(<"/config/.debug")" || DEBUGGER_OPTIONS="${DEBUGGER_OPTIONS:-}"
 if [ "$DEBUGGER" = "on" ] || [ -f "/config/.debug" ]; then
   echo "Enabling debugging"
-  set -xo pipefail -x$DEBUGGER_OPTIONS
+  set -o pipefail
+  [ -n "$DEBUGGER_OPTIONS" ] && set -"$DEBUGGER_OPTIONS"
   export DEBUGGER="on"
 else
   set -o pipefail
@@ -198,10 +200,6 @@ POST_EXECUTE_WAIT_TIME="1"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Update path var
 PATH="$PATH:."
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Lets get containers ip address
-IP4_ADDRESS="$(__get_ip4)"
-IP6_ADDRESS="$(__get_ip6)"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Where to save passwords to
 # directory to save username/password for root user
@@ -394,12 +392,8 @@ __post_execute() {
     # show exit message
     __banner "$postMessageEnd: Status $retVal"
   ) 2>"/dev/stderr" | tee -p -a "/data/logs/init.txt" &
-  pid=$!
-  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    retVal=0
-  else
-    retVal=10
-  fi
+  # fire-and-forget: backgrounded subshell always succeeds at launch
+  retVal=0
   # allow custom functions
   if builtin type -t __post_execute_local | grep -q 'function'; then
     __post_execute_local
@@ -555,67 +549,83 @@ __run_start_script() {
       fi
       __log_info "$message" | tee -a -p "/data/logs/init.txt"
       su_cmd touch "$SERVICE_PID_FILE"
+      # W14: invalidate cached START_SCRIPT if key variables changed
+      local _script_hash_src="$cmd $args $SERVICE_USER $RESET_ENV $su_exec"
+      local _script_hash
+      _script_hash=$(printf '%s' "$_script_hash_src" | md5sum 2>/dev/null | cut -c1-8 || true)
+      if [ -f "${START_SCRIPT}.hash" ] && [ -f "$START_SCRIPT" ]; then
+        if [ "$(cat "${START_SCRIPT}.hash" 2>/dev/null)" != "$_script_hash" ]; then
+          rm -f "$START_SCRIPT" "${START_SCRIPT}.hash"
+        fi
+      fi
       if [ "$RESET_ENV" = "yes" ]; then
-        env_command="$(echo "env -i HOME=\"$home\" LC_CTYPE=\"$lc_type\" PATH=\"$path\" HOSTNAME=\"$sysname\" USER=\"${SERVICE_USER:-$RUNAS_USER}\" $extra_env")"
-        execute_command="$(__trim "$su_exec $env_command $cmd_exec")"
+        # RESET_ENV=yes intentionally strips all inherited vars; only explicit vars are passed
         if [ ! -f "$START_SCRIPT" ]; then
-          cat <<EOF >"$START_SCRIPT"
-#!/usr/bin/env bash
-trap 'exitCode=\$?;[ \$exitCode -ne 0 ] && [ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit \$exitCode' EXIT
-#
-set -Eeo pipefail
-# Setting up $cmd to run as ${SERVICE_USER:-root} with env
-retVal=10
-cmd="$cmd"
-args="$args"
-SERVICE_NAME="$SERVICE_NAME"
-SERVICE_PID_FILE="$SERVICE_PID_FILE"
-LOG_DIR="$LOG_DIR"
-execute_command="$execute_command"
-\$execute_command 2>"/dev/stderr" >>"\$LOG_DIR/\$SERVICE_NAME.log" &
-execPid=\$!
-sleep 1
-if [ -n "\$execPid" ] && kill -0 "\$execPid" 2>/dev/null; then
-  echo "\$execPid" >"\$SERVICE_PID_FILE"
-  retVal=0
-  printf '%s\n' "\$SERVICE_NAME: \$execPid" >"/run/healthcheck/\$SERVICE_NAME"
-else
-  retVal=10
-  echo "Failed to start $execute_command" >&2
-fi
-exit \$retVal
-
-EOF
+          # Use printf %q to safely quote each env component for embedding in the script
+          local _q_home _q_lc _q_path _q_sysname _q_svcuser _q_su _q_cmd _q_args _q_extra
+          _q_home=$(printf '%q' "$home")
+          _q_lc=$(printf '%q' "$lc_type")
+          _q_path=$(printf '%q' "$path")
+          _q_sysname=$(printf '%q' "$sysname")
+          _q_svcuser=$(printf '%q' "${SERVICE_USER:-$RUNAS_USER}")
+          _q_su=$(printf '%q ' $su_exec)
+          _q_cmd=$(printf '%q' "$cmd")
+          _q_args=$(printf '%q ' $args)
+          _q_extra=$(printf '%q ' $extra_env)
+          {
+            printf '#!/usr/bin/env bash\n'
+            printf "trap 'exitCode=\$?;[ \$exitCode -ne 0 ] && [ -f \"\$SERVICE_PID_FILE\" ] && rm -Rf \"\$SERVICE_PID_FILE\";exit \$exitCode' EXIT\n"
+            printf 'set -Eeo pipefail\n'
+            printf '# Setting up %s to run as %s with env\n' "$cmd" "${SERVICE_USER:-root}"
+            printf 'retVal=10\n'
+            printf 'SERVICE_NAME=%q\n' "$SERVICE_NAME"
+            printf 'SERVICE_PID_FILE=%q\n' "$SERVICE_PID_FILE"
+            printf 'LOG_DIR=%q\n' "$LOG_DIR"
+            printf '%s env -i HOME=%s LC_CTYPE=%s PATH=%s HOSTNAME=%s USER=%s %s %s %s 2>>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &\n' \
+              "$_q_su" "$_q_home" "$_q_lc" "$_q_path" "$_q_sysname" "$_q_svcuser" "$_q_extra" "$_q_cmd" "$_q_args"
+            printf 'execPid=$!\n'
+            printf 'sleep 1\n'
+            printf 'if [ -n "$execPid" ] && kill -0 "$execPid" 2>/dev/null; then\n'
+            printf '  echo "$execPid" >"$SERVICE_PID_FILE"\n'
+            printf '  retVal=0\n'
+            printf '  printf '"'"'%%s\n'"'"' "$SERVICE_NAME: $execPid" >"/run/healthcheck/$SERVICE_NAME"\n'
+            printf 'else\n'
+            printf '  retVal=10\n'
+            printf '  echo "Failed to start service %s" >&2\n' "$cmd"
+            printf 'fi\n'
+            printf 'exit $retVal\n'
+          } >"$START_SCRIPT"
+          printf '%s' "$_script_hash" >"${START_SCRIPT}.hash"
         fi
       else
         if [ ! -f "$START_SCRIPT" ]; then
-          execute_command="$(__trim "$su_exec $cmd_exec")"
-          cat <<EOF >"$START_SCRIPT"
-#!/usr/bin/env bash
-trap 'exitCode=\$?;[ \$exitCode -ne 0 ] && [ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit \$exitCode' EXIT
-#
-set -Eeo pipefail
-# Setting up $cmd to run as ${SERVICE_USER:-root}
-retVal=10
-cmd="$cmd"
-args="$args"
-SERVICE_NAME="$SERVICE_NAME"
-SERVICE_PID_FILE="$SERVICE_PID_FILE"
-LOG_DIR="$LOG_DIR"
-execute_command="$execute_command"
-\$execute_command 2>>"/dev/stderr" >>"\$LOG_DIR/\$SERVICE_NAME.log" &
-execPid=\$!
-sleep 1
-if [ -n "\$execPid" ] && kill -0 "\$execPid" 2>/dev/null; then
-  echo "\$execPid" >"\$SERVICE_PID_FILE"
-  retVal=0
-else
-  retVal=10
-  echo "Failed to start $execute_command" >&2
-fi
-exit \$retVal
-
-EOF
+          local _q_su _q_cmd _q_args
+          _q_su=$(printf '%q ' $su_exec)
+          _q_cmd=$(printf '%q' "$cmd")
+          _q_args=$(printf '%q ' $args)
+          {
+            printf '#!/usr/bin/env bash\n'
+            printf "trap 'exitCode=\$?;[ \$exitCode -ne 0 ] && [ -f \"\$SERVICE_PID_FILE\" ] && rm -Rf \"\$SERVICE_PID_FILE\";exit \$exitCode' EXIT\n"
+            printf 'set -Eeo pipefail\n'
+            printf '# Setting up %s to run as %s\n' "$cmd" "${SERVICE_USER:-root}"
+            printf 'retVal=10\n'
+            printf 'SERVICE_NAME=%q\n' "$SERVICE_NAME"
+            printf 'SERVICE_PID_FILE=%q\n' "$SERVICE_PID_FILE"
+            printf 'LOG_DIR=%q\n' "$LOG_DIR"
+            printf '%s %s %s 2>>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &\n' \
+              "$_q_su" "$_q_cmd" "$_q_args"
+            printf 'execPid=$!\n'
+            printf 'sleep 1\n'
+            printf 'if [ -n "$execPid" ] && kill -0 "$execPid" 2>/dev/null; then\n'
+            printf '  echo "$execPid" >"$SERVICE_PID_FILE"\n'
+            printf '  retVal=0\n'
+            printf 'else\n'
+            printf '  retVal=10\n'
+            printf '  echo "Failed to start service %s" >&2\n' "$cmd"
+            printf 'fi\n'
+            printf 'exit $retVal\n'
+          } >"$START_SCRIPT"
+          printf '%s' "$_script_hash" >"${START_SCRIPT}.hash"
         fi
       fi
     fi
@@ -623,7 +633,8 @@ EOF
       chmod 755 -Rf "$START_SCRIPT"
     fi
     if [ "$CONTAINER_INIT" != "yes" ]; then
-      eval sh -c "$START_SCRIPT"
+      # W15: launch as bash, not sh, since the generated script uses bash-specific features
+      bash "$START_SCRIPT"
       runExitCode=$?
     fi
   fi
@@ -637,7 +648,7 @@ __run_secure_function() {
     for filesperms in "${USER_FILE_PREFIX}"/*; do
       if [ -e "$filesperms" ]; then
         chmod -Rf 600 "$filesperms"
-        chown -Rf $SERVICE_USER:$SERVICE_USER "$filesperms" 2>/dev/null
+        [ -n "$SERVICE_USER" ] && chown -Rf "$SERVICE_USER:$SERVICE_USER" "$filesperms" 2>/dev/null
       fi
     done 2>/dev/null | tee -p -a "/data/logs/init.txt"
   fi
@@ -645,7 +656,7 @@ __run_secure_function() {
     for filesperms in "${ROOT_FILE_PREFIX}"/*; do
       if [ -e "$filesperms" ]; then
         chmod -Rf 600 "$filesperms"
-        chown -Rf $SERVICE_USER:$SERVICE_USER "$filesperms" 2>/dev/null
+        [ -n "$SERVICE_USER" ] && chown -Rf "$SERVICE_USER:$SERVICE_USER" "$filesperms" 2>/dev/null
       fi
     done 2>/dev/null | tee -p -a "/data/logs/init.txt"
   fi
@@ -665,17 +676,16 @@ SERVICE_EXIT_CODE=0
 # application specific
 EXEC_CMD_NAME="${EXEC_CMD_BIN##*/}"
 SERVICE_PID_FILE="/run/init.d/$EXEC_CMD_NAME.pid"
-SERVICE_PID_NUMBER="$(__pgrep "$EXEC_CMD_NAME" 2>/dev/null || echo '')"
 _resolved="$(type -P "$EXEC_CMD_BIN" 2>/dev/null)"
 [ -n "$_resolved" ] && EXEC_CMD_BIN="$_resolved"
 _resolved="$(type -P "$EXEC_PRE_SCRIPT" 2>/dev/null)"
 [ -n "$_resolved" ] && EXEC_PRE_SCRIPT="$_resolved"
 unset _resolved
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Only run check
-if __check_service "$1"; then
+# Only run check when explicitly requested
+if [ "$1" = "check" ] && __check_service "$1"; then
   SERVICE_IS_RUNNING=yes
-else
+elif [ "$1" = "check" ]; then
   SERVICE_IS_RUNNING="no"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -839,14 +849,6 @@ if [ -n "$root_user_pass" ]; then
   echo "$root_user_pass" >"${ROOT_FILE_PREFIX}/${SERVICE_NAME}_pass"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# create needed dirs
-if [ ! -d "$LOG_DIR" ]; then
-  mkdir -p "$LOG_DIR"
-fi
-if [ ! -d "$RUN_DIR" ]; then
-  mkdir -p "$RUN_DIR"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Allow per init script usernames and passwords
 if __file_exists_with_content "${USER_FILE_PREFIX}/${SERVICE_NAME}_name"; then
   user_name="$(<"${USER_FILE_PREFIX}/${SERVICE_NAME}_name")"
@@ -932,7 +934,7 @@ __fix_permissions "$SERVICE_USER" "$SERVICE_GROUP"
 __run_pre_execute_checks 2>/dev/stderr | tee -a -p "/data/logs/entrypoint.log" "/data/logs/init.txt" || return 20
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_start_script 2>>/dev/stderr | tee -p -a "/data/logs/entrypoint.log"
-errorCode=$?
+errorCode=${PIPESTATUS[0]}
 if [ -n "$EXEC_CMD_BIN" ]; then
   if [ "$errorCode" -eq 0 ]; then
     SERVICE_EXIT_CODE=0
@@ -944,7 +946,6 @@ if [ -n "$EXEC_CMD_BIN" ]; then
       rm -Rf "$SERVICE_PID_FILE"
     fi
   fi
-  SERVICE_EXIT_CODE=0
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # start the post execute function in background

@@ -261,7 +261,7 @@ __disable_service_if_port() {
     service="$(__get_service_port "$port")"
     if [ -n "$service" ]; then
       service="$(printf '%s\n' "$service" | awk -F ',' '{print $1}')"
-      __sudo systemctl disable --now "$service" >/dev/null 2>&1 && exitCode=$((exitCode++))
+      __sudo systemctl disable --now "$service" >/dev/null 2>&1 && exitCode=$(( exitCode + 1 ))
     fi
   done
   return $exitCode

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605241142-git
+##@Version           :  202605241245-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -356,92 +356,6 @@ __update_ssl_certs() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__certbot() {
-  [ -n "$(type -P 'certbot')" ] || return 1
-  local options="$1"
-  local statusCode=0
-  local domain_list=""
-  local certbot_key_opts=""
-  local ADD_CERTBOT_DOMAINS=""
-  local CERTBOT_DOMAINS="${CERTBOT_DOMAINS:-$HOSTNAME}"
-  local CERT_BOT_MAIL="${CERT_BOT_MAIL:-ssl-admin@$CERTBOT_DOMAINS}"
-  local certbot_key_opts=""
-  mkdir -p "/config/letsencrypt"
-  __symlink "/etc/letsencrypt" "/config/letsencrypt"
-  is_renewal="$(find /etc/letsencrypt/renewal -type f 2>/dev/null || false)"
-  [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
-  [ -f "/config/certbot/env.sh" ] && . "/config/certbot/env.sh"
-  if [ -n "$SSL_KEY" ]; then
-    mkdir -p "$(dirname "$SSL_KEY")" 2>/dev/null || true
-  else
-    echo "The variable SSL_KEY is not set" >&2
-    return 1
-  fi
-  if [ -n "$SSL_CERT" ]; then
-    mkdir -p "$(dirname "$SSL_CERT")" 2>/dev/null || true
-  else
-    echo "The variable SSL_CERT is not set" >&2
-    return 1
-  fi
-  domain_list="$CERTBOT_DOMAINS www.$CERTBOT_DOMAINS mail.$CERTBOT_DOMAINS"
-  domain_list="$(echo "$domain_list" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-  if [ "$CERT_BOT_ENABLED" != "true" ]; then
-    export CERT_BOT_ENABLED=""
-    return 10
-  fi
-  if [ -z "$CERT_BOT_MAIL" ]; then
-    echo "The variable CERT_BOT_MAIL is not set" >&2
-    return 1
-  fi
-  if [ -z "$CERTBOT_DOMAINS" ]; then
-    echo "The variable CERTBOT_DOMAINS is not set" >&2
-    return 1
-  fi
-  for domain in $CERTBOT_DOMAINS; do
-    [ -n "$domain" ] && ADD_CERTBOT_DOMAINS+="-d $domain "
-  done
-  local expand_opt=""
-  if [ -n "$is_renewal" ]; then
-    options="renew"
-    ADD_CERTBOT_DOMAINS=""
-  else
-    options="certonly"
-    expand_opt="--expand"
-  fi
-  certbot_key_opts="$ADD_CERTBOT_DOMAINS"
-  if [ -f "/config/certbot/setup.sh" ]; then
-    \bash "/config/certbot/setup.sh"
-    statusCode=$?
-  elif [ -f "/etc/named/certbot.sh" ]; then
-    \bash "/etc/named/certbot.sh"
-    statusCode=$?
-  elif [ -f "/config/certbot/dns.conf" ]; then
-    if certbot $options -n --dry-run --agree-tos $expand_opt --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/dns.conf $certbot_key_opts; then
-      certbot $options -n --agree-tos $expand_opt --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/dns.conf $certbot_key_opts
-    fi
-    statusCode=$?
-  elif [ -f "/config/certbot/certbot.conf" ]; then
-    if certbot $options -n --dry-run --agree-tos $expand_opt --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/certbot.conf $certbot_key_opts; then
-      certbot $options -n --agree-tos $expand_opt --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/certbot.conf $certbot_key_opts
-    fi
-    statusCode=$?
-  elif [ -f "/config/named/certbot-update.conf" ]; then
-    if certbot $options -n --dry-run --agree-tos $expand_opt --dns-rfc2136 --dns-rfc2136-credentials /config/named/certbot-update.conf $certbot_key_opts; then
-      certbot $options -n --agree-tos $expand_opt --dns-rfc2136 --dns-rfc2136-credentials /config/named/certbot-update.conf $certbot_key_opts
-    fi
-    statusCode=$?
-  else
-    if [ -n "$ADD_CERTBOT_DOMAINS" ]; then
-      certbot $options --agree-tos -m $CERT_BOT_MAIL --webroot "${WWW_ROOT_DIR:-/usr/local/share/httpd/default}" $certbot_key_opts
-      statusCode=$?
-    else
-      statusCode=1
-    fi
-  fi
-  [ $statusCode -eq 0 ] && __update_ssl_certs
-  return $statusCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 __display_user_info() {
   if [ -n "$user_name" ] || [ -n "$user_pass" ] || [ -n "$root_user_name" ] || [ -n "$root_user_pass" ]; then
     __banner "User info"
@@ -483,29 +397,26 @@ __init_config_etc() {
 }
 __create_ssl_cert() {
   local SSL_DIR="${SSL_DIR:-/etc/ssl}"
-  if ! __certbot certonly; then
-    [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
-    if [ -z "$SSL_DIR" ]; then
-      echo "SSL_DIR is unset"
-      return 1
-    fi
-    [ -d "$SSL_DIR" ] || mkdir -p "$SSL_DIR"
-    if [ -n "$FORCE_SSL" ] || [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
-      echo "Setting Country to $COUNTRY and Setting State/Province to $STATE and Setting City to $CITY"
-      echo "Setting OU to $UNIT and Setting ORG to $ORG and Setting server to $CN"
-      echo "All variables can be overwritten by creating a /config/.ssl.env and setting the variables there"
-      echo "Creating ssl key and certificate in $SSL_DIR and will be valid for $((VALID_FOR / 365)) year[s]"
-      #
-      openssl req \
-        -new \
-        -newkey rsa:$RSA \
-        -days $VALID_FOR \
-        -nodes \
-        -x509 \
-        -subj "/C=${COUNTRY// /\\ }/ST=${STATE// /\\ }/L=${CITY// /\\ }/O=${ORG// /\\ }/OU=${UNIT// /\\ }/CN=${CN// /\\ }" \
-        -keyout "$SSL_KEY" \
-        -out "$SSL_CERT"
-    fi
+  [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
+  if [ -z "$SSL_DIR" ]; then
+    echo "SSL_DIR is unset" >&2
+    return 1
+  fi
+  [ -d "$SSL_DIR" ] || mkdir -p "$SSL_DIR"
+  if [ -n "$FORCE_SSL" ] || [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
+    echo "Setting Country to $COUNTRY and Setting State/Province to $STATE and Setting City to $CITY"
+    echo "Setting OU to $UNIT and Setting ORG to $ORG and Setting server to $CN"
+    echo "All variables can be overwritten by creating a /config/.ssl.env and setting the variables there"
+    echo "Creating ssl key and certificate in $SSL_DIR and will be valid for $((VALID_FOR / 365)) year[s]"
+    openssl req \
+      -new \
+      -newkey rsa:$RSA \
+      -days $VALID_FOR \
+      -nodes \
+      -x509 \
+      -subj "/C=${COUNTRY// /\\ }/ST=${STATE// /\\ }/L=${CITY// /\\ }/O=${ORG// /\\ }/OU=${UNIT// /\\ }/CN=${CN// /\\ }" \
+      -keyout "$SSL_KEY" \
+      -out "$SSL_CERT"
   fi
   if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
     __update_ssl_certs
@@ -577,7 +488,6 @@ __init_couchdb() {
 # Show available init functions
 __init_help() {
   echo '
-__certbot
 __update_ssl_certs
 __create_ssl_cert
 '
@@ -1533,27 +1443,16 @@ __is_htdocs_mounted() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_ssl_certs() {
-  [ "$SSL_ENABLED" = "yes" ] && __certbot
-  if [ -d "/config/letsencrypt" ]; then
-    mkdir -p "/etc/letsencrypt"
-    __file_copy "/config/letsencrypt" "/etc/letsencrypt/"
-  elif [ -d "/etc/letsencrypt" ] && [ ! -d "/config/letsencrypt" ]; then
-    mkdir -p "/config/letsencrypt"
-    __file_copy "/etc/letsencrypt" "/config/letsencrypt/"
-  else
-    [ -d "$SSL_DIR" ] || mkdir -p "$SSL_DIR"
-    if [ "$SSL_ENABLED" = "true" ] || [ "$SSL_ENABLED" = "yes" ]; then
-      if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
-        SSL_ENABLED="true"
-        if [ -n "$SSL_CA" ] && [ -f "$SSL_CA" ]; then
-          mkdir -p "$SSL_DIR/certs"
-          cat "$SSL_CA" >>"/etc/ssl/certs/ca-certificates.crt"
-          cp -Rf "/." "$SSL_DIR/"
-        fi
-      else
-        [ -d "$SSL_DIR" ] || mkdir -p "$SSL_DIR"
-        __create_ssl_cert
+  [ -d "$SSL_DIR" ] || mkdir -p "$SSL_DIR"
+  if [ "$SSL_ENABLED" = "yes" ]; then
+    if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
+      if [ -n "$SSL_CA" ] && [ -f "$SSL_CA" ]; then
+        mkdir -p "$SSL_DIR/certs"
+        cat "$SSL_CA" >>"/etc/ssl/certs/ca-certificates.crt"
       fi
+      __update_ssl_certs
+    else
+      __create_ssl_cert
     fi
   fi
   type update-ca-certificates &>/dev/null && update-ca-certificates &>/dev/null
@@ -1743,6 +1642,6 @@ export ENTRYPOINT_DATA_INIT_FILE DATA_DIR_INITIALIZED ENTRYPOINT_CONFIG_INIT_FIL
 export ENTRYPOINT_PID_FILE ENTRYPOINT_INIT_FILE ENTRYPOINT_FIRST_RUN
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # export the functions
-export -f __get_pid __start_init_scripts __is_running __certbot __update_ssl_certs __create_ssl_cert
+export -f __get_pid __start_init_scripts __is_running __update_ssl_certs __create_ssl_cert
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # end of functions

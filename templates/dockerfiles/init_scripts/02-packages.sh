@@ -32,6 +32,13 @@ exitCode=0
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main script
+if command -v update-ca-certificates >/dev/null 2>&1; then
+  update-ca-certificates
+elif command -v update-ca-trust >/dev/null 2>&1; then
+  update-ca-trust extract
+elif command -v trust >/dev/null 2>&1; then
+  trust extract-compat
+fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the exit code

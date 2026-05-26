@@ -19,7 +19,7 @@ dockermgr update REPLACE_APPNAME
 ## Install and run container
   
 ```shell
-dockerHome="/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/REPLACE_PROJECT_NAME/latest/volumes"
+dockerHome="/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/latest/volumes"
 mkdir -p "/var/lib/srv/$USER/docker/REPLACE_APPNAME/volumes"
 git clone "https://github.com/dockermgr/REPLACE_APPNAME" "$HOME/.local/share/CasjaysDev/dockermgr/REPLACE_APPNAME"
 cp -Rfva "$HOME/.local/share/CasjaysDev/dockermgr/REPLACE_APPNAME/volumes/." "$dockerHome/"
@@ -47,8 +47,8 @@ services:
       - TZ=America/New_York
       - HOSTNAME=REPLACE_PROJECT_NAME
     volumes:
-      - "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/REPLACE_PROJECT_NAME/latest/volumes/data:/data:z"
-      - "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/REPLACE_PROJECT_NAME/latest/volumes/config:/config:z"
+      - "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/latest/volumes/data:/data:z"
+      - "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/latest/volumes/config:/config:z"
     ports:
       - 80:80
     restart: always
@@ -77,3 +77,4 @@ buildx
   
 🤖 REPLACE_AUTHOR_NAME: [Github](https://github.com/REPLACE_AUTHOR_NAME) 🤖  
 ⛵ REPLACE_REGISTRY_USER: [Github](https://github.com/REPLACE_REGISTRY_USER) [Docker](https://hub.docker.com/u/REPLACE_REGISTRY_USER) ⛵  
+

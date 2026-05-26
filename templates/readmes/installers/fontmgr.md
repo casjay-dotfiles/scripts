@@ -41,3 +41,4 @@ rsync -avhP "$HOME/.local/share/CasjaysDev/fontmgr/REPLACE_APPNAME/fonts/." "$HO
 
 🤖 REPLACE_AUTHOR_NAME: [Github](https://github.com/REPLACE_AUTHOR_NAME) 🤖  
 ⛵ fontmgr: [Github](https://github.com/fontmgr) ⛵  
+

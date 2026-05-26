@@ -39,3 +39,4 @@ rsync -avhP "$HOME/.local/share/CasjaysDev/iconmgr/REPLACE_APPNAME/icons/." "$HO
 
 🤖 REPLACE_AUTHOR_NAME: [Github](https://github.com/REPLACE_AUTHOR_NAME) 🤖  
 ⛵ iconmgr: [Github](https://github.com/iconmgr) ⛵  
+

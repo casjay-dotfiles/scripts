@@ -38,7 +38,6 @@ REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME:latest
 ## via docker-compose  
   
 ```yaml
-version: "2"
 services:
   ProjectName:
     image: REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME

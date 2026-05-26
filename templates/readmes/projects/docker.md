@@ -20,7 +20,7 @@ dockermgr update REPLACE_APPNAME
   
 ```shell
 dockerHome="/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/latest/volumes"
-mkdir -p "/var/lib/srv/$USER/docker/REPLACE_APPNAME/volumes"
+mkdir -p "$dockerHome"
 git clone "https://github.com/dockermgr/REPLACE_APPNAME" "$HOME/.local/share/CasjaysDev/dockermgr/REPLACE_APPNAME"
 cp -Rfva "$HOME/.local/share/CasjaysDev/dockermgr/REPLACE_APPNAME/volumes/." "$dockerHome/"
 docker run -d \
@@ -38,7 +38,6 @@ REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME:latest
 ## via docker-compose  
   
 ```yaml
-version: "2"
 services:
   ProjectName:
     image: REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME

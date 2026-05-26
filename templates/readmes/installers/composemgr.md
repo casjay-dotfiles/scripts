@@ -43,3 +43,4 @@ composemgr --dir "$HOME/.config/myscripts/composemgr/docker/$REPLACE_APPNAME" up
 ```shell
 composemgr --dir "$HOME/.config/myscripts/composemgr/docker/$REPLACE_APPNAME" logs
 ```
+

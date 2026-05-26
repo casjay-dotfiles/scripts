@@ -42,3 +42,4 @@ rsync -avhP "$HOME/.local/share/CasjaysDev/thememgr/REPLACE_APPNAME/theme/." "$H
 
 🤖 REPLACE_AUTHOR_NAME: [Github](https://github.com/REPLACE_AUTHOR_NAME) 🤖  
 ⛵ thememgr: [Github](https://github.com/thememgr) ⛵  
+

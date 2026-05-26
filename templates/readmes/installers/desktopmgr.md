@@ -72,3 +72,4 @@ cp -Rfv "$APPDIR/etc/." "$HOME/.config/REPLACE_APPNAME/"
   <a href="https://wiki.archlinux.org/index.php/REPLACE_APPNAME" target="_blank" rel="noopener noreferrer">REPLACE_APPNAME wiki</a>  |  
   <a href="REPLACE_APPNAME" target="_blank" rel="noopener noreferrer">REPLACE_APPNAME site</a>
 </p>  
+

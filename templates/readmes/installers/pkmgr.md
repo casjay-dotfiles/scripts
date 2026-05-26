@@ -20,3 +20,4 @@ pkmgr curl REPLACE_URL/REPLACE_APPNAME.sh
 
 🤖 REPLACE_AUTHOR_NAME: [Github](https://github.com/REPLACE_AUTHOR_NAME) 🤖  
 ⛵ pkmgr: [Github](https://github.com/pkmgr) ⛵  
+

@@ -40,3 +40,4 @@ git -C "$HOME/.local/share/CasjaysDev/devenvmgr/REPLACE_APPNAME" pull
 
 🤖 AuthorName: [Github](https://github.com/AuthorName) 🤖  
 ⛵ devenvmgr: [Github](https://github.com/devenvmgr) ⛵  
+

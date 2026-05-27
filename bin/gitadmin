@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605270122-git
+##@Version           :  202605271122-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605270122-git"
+VERSION="202605271122-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -3661,7 +3661,7 @@ __api_org_token() {
   export GITHUBAPIPAGES="$(__github_api_org_page_count "$user")"
   export GITADMIN_GITHUB_API_REPO="https://api.github.com/orgs/$user/repos?per_page=100&sort=full_name&type=owner"
   export MESSAGE="Getting the repos for org: $user"
-  org="$(__curl_gh_api "$GITADMIN_GITHUB_API_REPO" | __jq -r '.[]|.name // empty' | grep -v '^$' | grep '^' || __api_user "$user" | __jq -r '.[]|.name // empty' | grep -v '^$' | grep '^')"
+  org="$(__curl_gh_api "$GITADMIN_GITHUB_API_REPO" | __jq -r '.[]|.name // empty' | grep -v '^$' | grep '^')"
   repo_count="$(printf '%s' "$org" | grep -v '^$' | wc -l | grep '^')"
   if [ -n "$org" ]; then
     [ "$repo_count" != 0 ] && printf '%s\n' "$org" | sort -u >"$GITADMIN_TEMP_FILE" || return 1
@@ -3675,10 +3675,9 @@ __api_org_token() {
 # Organization API
 __api_org() {
   local user="${1:-$GITADMIN_DEFAULT_USERNAME}"
+  # __api_org_token writes repo names to $GITADMIN_TEMP_FILE; emit as JSON array of objects
   __api_org_token "$user" || return 1
-  __urlverify "$GITADMIN_GITHUB_API_REPO" || return 1
-  __curl_gh_api "$GITADMIN_GITHUB_API_REPO"
-  return $?
+  jq -Rn '[inputs | {name: .}]' <"$GITADMIN_TEMP_FILE"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Smart API - Try org first, fallback to user
@@ -3699,6 +3698,7 @@ __api_smart_org_or_user() {
     auth_user="$(echo "$api_response" | jq -r '.login' 2>/dev/null)"
   fi
 
+  export GITHUBAPIPAGES="$(__github_api_org_page_count "$name")"
   org_repos="$(__curl_gh_api "https://api.github.com/orgs/$name/repos?per_page=100&sort=full_name&type=owner" | jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
 
   if [ -n "$org_repos" ]; then
@@ -3713,6 +3713,7 @@ __api_smart_org_or_user() {
     else
       user_endpoint="https://api.github.com/users/$name/repos?per_page=100&sort=full_name"
     fi
+    export GITHUBAPIPAGES="$(__github_api_user_page_count "$name")"
     user_repos="$(__curl_gh_api "$user_endpoint" | jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
     if [ -n "$user_repos" ]; then
       printf '%s\n' "$user_repos" >"$GITADMIN_TEMP_FILE"
@@ -3750,6 +3751,7 @@ __api_smart_user_or_org() {
   else
     user_endpoint="https://api.github.com/users/$name/repos?per_page=100&sort=full_name"
   fi
+  export GITHUBAPIPAGES="$(__github_api_user_page_count "$name")"
   user_repos="$(__curl_gh_api "$user_endpoint" | jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
 
   if [ -n "$user_repos" ]; then
@@ -3758,6 +3760,7 @@ __api_smart_user_or_org() {
     return 0
   else
     export MESSAGE="Getting the repos for org: $name$msg_suffix"
+    export GITHUBAPIPAGES="$(__github_api_org_page_count "$name")"
     org_repos="$(__curl_gh_api "https://api.github.com/orgs/$name/repos?per_page=100&sort=full_name&type=owner" | jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
     if [ -n "$org_repos" ]; then
       __api_org_token "$name"
@@ -4400,13 +4403,10 @@ __make_newsite() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Gets the organizations from the user
 __git_retrieve_orgs() {
-  git_user="${1:-$GITADMIN_DEFAULT_USERNAME}"
-  api_url="https://api.github.com"
-  if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
-    git_user="$(__curl_gh_api "$api_url/user/orgs?per_page=1000" | __jq -rc '.[].login' | sort -u | grep '^')"
-  else
-    git_user="$(__curl_gh_api "$api_url/users/$git_user/orgs?per_page=1000" | __jq -rc '.[].login' 2>/dev/null | sort -u | grep '^')"
-  fi
+  local git_user="${1:-$GITADMIN_DEFAULT_USERNAME}"
+  local api_url="https://api.github.com"
+  # Always fetch orgs for the specified user; __curl_gh_api adds auth header automatically
+  git_user="$(__curl_gh_api "$api_url/users/$git_user/orgs?per_page=100" | __jq -rc '.[].login' 2>/dev/null | sort -u | grep '^')"
   export GITADMIN_ALL_REPOS="${git_user}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4457,7 +4457,7 @@ __git_all_orgs_pull() {
   GITADMIN_DEFAULT_USERNAME="$username"
   GITADMIN_DEFAULT_REPO_BASE="$repo_base/$username"
   __api_user_token "$username"
-  __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+  __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | __jq -r '.[].name' >"$GITADMIN_TEMP_FILE"
   repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
   if [ -n "$repo_count" ]; then
     printf_blue "There's currently $repo_count repos available for $username"
@@ -4473,7 +4473,7 @@ __git_all_orgs_pull() {
       GITADMIN_DEFAULT_USERNAME="$org"
       GITADMIN_DEFAULT_REPO_BASE="$repo_base/$org"
       __api_user_token "$org"
-      __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+      __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | __jq -r '.[].name' >"$GITADMIN_TEMP_FILE"
       repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
       if [ -n "$repo_count" ]; then
         printf_blue "There's currently $repo_count repos available for $org"
@@ -6039,6 +6039,12 @@ __clone_orgs() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Captures $? from the preceding command and passes it explicitly to __getexitcode
+__pull_getexitcode() {
+  local _exit=$?
+  __getexitcode "$_exit" "$1" "$2"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # __main cloning function
 __main() {
   local i="" git_user="" git_repo="" git_base="" git_dir="" git_failed="" git_succes="" user_repo=""
@@ -6063,7 +6069,7 @@ __main() {
         cp -Rf "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" "$git_dir/.git/config"
       fi
       __git_pull "$git_dir"
-      __getexitcode "$git_succes" "$git_failed"
+      __pull_getexitcode "$git_succes" "$git_failed"
     else
       git_failed="👿 Failed to clone to $git_dir 👿 "
       git_succes="😼 Successfully cloned to $git_dir 😼 "
@@ -6236,7 +6242,7 @@ __github_org_push_repos() {
   GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
   __api_user_token "$GITADMIN_DEFAULT_USERNAME"
-  __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+  __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | __jq -r '.[].name' >"$GITADMIN_TEMP_FILE"
   repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
   if [ -n "$repo_count" ]; then
     printf_green "$MESSAGE"
@@ -6590,7 +6596,8 @@ __curl_gh_api() {
       page_count=$((page_count - 1))
     done
     exitCode=$((exitCode + exitTemp))
-    [ -f "$tmpFile" ] && cat "$tmpFile" || exitCode=3
+    # Merge all JSON arrays (fetched in reverse/Z-A order) into one valid array
+    [ -f "$tmpFile" ] && jq -s 'add' "$tmpFile" || exitCode=3
   else
     if [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
       curl -q -LSs -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "$@"
@@ -6995,7 +7002,13 @@ __git_release_version() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __github_api_org_page_count() { curl -q -LSsI "https://api.github.com/orgs/$1/repos" 2>/dev/null | \grep -- 'link:' | \sed 's|.*, ||g;s|>;.*||g' | \awk -F'=' '{print $2}'; }
-__github_api_user_page_count() { curl -q -LSsI "https://api.github.com/users/$1/repos" 2>/dev/null | \grep -- 'link:' | \sed 's|.*, ||g;s|>;.*||g' | \awk -F'=' '{print $2}'; }
+__github_api_user_page_count() {
+  if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
+    curl -q -LSsI -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" "https://api.github.com/user/repos?type=owner&per_page=100" 2>/dev/null | \grep -- 'link:' | \sed 's|.*, ||g;s|>;.*||g' | \awk -F'=' '{print $2}'
+  else
+    curl -q -LSsI "https://api.github.com/users/$1/repos" 2>/dev/null | \grep -- 'link:' | \sed 's|.*, ||g;s|>;.*||g' | \awk -F'=' '{print $2}'
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 GITADMIN_REPO_URL="${GITADMIN_REPO_URL:-}"
@@ -8467,10 +8480,10 @@ user)
     ;;
   clone)
     shift 1
-    __github_user_clone_repos "${GITADMIN_DEFAULT_USERNAME:-$1}"
+    __github_user_clone_repos "${1:-$GITADMIN_DEFAULT_USERNAME}"
     ;;
   *)
-    __github_user_clone_repos "${GITADMIN_DEFAULT_USERNAME:-$1}"
+    __github_user_clone_repos "${1:-$GITADMIN_DEFAULT_USERNAME}"
     ;;
   esac
   ;;
@@ -8519,8 +8532,8 @@ org)
       GITADMIN_DEFAULT_USERNAME="$username"
       GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$username"
       __create_dirs
+      # __api_org_token already populates $GITADMIN_TEMP_FILE — no re-fetch needed
       __api_org_token "$username" || continue
-      __curl_gh_api $GITADMIN_GITHUB_API_REPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
       repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
       [ "${repo_count:-0}" -gt 0 ] || { printf_yellow "No repos found for $username"; continue; }
       printf_green "$MESSAGE"
@@ -8555,7 +8568,7 @@ org)
       GITADMIN_DEFAULT_USERNAME="$username"
       GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$username"
       __api_user_token "$username"
-      __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+      __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | __jq -r '.[].name' >"$GITADMIN_TEMP_FILE"
       repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
       [ "${repo_count:-0}" -gt 0 ] || { printf_yellow "No repos found for $username"; continue; }
       printf_green "$MESSAGE"
@@ -8592,8 +8605,8 @@ org)
       __create_dirs
       GITADMIN_DEFAULT_USERNAME="$username"
       GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$username"
+      # __api_org_token already populates $GITADMIN_TEMP_FILE — no re-fetch needed
       __api_org_token "$username" || continue
-      __curl_gh_api $GITADMIN_GITHUB_API_REPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
       repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
       [ "${repo_count:-0}" -gt 0 ] || { printf_yellow "No repos found for $username"; continue; }
       printf_green "$MESSAGE"

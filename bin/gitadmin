@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605271122-git
+##@Version           :  202605271222-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605271122-git"
+VERSION="202605271222-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1798,7 +1798,7 @@ __bitbucket_list_repos() {
       continue
     fi
 
-    local repos="$(echo "$response" | grep -o '"slug":"[^"]*"' | cut -d'"' -f4)"
+    local repos="$(printf '%s' "$response" | __jq -r '.values[].slug' 2>/dev/null)"
 
     if [ -n "$repos" ]; then
       echo "$repos"
@@ -1842,7 +1842,7 @@ __codeberg_list_repos() {
       break
     fi
 
-    local repos="$(echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4)"
+    local repos="$(printf '%s' "$response" | __jq -r '.[].name' 2>/dev/null)"
 
     if [ -n "$repos" ]; then
       echo "$repos"
@@ -1885,7 +1885,7 @@ __forgejo_list_repos() {
       break
     fi
 
-    local repos="$(echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4)"
+    local repos="$(printf '%s' "$response" | __jq -r '.[].name' 2>/dev/null)"
 
     if [ -n "$repos" ]; then
       echo "$repos"
@@ -1928,7 +1928,7 @@ __gitea_list_repos() {
       break
     fi
 
-    local repos="$(echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4)"
+    local repos="$(printf '%s' "$response" | __jq -r '.[].name' 2>/dev/null)"
 
     if [ -n "$repos" ]; then
       echo "$repos"
@@ -1963,19 +1963,29 @@ __gogs_list_repos() {
 
   printf_cyan "📋 Fetching repositories for: $owner"
 
-  local response="$(__curl_gogs_api "${GITADMIN_GOGS_HOST}/api/v1/users/$owner/repos" 2>/dev/null)"
-
-  if [ -z "$response" ] || [ "$response" = "[]" ]; then
-    printf_yellow "No repositories found for $owner"
-    return 1
-  fi
-
-  local repos="$(echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4)"
+  local page=1
   local count=0
 
-  if [ -n "$repos" ]; then
-    echo "$repos"
-    count=$(echo "$repos" | wc -l)
+  while true; do
+    local response="$(__curl_gogs_api "${GITADMIN_GOGS_HOST}/api/v1/users/$owner/repos?page=$page&limit=100" 2>/dev/null)"
+
+    if [ -z "$response" ] || [ "$response" = "[]" ]; then
+      break
+    fi
+
+    local repos="$(printf '%s' "$response" | __jq -r '.[].name' 2>/dev/null)"
+
+    if [ -n "$repos" ]; then
+      echo "$repos"
+      count=$((count + $(printf '%s\n' "$repos" | wc -l)))
+    else
+      break
+    fi
+
+    page=$((page + 1))
+  done
+
+  if [ $count -gt 0 ]; then
     printf_green "Found $count repositories for $owner"
     exitCode=0
   else
@@ -2003,7 +2013,7 @@ __azure_list_repos() {
     return 1
   fi
 
-  local repos="$(echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4)"
+  local repos="$(printf '%s' "$response" | __jq -r '.value[].name' 2>/dev/null)"
   local count=0
 
   if [ -n "$repos" ]; then
@@ -2035,17 +2045,32 @@ __aws_list_repos() {
 
   printf_cyan "📋 Fetching AWS CodeCommit repositories in region: $region"
 
-  local repos="$(AWS_ACCESS_KEY_ID="$GITADMIN_AWS_ACCESS_KEY" \
-    AWS_SECRET_ACCESS_KEY="$GITADMIN_AWS_SECRET_KEY" \
-    AWS_DEFAULT_REGION="$region" \
-    aws codecommit list-repositories --output json 2>/dev/null |
-    grep -o '"repositoryName":"[^"]*"' | cut -d'"' -f4)"
+  local repos="" next_token="" response="" page_repos=""
+  while true; do
+    if [ -n "$next_token" ]; then
+      response="$(AWS_ACCESS_KEY_ID="$GITADMIN_AWS_ACCESS_KEY" \
+        AWS_SECRET_ACCESS_KEY="$GITADMIN_AWS_SECRET_KEY" \
+        AWS_DEFAULT_REGION="$region" \
+        aws codecommit list-repositories --next-token "$next_token" --output json 2>/dev/null)"
+    else
+      response="$(AWS_ACCESS_KEY_ID="$GITADMIN_AWS_ACCESS_KEY" \
+        AWS_SECRET_ACCESS_KEY="$GITADMIN_AWS_SECRET_KEY" \
+        AWS_DEFAULT_REGION="$region" \
+        aws codecommit list-repositories --output json 2>/dev/null)"
+    fi
+    [ -z "$response" ] && break
+    page_repos="$(printf '%s' "$response" | __jq -r '.repositories[].repositoryName' 2>/dev/null)"
+    [ -n "$page_repos" ] && repos="$(printf '%s\n%s' "$repos" "$page_repos")"
+    next_token="$(printf '%s' "$response" | __jq -r '.nextToken // empty' 2>/dev/null)"
+    [ -z "$next_token" ] && break
+  done
+  repos="$(printf '%s\n' "$repos" | grep '^')"
 
   local count=0
 
   if [ -n "$repos" ]; then
     echo "$repos"
-    count=$(echo "$repos" | wc -l)
+    count=$(printf '%s\n' "$repos" | wc -l)
     printf_green "Found $count repositories in region $region"
     exitCode=0
   else
@@ -4459,7 +4484,7 @@ __git_all_orgs_pull() {
   __api_user_token "$username"
   __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | __jq -r '.[].name' >"$GITADMIN_TEMP_FILE"
   repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
-  if [ -n "$repo_count" ]; then
+  if [ "${repo_count:-0}" -gt 0 ]; then
     printf_blue "There's currently $repo_count repos available for $username"
     __main "$username"
   fi
@@ -4475,7 +4500,7 @@ __git_all_orgs_pull() {
       __api_user_token "$org"
       __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | __jq -r '.[].name' >"$GITADMIN_TEMP_FILE"
       repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
-      if [ -n "$repo_count" ]; then
+      if [ "${repo_count:-0}" -gt 0 ]; then
         printf_blue "There's currently $repo_count repos available for $org"
         __main "$org"
       fi
@@ -4488,11 +4513,19 @@ __git_all_orgs_pull() {
 # Retrieve all Bitbucket workspaces
 __bitbucket_retrieve_workspaces() {
   local user="${1:-$GITADMIN_BITBUCKET_USERNAME}"
-  local workspaces=""
+  local workspaces="" page=1 response="" page_ws=""
   if [ -z "$GITADMIN_BITBUCKET_TOKEN" ]; then
     printf_exit "BITBUCKET_TOKEN not set"
   fi
-  workspaces="$(__curl_bitbucket_api "https://api.bitbucket.org/2.0/user/permissions/workspaces?pagelen=100" | __jq -rc '.values[].workspace.slug' 2>/dev/null | sort -u | grep '^')"
+  while true; do
+    response="$(__curl_bitbucket_api "https://api.bitbucket.org/2.0/user/permissions/workspaces?pagelen=100&page=$page" 2>/dev/null)"
+    page_ws="$(printf '%s' "$response" | __jq -rc '.values[].workspace.slug' 2>/dev/null | grep '^')"
+    [ -z "$page_ws" ] && break
+    workspaces="$(printf '%s\n%s' "$workspaces" "$page_ws")"
+    printf '%s' "$response" | __jq -e '.next' >/dev/null 2>&1 || break
+    page=$((page + 1))
+  done
+  workspaces="$(printf '%s\n' "$workspaces" | sort -u | grep '^')"
   export BITBUCKET_ALL_WORKSPACES="${workspaces}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4529,11 +4562,17 @@ __bitbucket_all_workspaces_pull() {
 # Retrieve all Codeberg organizations
 __codeberg_retrieve_orgs() {
   local user="${1:-$GITADMIN_CODEBERG_USERNAME}"
-  local orgs=""
+  local orgs="" page=1 page_orgs=""
   if [ -z "$GITADMIN_CODEBERG_TOKEN" ]; then
     printf_exit "CODEBERG_TOKEN not set"
   fi
-  orgs="$(__curl_codeberg_api "https://codeberg.org/api/v1/user/orgs?limit=100" | __jq -rc '.[].username' 2>/dev/null | sort -u | grep '^')"
+  while true; do
+    page_orgs="$(__curl_codeberg_api "https://codeberg.org/api/v1/user/orgs?limit=100&page=$page" | __jq -rc '.[].username' 2>/dev/null | grep '^')"
+    [ -z "$page_orgs" ] && break
+    orgs="$(printf '%s\n%s' "$orgs" "$page_orgs")"
+    page=$((page + 1))
+  done
+  orgs="$(printf '%s\n' "$orgs" | sort -u | grep '^')"
   export CODEBERG_ALL_ORGS="${orgs}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4571,14 +4610,20 @@ __codeberg_all_orgs_pull() {
 __forgejo_retrieve_orgs() {
   local user="${1:-$GITADMIN_FORGEJO_USERNAME}"
   local host="${GITADMIN_FORGEJO_HOST}"
-  local orgs=""
+  local orgs="" page=1 page_orgs=""
   if [ -z "$GITADMIN_FORGEJO_TOKEN" ]; then
     printf_exit "FORGEJO_TOKEN not set"
   fi
   if [ -z "$host" ]; then
     printf_exit "FORGEJO_HOST not set"
   fi
-  orgs="$(__curl_forgejo_api "$host/api/v1/user/orgs?limit=100" | __jq -rc '.[].username' 2>/dev/null | sort -u | grep '^')"
+  while true; do
+    page_orgs="$(__curl_forgejo_api "$host/api/v1/user/orgs?limit=100&page=$page" | __jq -rc '.[].username' 2>/dev/null | grep '^')"
+    [ -z "$page_orgs" ] && break
+    orgs="$(printf '%s\n%s' "$orgs" "$page_orgs")"
+    page=$((page + 1))
+  done
+  orgs="$(printf '%s\n' "$orgs" | sort -u | grep '^')"
   export FORGEJO_ALL_ORGS="${orgs}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4616,14 +4661,20 @@ __forgejo_all_orgs_pull() {
 __gitea_retrieve_orgs() {
   local user="${1:-$GITADMIN_GITEA_USERNAME}"
   local host="${GITADMIN_GITEA_HOST}"
-  local orgs=""
+  local orgs="" page=1 page_orgs=""
   if [ -z "$GITADMIN_GITEA_TOKEN" ]; then
     printf_exit "GITEA_TOKEN not set"
   fi
   if [ -z "$host" ]; then
     printf_exit "GITEA_HOST not set"
   fi
-  orgs="$(__curl_gitea_api "$host/api/v1/user/orgs?limit=100" | __jq -rc '.[].username' 2>/dev/null | sort -u | grep '^')"
+  while true; do
+    page_orgs="$(__curl_gitea_api "$host/api/v1/user/orgs?limit=100&page=$page" | __jq -rc '.[].username' 2>/dev/null | grep '^')"
+    [ -z "$page_orgs" ] && break
+    orgs="$(printf '%s\n%s' "$orgs" "$page_orgs")"
+    page=$((page + 1))
+  done
+  orgs="$(printf '%s\n' "$orgs" | sort -u | grep '^')"
   export GITEA_ALL_ORGS="${orgs}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4661,14 +4712,20 @@ __gitea_all_orgs_pull() {
 __gogs_retrieve_orgs() {
   local user="${1:-$GITADMIN_GOGS_USERNAME}"
   local host="${GITADMIN_GOGS_HOST}"
-  local orgs=""
+  local orgs="" page=1 page_orgs=""
   if [ -z "$GITADMIN_GOGS_TOKEN" ]; then
     printf_exit "GOGS_TOKEN not set"
   fi
   if [ -z "$host" ]; then
     printf_exit "GOGS_HOST not set"
   fi
-  orgs="$(__curl_gogs_api "$host/api/v1/user/orgs" | __jq -rc '.[].username' 2>/dev/null | sort -u | grep '^')"
+  while true; do
+    page_orgs="$(__curl_gogs_api "$host/api/v1/user/orgs?limit=100&page=$page" | __jq -rc '.[].username' 2>/dev/null | grep '^')"
+    [ -z "$page_orgs" ] && break
+    orgs="$(printf '%s\n%s' "$orgs" "$page_orgs")"
+    page=$((page + 1))
+  done
+  orgs="$(printf '%s\n' "$orgs" | sort -u | grep '^')"
   export GOGS_ALL_ORGS="${orgs}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4705,14 +4762,20 @@ __gogs_all_orgs_pull() {
 # Retrieve all Azure projects
 __azure_retrieve_projects() {
   local org="${1:-$GITADMIN_AZURE_ORGANIZATION}"
-  local projects=""
+  local projects="" skip=0 page_projects=""
   if [ -z "$GITADMIN_AZURE_TOKEN" ]; then
     printf_exit "AZURE_TOKEN not set"
   fi
   if [ -z "$org" ]; then
     printf_exit "AZURE_ORGANIZATION not set"
   fi
-  projects="$(__curl_azure_api "https://dev.azure.com/$org/_apis/projects?api-version=6.0" | __jq -rc '.value[].name' 2>/dev/null | sort -u | grep '^')"
+  while true; do
+    page_projects="$(__curl_azure_api "https://dev.azure.com/$org/_apis/projects?api-version=6.0&\$top=100&\$skip=$skip" | __jq -rc '.value[].name' 2>/dev/null | grep '^')"
+    [ -z "$page_projects" ] && break
+    projects="$(printf '%s\n%s' "$projects" "$page_projects")"
+    skip=$((skip + 100))
+  done
+  projects="$(printf '%s\n' "$projects" | sort -u | grep '^')"
   export AZURE_ALL_PROJECTS="${projects}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -6056,6 +6119,7 @@ __main() {
   printf_yellow "ProjectDir: ${git_base}"
   printf_yellow "BaseRepo URL: $git_repo"
   echo ""
+  [ -f "$GITADMIN_TEMP_FILE" ] && [ -s "$GITADMIN_TEMP_FILE" ] || { printf_red "😿 Repo list is empty — nothing to clone/pull 😿"; return 1; }
   for i in $(<"$GITADMIN_TEMP_FILE"); do
     local_dir_name="${i##*/}"
     user_repo="$git_repo/$local_dir_name"
@@ -6199,9 +6263,9 @@ __github_org_list_repos() {
   local exitCode=0
   GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   GITADMIN_DEFAULT_REPO_BASE="https://github.com/$GITADMIN_DEFAULT_USERNAME"
-  __api_org_token "$GITADMIN_DEFAULT_USERNAME" | sort -u >"$GITADMIN_TEMP_FILE" || echo >>"$GITADMIN_TEMP_FILE"
+  __api_org_token "$GITADMIN_DEFAULT_USERNAME" || { printf_red "😿 No repos found for $GITADMIN_DEFAULT_USERNAME 😿"; return 1; }
   repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
-  if [ -n "$repo_count" ]; then
+  if [ "${repo_count:-0}" -gt 0 ]; then
     printf_green "$MESSAGE"
     printf_blue "There's currently $repo_count repos available"
     printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
@@ -6244,7 +6308,7 @@ __github_org_push_repos() {
   __api_user_token "$GITADMIN_DEFAULT_USERNAME"
   __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | __jq -r '.[].name' >"$GITADMIN_TEMP_FILE"
   repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
-  if [ -n "$repo_count" ]; then
+  if [ "${repo_count:-0}" -gt 0 ]; then
     printf_green "$MESSAGE"
     printf_blue "There's currently $repo_count repos available"
     printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
@@ -8780,9 +8844,14 @@ github)
       if [ "$1" = "all" ]; then
         shift 1
         ORG_REPO_NAME="${1//\/*/}" && shift 1
-        __api_org_token "$ORG_REPO_NAME" | sort -u >"$GITADMIN_TEMP_FILE" || echo >"$GITADMIN_TEMP_FILE"
-        repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
-        if [ -n "$repo_count" ]; then
+        if __api_org_token "$ORG_REPO_NAME"; then
+          repo_count="$(wc -l < "$GITADMIN_TEMP_FILE")"
+        else
+          printf_red "😿 No repos found for $ORG_REPO_NAME 😿"
+          exitCode=1
+          repo_count=0
+        fi
+        if [ "${repo_count:-0}" -gt 0 ]; then
           printf_green "$MESSAGE"
           printf_blue "There's currently $repo_count repos available"
           printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
@@ -8814,7 +8883,7 @@ github)
     build)
       shift 1
       [ $# -ne 0 ] && [ "$1" != "help" ] || printf_exit 1 3 "Usage: build [username/repo]"
-      status="$(curl -q -LSsf -X "POST" -H 'Accept: application/vnd.github+json' -H 'Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'' -H 'X-GitHub-Api-Version: 2022-11-28' 'https://api.github.com/repos/'$1'/pages/builds' | __jq -rc '.url')"
+      status="$(curl -q -LSsf -X "POST" -H 'Accept: application/vnd.github+json' -H 'Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'' -H 'X-GitHub-Api-Version: 2022-11-28' 'https://api.github.com/repos/'$1'/pages/builds' 2>"$GITADMIN_TEMP_FILE" | __jq -rc '.url')"
       [ -n "$status" ] && printf_cyan "Build info: $status" || printf_exit 33 1 "The server returned an error: $(grep 'error' "$GITADMIN_TEMP_FILE" | sed 's|.*error: ||g' | head -n1)"
       exit $?
       ;;

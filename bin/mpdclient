@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605122007-git
+##@Version           :  202605271400-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605122007-git"
+VERSION="202605271400-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -159,6 +159,14 @@ MPDCLIENT_MPD_SERVER_HOST="${MPDCLIENT_MPD_SERVER_HOST:-}"
 MPDCLIENT_MPD_SERVER_PORT="${MPDCLIENT_MPD_SERVER_PORT:-}"
 MPDCLIENT_MENU_TIMEOUT="${MPDCLIENT_MENU_TIMEOUT:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# SSH Tunnel Settings
+MPDCLIENT_SSH_HOST="${MPDCLIENT_SSH_HOST:-}"
+MPDCLIENT_SSH_USER="${MPDCLIENT_SSH_USER:-}"
+MPDCLIENT_SSH_PORT="${MPDCLIENT_SSH_PORT:-22}"
+MPDCLIENT_SSH_KEY="${MPDCLIENT_SSH_KEY:-}"
+MPDCLIENT_SSH_REMOTE_MPD_PORT="${MPDCLIENT_SSH_REMOTE_MPD_PORT:-6600}"
+MPDCLIENT_SSH_LOCAL_PORT="${MPDCLIENT_SSH_LOCAL_PORT:-6600}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 MPDCLIENT_OUTPUT_COLOR_1="${MPDCLIENT_OUTPUT_COLOR_1:-}"
 MPDCLIENT_OUTPUT_COLOR_2="${MPDCLIENT_OUTPUT_COLOR_2:-}"
@@ -197,6 +205,12 @@ __help() {
   __printf_line "*                               - Starts the mpdclient"
   __printf_line "-h                              - Sets the MPD host"
   __printf_line "-p                              - Sets the MPD port"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "SSH Tunnel (menu item t)"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Configure an SSH local-port-forward to reach a remote MPD."
+  __printf_line "If MPDCLIENT_SSH_HOST is set in config the tunnel starts automatically."
+  __printf_line "Tunnel is torn down cleanly on exit."
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -286,6 +300,7 @@ __sudo() {
 __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$MPDCLIENT_TEMP_FILE" ] && rm -Rf "$MPDCLIENT_TEMP_FILE" &>/dev/null
+  [ -n "$MPDCLIENT_SSH_TUNNEL_PID" ] && kill "$MPDCLIENT_SSH_TUNNEL_PID" 2>/dev/null
   #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
@@ -639,6 +654,102 @@ __pid_test() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__ssh_tunnel_status() {
+  if [ -n "$MPDCLIENT_SSH_TUNNEL_PID" ] && kill -0 "$MPDCLIENT_SSH_TUNNEL_PID" 2>/dev/null; then
+    printf '%s' "connected to ${MPDCLIENT_SSH_HOST:-?}"
+  elif [ -n "$MPDCLIENT_SSH_HOST" ]; then
+    printf '%s' "saved: $MPDCLIENT_SSH_HOST (not connected)"
+  else
+    printf '%s' "not configured"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__ssh_tunnel_start() {
+  [ -n "$MPDCLIENT_SSH_HOST" ] || return 1
+  local t_user="${MPDCLIENT_SSH_USER:-$USER}"
+  local t_ssh_port="${MPDCLIENT_SSH_PORT:-22}"
+  local t_key="${MPDCLIENT_SSH_KEY:-}"
+  local t_remote_port="${MPDCLIENT_SSH_REMOTE_MPD_PORT:-6600}"
+  local t_local_port="${MPDCLIENT_SSH_LOCAL_PORT:-6600}"
+  local ssh_cmd="ssh -N -o BatchMode=yes -o ConnectTimeout=5 -o ExitOnForwardFailure=yes"
+  ssh_cmd="$ssh_cmd -L ${t_local_port}:localhost:${t_remote_port} -p $t_ssh_port"
+  [ -n "$t_key" ] && ssh_cmd="$ssh_cmd -i $t_key"
+  ssh_cmd="$ssh_cmd ${t_user}@${MPDCLIENT_SSH_HOST}"
+  $ssh_cmd &>/dev/null &
+  MPDCLIENT_SSH_TUNNEL_PID=$!
+  export MPDCLIENT_SSH_TUNNEL_PID
+  __sleep 2
+  if kill -0 "$MPDCLIENT_SSH_TUNNEL_PID" 2>/dev/null; then
+    MPDSERVER_HOST="localhost"
+    MPDSERVER_PORT="$t_local_port"
+    export MPDSERVER_HOST MPDSERVER_PORT
+    return 0
+  else
+    unset MPDCLIENT_SSH_TUNNEL_PID
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__ssh_tunnel_wizard() {
+  printf '\033[2J\033[H'
+  printf '\n\n\n'
+  printf_cyan "SSH Tunnel Wizard"
+  printf_newline
+  printf_read_input "6" "SSH host [${MPDCLIENT_SSH_HOST:-none}]: " "120" "t_host"
+  t_host="${t_host:-$MPDCLIENT_SSH_HOST}"
+  if [ -z "$t_host" ]; then
+    printf_red "SSH host is required"
+    return 1
+  fi
+  printf_read_input "6" "SSH user [${MPDCLIENT_SSH_USER:-$USER}]: " "120" "t_user"
+  t_user="${t_user:-${MPDCLIENT_SSH_USER:-$USER}}"
+  printf_read_input "6" "SSH port [${MPDCLIENT_SSH_PORT:-22}]: " "120" "t_ssh_port"
+  t_ssh_port="${t_ssh_port:-${MPDCLIENT_SSH_PORT:-22}}"
+  printf_read_input "6" "SSH key path (blank = default): " "120" "t_key"
+  t_key="${t_key:-$MPDCLIENT_SSH_KEY}"
+  printf_read_input "6" "Remote MPD port [${MPDCLIENT_SSH_REMOTE_MPD_PORT:-6600}]: " "120" "t_remote_port"
+  t_remote_port="${t_remote_port:-${MPDCLIENT_SSH_REMOTE_MPD_PORT:-6600}}"
+  printf_read_input "6" "Local bind port [${MPDCLIENT_SSH_LOCAL_PORT:-6600}]: " "120" "t_local_port"
+  t_local_port="${t_local_port:-${MPDCLIENT_SSH_LOCAL_PORT:-6600}}"
+  if [ -n "$MPDCLIENT_SSH_TUNNEL_PID" ] && kill -0 "$MPDCLIENT_SSH_TUNNEL_PID" 2>/dev/null; then
+    printf_yellow "Stopping existing tunnel (PID $MPDCLIENT_SSH_TUNNEL_PID)"
+    kill "$MPDCLIENT_SSH_TUNNEL_PID" 2>/dev/null
+    unset MPDCLIENT_SSH_TUNNEL_PID
+    __sleep 1
+  fi
+  local ssh_cmd="ssh -N -o BatchMode=yes -o ConnectTimeout=5 -o ExitOnForwardFailure=yes"
+  ssh_cmd="$ssh_cmd -L ${t_local_port}:localhost:${t_remote_port} -p $t_ssh_port"
+  [ -n "$t_key" ] && ssh_cmd="$ssh_cmd -i $t_key"
+  ssh_cmd="$ssh_cmd ${t_user}@${t_host}"
+  printf_cyan "Starting: $ssh_cmd"
+  $ssh_cmd &>/dev/null &
+  MPDCLIENT_SSH_TUNNEL_PID=$!
+  export MPDCLIENT_SSH_TUNNEL_PID
+  __sleep 2
+  if kill -0 "$MPDCLIENT_SSH_TUNNEL_PID" 2>/dev/null; then
+    MPDSERVER_HOST="localhost"
+    MPDSERVER_PORT="$t_local_port"
+    export MPDSERVER_HOST MPDSERVER_PORT
+    printf_green "SSH tunnel established to ${t_user}@${t_host}"
+    printf_read_question "6" "Save settings to config? [y/N]: " "1" "t_save"
+    if [ "$t_save" = "y" ]; then
+      MPDCLIENT_SSH_HOST="$t_host"
+      MPDCLIENT_SSH_USER="$t_user"
+      MPDCLIENT_SSH_PORT="$t_ssh_port"
+      MPDCLIENT_SSH_KEY="$t_key"
+      MPDCLIENT_SSH_REMOTE_MPD_PORT="$t_remote_port"
+      MPDCLIENT_SSH_LOCAL_PORT="$t_local_port"
+      export MPDCLIENT_SSH_HOST MPDCLIENT_SSH_USER MPDCLIENT_SSH_PORT MPDCLIENT_SSH_KEY MPDCLIENT_SSH_REMOTE_MPD_PORT MPDCLIENT_SSH_LOCAL_PORT
+      __gen_config
+      printf_green "Settings saved"
+    fi
+  else
+    unset MPDCLIENT_SSH_TUNNEL_PID
+    printf_red "Failed to establish SSH tunnel to ${t_user}@${t_host}"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __notification_service() {
   if __cmd_exists mpd-notify && [ "$(mpd-notify status --ask)" = "running" ]; then
     NOTIFY_CLI="mpd-notify"
@@ -730,6 +841,7 @@ __execute_mpdclient() {
     printf_green "r. play"
     printf_green "s. stop"
     printf_green "u. update database"
+    printf_green "t. SSH tunnel: $(__ssh_tunnel_status)"
     printf_green "x. launch ncmpcpp"
     printf_green "y. send custom command to mpd"
     printf_green "z. quit"
@@ -873,6 +985,10 @@ __execute_mpdclient() {
       __mpc update |& __devnull &
       __notifications "$APPNAME" "Updating MPD library"
       ;;
+    t)
+      shift 1
+      __ssh_tunnel_wizard
+      ;;
     x)
       shift 1
       cmd="ncmpcpp"
@@ -936,6 +1052,15 @@ MPDCLIENT_NOTIFY_CLIENT_URGENCY="${MPDCLIENT_NOTIFY_CLIENT_URGENCY:-normal}"
 MPDCLIENT_MPD_SERVER_HOST="${MPDCLIENT_MPD_SERVER_HOST:-$MPDSERVER_HOST}"
 MPDCLIENT_MPD_SERVER_PORT="${MPDCLIENT_MPD_SERVER_PORT:-$MPDSERVER_PORT}"
 MPDCLIENT_MENU_TIMEOUT="${MPDCLIENT_MENU_TIMEOUT:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# SSH Tunnel Variables
+MPDCLIENT_SSH_HOST="${MPDCLIENT_SSH_HOST:-}"
+MPDCLIENT_SSH_USER="${MPDCLIENT_SSH_USER:-}"
+MPDCLIENT_SSH_PORT="${MPDCLIENT_SSH_PORT:-22}"
+MPDCLIENT_SSH_KEY="${MPDCLIENT_SSH_KEY:-}"
+MPDCLIENT_SSH_REMOTE_MPD_PORT="${MPDCLIENT_SSH_REMOTE_MPD_PORT:-6600}"
+MPDCLIENT_SSH_LOCAL_PORT="${MPDCLIENT_SSH_LOCAL_PORT:-6600}"
+MPDCLIENT_SSH_TUNNEL_PID=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$MPDCLIENT_CONFIG_DIR/$MPDCLIENT_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -1127,6 +1252,16 @@ export MPDCLIENT_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Auto-start SSH tunnel if host is configured in settings
+if [ -n "$MPDCLIENT_SSH_HOST" ]; then
+  printf_cyan "Auto-starting SSH tunnel to $MPDCLIENT_SSH_HOST..."
+  if __ssh_tunnel_start; then
+    printf_green "SSH tunnel active (localhost:$MPDCLIENT_SSH_LOCAL_PORT → ${MPDCLIENT_SSH_HOST}:$MPDCLIENT_SSH_REMOTE_MPD_PORT)"
+  else
+    printf_yellow "SSH tunnel failed — continuing with direct connection settings"
+  fi
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 __initialize_app

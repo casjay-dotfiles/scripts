@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605271540-git
+##@Version           :  202605271620-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605271540-git"
+VERSION="202605271620-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -299,6 +299,7 @@ __sudo() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
   exitCode=${exitCode:-0}
+  __tui_teardown 2>/dev/null
   [ -f "$MPDCLIENT_TEMP_FILE" ] && rm -Rf "$MPDCLIENT_TEMP_FILE" &>/dev/null
   [ -n "$MPDCLIENT_SSH_TUNNEL_PID" ] && kill "$MPDCLIENT_SSH_TUNNEL_PID" 2>/dev/null
   #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
@@ -327,17 +328,16 @@ __connection_menu() {
   printf '\n\n\n'
   printf_red "$ICON_ERROR Cannot reach MPD at ${MPDSERVER_HOST:-localhost}:${MPDSERVER_PORT:-6600}"
   printf_newline
-  printf_green "1. enter host and port manually"
-  printf_green "2. setup SSH tunnel"
-  printf_green "3. quit"
+  printf_green "1  enter host and port manually"
+  printf_green "2  setup SSH tunnel"
+  printf_green "3  quit"
   printf_newline
-  printf_read_question "6" "Choice: " "1" "conn_choice"
+  printf_cyan "Press a key: "
+  conn_choice="$(__tui_key)"
   case "$conn_choice" in
   1)
-    printf_read_input "6" "MPD host [${MPDSERVER_HOST:-localhost}]: " "120" "new_host"
-    new_host="${new_host:-${MPDSERVER_HOST:-localhost}}"
-    printf_read_input "6" "MPD port [${MPDSERVER_PORT:-6600}]: " "120" "new_port"
-    new_port="${new_port:-${MPDSERVER_PORT:-6600}}"
+    new_host="$(__tui_input "MPD host" "${MPDSERVER_HOST:-localhost}")"
+    new_port="$(__tui_input "MPD port" "${MPDSERVER_PORT:-6600}")"
     if __mpd_server_test "$new_host" "$new_port"; then
       MPDSERVER_HOST="$new_host"
       MPDSERVER_PORT="$new_port"
@@ -657,6 +657,41 @@ __pid_test() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__tui_setup() {
+  printf '\033[?1049h'
+  printf '\033[?25l'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__tui_teardown() {
+  printf '\033[?25h'
+  printf '\033[?1049l'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__tui_key() {
+  local _key="" _seq="" _timeout="${1:-}"
+  if [ -n "$_timeout" ]; then
+    IFS= read -rsn1 -t "$_timeout" _key || return 1
+  else
+    IFS= read -rsn1 _key
+  fi
+  if [ "$_key" = $'\033' ]; then
+    IFS= read -rsn2 -t 0.05 _seq 2>/dev/null || true
+    _key="${_key}${_seq}"
+  fi
+  printf '%s' "$_key"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__tui_input() {
+  local _prompt="${1:-Input}" _default="${2:-}" _result=""
+  printf '\033[?25h'
+  printf '\n  %s' "$_prompt"
+  [ -n "$_default" ] && printf ' [%s]' "$_default"
+  printf ': '
+  IFS= read -r _result
+  printf '\033[?25l'
+  printf '%s' "${_result:-$_default}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __ssh_tunnel_status() {
   if [ -n "$MPDCLIENT_SSH_TUNNEL_PID" ] && kill -0 "$MPDCLIENT_SSH_TUNNEL_PID" 2>/dev/null; then
     printf '%s' "connected to ${MPDCLIENT_SSH_HOST:-?}"
@@ -696,36 +731,33 @@ __ssh_tunnel_start() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __ssh_tunnel_wizard() {
+  local t_host="" t_user="" t_ssh_port="" t_key="" t_remote_port="" t_local_port="" t_save="" ssh_cmd=""
   printf '\033[2J\033[H'
   printf '\n\n\n'
   printf_cyan "SSH Tunnel Wizard"
   printf_newline
-  printf_read_input "6" "SSH host [${MPDCLIENT_SSH_HOST:-none}]: " "120" "t_host"
-  t_host="${t_host:-$MPDCLIENT_SSH_HOST}"
+  t_host="$(__tui_input "SSH host" "${MPDCLIENT_SSH_HOST:-}")"
   if [ -z "$t_host" ]; then
     printf_red "SSH host is required"
+    __sleep 2
     return 1
   fi
-  printf_read_input "6" "SSH user [${MPDCLIENT_SSH_USER:-$USER}]: " "120" "t_user"
-  t_user="${t_user:-${MPDCLIENT_SSH_USER:-$USER}}"
-  printf_read_input "6" "SSH port [${MPDCLIENT_SSH_PORT:-22}]: " "120" "t_ssh_port"
-  t_ssh_port="${t_ssh_port:-${MPDCLIENT_SSH_PORT:-22}}"
-  printf_read_input "6" "SSH key path (blank = default): " "120" "t_key"
-  t_key="${t_key:-$MPDCLIENT_SSH_KEY}"
-  printf_read_input "6" "Remote MPD port [${MPDCLIENT_SSH_REMOTE_MPD_PORT:-6600}]: " "120" "t_remote_port"
-  t_remote_port="${t_remote_port:-${MPDCLIENT_SSH_REMOTE_MPD_PORT:-6600}}"
-  printf_read_input "6" "Local bind port [${MPDCLIENT_SSH_LOCAL_PORT:-6600}]: " "120" "t_local_port"
-  t_local_port="${t_local_port:-${MPDCLIENT_SSH_LOCAL_PORT:-6600}}"
+  t_user="$(__tui_input "SSH user" "${MPDCLIENT_SSH_USER:-$USER}")"
+  t_ssh_port="$(__tui_input "SSH port" "${MPDCLIENT_SSH_PORT:-22}")"
+  t_key="$(__tui_input "SSH key path (blank = default)" "${MPDCLIENT_SSH_KEY:-}")"
+  t_remote_port="$(__tui_input "Remote MPD port" "${MPDCLIENT_SSH_REMOTE_MPD_PORT:-6600}")"
+  t_local_port="$(__tui_input "Local bind port" "${MPDCLIENT_SSH_LOCAL_PORT:-6600}")"
   if [ -n "$MPDCLIENT_SSH_TUNNEL_PID" ] && kill -0 "$MPDCLIENT_SSH_TUNNEL_PID" 2>/dev/null; then
     printf_yellow "Stopping existing tunnel (PID $MPDCLIENT_SSH_TUNNEL_PID)"
     kill "$MPDCLIENT_SSH_TUNNEL_PID" 2>/dev/null
     unset MPDCLIENT_SSH_TUNNEL_PID
     __sleep 1
   fi
-  local ssh_cmd="ssh -N -o BatchMode=yes -o ConnectTimeout=5 -o ExitOnForwardFailure=yes"
+  ssh_cmd="ssh -N -o BatchMode=yes -o ConnectTimeout=5 -o ExitOnForwardFailure=yes"
   ssh_cmd="$ssh_cmd -L ${t_local_port}:localhost:${t_remote_port} -p $t_ssh_port"
   [ -n "$t_key" ] && ssh_cmd="$ssh_cmd -i $t_key"
   ssh_cmd="$ssh_cmd ${t_user}@${t_host}"
+  printf_newline
   printf_cyan "Starting: $ssh_cmd"
   $ssh_cmd &>/dev/null &
   MPDCLIENT_SSH_TUNNEL_PID=$!
@@ -738,8 +770,11 @@ __ssh_tunnel_wizard() {
     MPDCLIENT_MPD_SERVER_PORT="$t_local_port"
     export MPDSERVER_HOST MPDSERVER_PORT MPDCLIENT_MPD_SERVER_HOST MPDCLIENT_MPD_SERVER_PORT
     printf_green "SSH tunnel established to ${t_user}@${t_host}"
-    printf_read_question "6" "Save settings to config? [y/N]: " "1" "t_save"
-    if [ "$t_save" = "y" ]; then
+    printf_newline
+    printf_cyan "Save settings to config? [y/N]: "
+    t_save="$(__tui_key)"
+    printf_newline
+    if [ "$t_save" = "y" ] || [ "$t_save" = "Y" ]; then
       MPDCLIENT_SSH_HOST="$t_host"
       MPDCLIENT_SSH_USER="$t_user"
       MPDCLIENT_SSH_PORT="$t_ssh_port"
@@ -750,9 +785,11 @@ __ssh_tunnel_wizard() {
       __gen_config
       printf_green "Settings saved"
     fi
+    __sleep 2
   else
     unset MPDCLIENT_SSH_TUNNEL_PID
     printf_red "Failed to establish SSH tunnel to ${t_user}@${t_host}"
+    __sleep 2
     return 1
   fi
 }
@@ -799,12 +836,15 @@ __initialize_app() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_mpdclient() {
-  printf '\033[?1049h'
+  local _key="" _tui_redraw=0
+  __tui_setup
   __notification_service
+  trap '__tui_teardown; exit 0' INT TERM
+  trap '_tui_redraw=1' WINCH
   while :; do
     printf '\033[2J\033[H'
     printf_newline "\n\n\n"
-    is_up || break
+    is_up || { __tui_teardown; exit 1; }
     __repeat_toggle
     __play_toggle
     __consume_toggle
@@ -812,7 +852,7 @@ __execute_mpdclient() {
     mpc_status | printf_readline "6"
     volume_status="${volume_status:-mute}"
     printf_newline
-    printf_green "Notication service: ${notify_service:-local} $NOTIFY"
+    printf_green "Notification service: ${notify_service:-local} $NOTIFY"
     printf_green "1. turn notifications ${NOTIFYS:-off}"
     printf_green "2. change mpd server"
     printf_green "3. ${mpd_status} mpd server"
@@ -833,179 +873,145 @@ __execute_mpdclient() {
     printf_green "t. SSH tunnel: $(__ssh_tunnel_status)"
     printf_green "x. launch ncmpcpp"
     printf_green "y. send custom command to mpd"
-    printf_green "z. quit"
+    printf_green "q/z. quit"
     printf_newline
-    printf_read_question "6" "Enter your choice  : " "1" "main"
-    printf '\033[2J\033[H' && printf_newline "\n\n\n"
-    case "$main" in
+    printf_cyan "  Press a key (auto-refresh in ${MPDCLIENT_MENU_TIMEOUT:-5}s): "
+    _key="$(__tui_key "${MPDCLIENT_MENU_TIMEOUT:-5}")" || { continue; }
+    printf '\033[2J\033[H'
+    printf_newline "\n\n\n"
+    case "$_key" in
     1)
-      shift 1
       notify_toggle
       ;;
     2)
-      OLDMPDSERVER="$MPDSERVER_HOST"
-      printf_yellow "reset for $ORIG_MPDSERVER or local for localhost"
-      printf_read_input "6" "Enter new hostname:" "120" "NEWMPDSERVER"
-      [ -n "$NEWMPDSERVER" ] || NEWMPDSERVER="$OLDMPDSERVER"
-      [ "$NEWMPDSERVER" = "local" ] && NEWMPDSERVER="$(hostname -s)"
-      [ "$NEWMPDSERVER" = "reset" ] && NEWMPDSERVER="$ORIG_MPDSERVER"
-      __sleep 3
-      if __local_sysname "$NEWMPDSERVER"; then
-        if __cmd_exists mpd; then
-          if is_up_mpd; then
-            mpd_status=stop
-          else
-            printf_green "starting the mpd server"
-            mpd &>/dev/null &
-            __sleep 5
-            is_up_mpd && mpd_status=stop || mpd_status=start
-          fi
-        else
-          NEWMPDSERVER="$OLDMPDSERVER"
-          printf_error "mpd is not installed"
-        fi
-      fi
-      __mpc() { mpc -h "$NEWMPDSERVER" "$@" || return 1; }
-      if is_up &>/dev/null; then
-        MPDSERVER_HOST="$NEWMPDSERVER"
-        printf_green "Successfully changed hostname to $MPDSERVER_HOST"
-        mpd_version="$(__mpd_version "update")"
+      local _oldhost="$MPDSERVER_HOST" _oldport="$MPDSERVER_PORT"
+      local _newhost="" _newport=""
+      _newhost="$(__tui_input "MPD host (reset=$ORIG_MPDSERVER)" "${MPDSERVER_HOST:-localhost}")"
+      _newport="$(__tui_input "MPD port" "${MPDSERVER_PORT:-6600}")"
+      [ "$_newhost" = "reset" ] && _newhost="$ORIG_MPDSERVER"
+      [ "$_newhost" = "local" ] && _newhost="$(hostname -s)"
+      __mpc() { mpc -h "$_newhost" -p "$_newport" "$@" || return 1; }
+      if __mpd_server_test "$_newhost" "$_newport"; then
+        MPDSERVER_HOST="$_newhost"
+        MPDSERVER_PORT="$_newport"
+        export MPDSERVER_HOST MPDSERVER_PORT
+        printf_green "Connected to ${MPDSERVER_HOST}:${MPDSERVER_PORT}"
+        __sleep 2
       else
-        __mpc() { mpc -h "$OLDMPDSERVER" "$@" || return 1; }
-        printf_red "Failed to change hostname to $NEWMPDSERVER"
-        printf_red "Resetting back to $OLDMPDSERVER"
-        MPDSERVER_HOST="$OLDMPDSERVER"
+        __mpc() { mpc -h "$_oldhost" -p "$_oldport" "$@" || return 1; }
+        printf_red "Could not reach ${_newhost}:${_newport} — keeping ${_oldhost}:${_oldport}"
+        __sleep 2
       fi
       ;;
     3)
-      shift 1
       __mpd_toggle
       __notifications "$APPNAME" "MPD set to $mpd_status"
+      __sleep 2
       ;;
     0)
-      get_status="$(__mpc status)"
-      get_status_formatted="$(echo "${get_status//  /|}" | tr '|' '\n' | sed 's|^ ||g')"
-      echo "$get_status" | printf_readline
-      __notifications "$APPNAME" "MPD Status:\n$get_status_formatted"
+      local _get_status=""
+      _get_status="$(__mpc status 2>/dev/null)"
+      printf '\033[2J\033[H'
+      printf_newline "\n\n\n"
+      printf '%s\n' "$_get_status" | printf_readline
+      __notifications "$APPNAME" "MPD Status"
+      printf_newline
+      printf_cyan "  Press any key to return..."
+      __tui_key >/dev/null
       ;;
     /)
-      shift 1
-      cmd="toggle volume"
       volume_toggle |& __devnull
       volume_status="$(__volume_status)"
-      __notifications "$APPNAME" "Setting the volume to $volume_status"
+      __notifications "$APPNAME" "Volume toggled to $volume_status"
       ;;
     +)
-      shift 1
-      cmd="volume +5"
       __mpc volume +5 |& __devnull
       __notifications "$APPNAME" "Volume set to +5"
       ;;
     -)
-      shift 1
-      cmd="volume -5"
       __mpc volume -5 |& __devnull
       __notifications "$APPNAME" "Volume set to -5"
       ;;
-    ])
-      shift 1
-      cmd="volume +1"
+    ']')
       __mpc volume +1 |& __devnull
       __notifications "$APPNAME" "Volume set to +1"
       ;;
-
-    [)
-      shift 1
-      cmd="volume -1"
+    '[')
       __mpc volume -1 |& __devnull
       __notifications "$APPNAME" "Volume set to -1"
       ;;
     a)
-      shift 1
-      cmd="$PLAYT"
-      toggle_status="$(__play_toggle "show")"
-      song_curr="$(get_curr | grep '^' || __mpc current || echo 'Unknown')"
+      local _toggle_status="" _song_curr=""
+      _toggle_status="$(__play_toggle "show")"
+      _song_curr="$(get_curr | grep -- '^' || __mpc current || echo 'Unknown')"
       __mpc toggle |& __devnull
-      __notifications "$APPNAME" "${toggle_status}: $song_curr"
+      __notifications "$APPNAME" "${_toggle_status}: ${_song_curr}"
       ;;
     b)
-      shift 1
-      cmd="consume to $TOGGLEC"
       __mpc consume |& __devnull
       __notifications "$APPNAME" "Consume set to $TOGGLEC"
       ;;
     l)
-      shift 1
-      cmd="repeat to $REPEATS"
       __mpc repeat |& __devnull
       __notifications "$APPNAME" "Repeat set to $REPEATS"
       ;;
     n)
-      shift 1
-      cmd="play next"
-      song_next="$(get_next | grep '^' || __mpc queued || echo 'Unknown')"
+      local _song_next=""
+      _song_next="$(get_next | grep -- '^' || __mpc queued || echo 'Unknown')"
       __mpc next |& __devnull
-      __notifications "$APPNAME" "Going to next song: $song_next"
+      __notifications "$APPNAME" "Going to next song: ${_song_next}"
       ;;
     p)
-      shift 1
-      cmd="play previous"
-      song_prev="$(get_prev | grep '^' || echo 'Unknown')"
+      local _song_prev=""
+      _song_prev="$(get_prev | grep -- '^' || echo 'Unknown')"
       __mpc prev |& __devnull
-      __notifications "$APPNAME" "Going to previous song: $song_prev"
+      __notifications "$APPNAME" "Going to previous song: ${_song_prev}"
       ;;
     r)
-      shift 1
-      cmd="play"
-      song_curr="$(get_curr | grep '^' || __mpc current || echo 'Unknown')"
+      local _song_curr=""
+      _song_curr="$(get_curr | grep -- '^' || __mpc current || echo 'Unknown')"
       __mpc play |& __devnull
-      __notifications "$APPNAME" "currently playing: $song_curr"
+      __notifications "$APPNAME" "Now playing: ${_song_curr}"
       ;;
     s)
-      shift 1
-      cmd="stop"
-      song_curr="$(get_curr | grep '^' || __mpc current || echo 'Unknown')"
+      local _song_curr=""
+      _song_curr="$(get_curr | grep -- '^' || __mpc current || echo 'Unknown')"
       __mpc stop |& __devnull
-      __notifications "$APPNAME" "Telling mpd to stop: $song_curr"
+      __notifications "$APPNAME" "Stopped: ${_song_curr}"
       ;;
     u)
-      shift 1
-      cmd="update"
       __mpc update |& __devnull &
       __notifications "$APPNAME" "Updating MPD library"
       ;;
     t)
-      shift 1
       __ssh_tunnel_wizard
       ;;
     x)
-      shift 1
-      cmd="ncmpcpp"
+      __tui_teardown
       __devnull2 client
-      __notifications "$APPNAME" "Launching $cmd"
+      __notifications "$APPNAME" "Launching ncmpcpp"
+      __tui_setup
       ;;
     y)
-      shift 1
-      printf_read_input "6" "Enter command to send : " "120" "opts"
-      if [ -n "$opts" ]; then
-        printf_custom "26" "Results for $opts"
-        __mpc "$opts" 2>/dev/null | printf_readline "3"
-        __notifications "$APPNAME" "Sending $opts to $MPDSERVER_HOST"
-        printf_read_question "6" "Press enter to continue " "120"
-      else
+      local _opts=""
+      _opts="$(__tui_input "MPD command")"
+      if [ -n "$_opts" ]; then
         printf '\033[2J\033[H'
+        printf_newline "\n\n\n"
+        printf_custom "26" "Results for $_opts"
+        __mpc "$_opts" 2>/dev/null | printf_readline "3"
+        __notifications "$APPNAME" "Sent: $_opts → $MPDSERVER_HOST"
+        printf_newline
+        printf_cyan "  Press any key to return..."
+        __tui_key >/dev/null
       fi
       ;;
-    z)
-      printf '\033[?1049l'
+    q | z)
+      __tui_teardown
       exit 0
       ;;
-    *) ;;
     esac
-    printf_counter "5" "$MPDCLIENT_MENU_TIMEOUT" "Re-loading menu in"
   done
-  printf '\033[?1049l'
-  exit 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables

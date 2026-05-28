@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605271415-git
+##@Version           :  202605271440-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605271415-git"
+VERSION="202605271440-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -323,32 +323,50 @@ __mpd_server_test() {
   curl -q -LSs --max-time 1 --http0.9 --fail "http://${server}:${port}" 2>/dev/null | grep -qE 'OK.*MPD [0-9]' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__server_reconnect() {
-  if __local_sysname "$MPDSERVER_HOST"; then
-    __sleep 3
-    return 1
-  else
-    printf_read_question "Would you like to connect to local mpd daemon? " "1" "local"
-    if [ "$local" = y ]; then
-      export MPDSERVER_HOST="$HOSTNAME"
-      __execute_mpdclient || exit 1
+__connection_menu() {
+  local new_host="" new_port="" conn_choice=""
+  printf '\033[2J\033[H'
+  printf '\n\n\n'
+  printf_red "$ICON_ERROR Cannot reach MPD at ${MPDSERVER_HOST:-localhost}:${MPDSERVER_PORT:-6600}"
+  printf_newline
+  printf_green "1. enter host and port manually"
+  printf_green "2. setup SSH tunnel"
+  printf_green "3. quit"
+  printf_newline
+  printf_read_question "6" "Choice: " "1" "conn_choice"
+  case "$conn_choice" in
+  1)
+    printf_read_input "6" "MPD host [${MPDSERVER_HOST:-localhost}]: " "120" "new_host"
+    new_host="${new_host:-${MPDSERVER_HOST:-localhost}}"
+    printf_read_input "6" "MPD port [${MPDSERVER_PORT:-6600}]: " "120" "new_port"
+    new_port="${new_port:-${MPDSERVER_PORT:-6600}}"
+    if __mpd_server_test "$new_host" "$new_port"; then
+      MPDSERVER_HOST="$new_host"
+      MPDSERVER_PORT="$new_port"
+      MPDCLIENT_MPD_SERVER_HOST="$new_host"
+      MPDCLIENT_MPD_SERVER_PORT="$new_port"
+      export MPDSERVER_HOST MPDSERVER_PORT MPDCLIENT_MPD_SERVER_HOST MPDCLIENT_MPD_SERVER_PORT
+      printf_green "Connected to ${new_host}:${new_port}"
+      return 0
     else
-      printf '\033[2J\033[H'
-      exit 1
+      printf_red "Could not connect to ${new_host}:${new_port}"
+      return 1
     fi
-  fi
+    ;;
+  2)
+    __ssh_tunnel_wizard && return 0 || return 1
+    ;;
+  *)
+    printf '\033[2J\033[H'
+    return 1
+    ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __server_failed() {
   printf '\033[2J\033[H'
   printf '\n\n\n\n'
-  printf_red "$ICON_ERROR Failed to connect to the server @ $MPDSERVER"
-  if __server_reconnect; then
-    __sleep 3 && return 0
-  else
-    printf '\033[2J\033[H'
-    return 1
-  fi
+  __connection_menu && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __mpd_version() {
@@ -610,28 +628,8 @@ __consume_toggle() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__mpd_daemon() {
-  local mpd_start=""
-  __cmd_exists mpd || return 1
-  is_up || printf_read_question "4" "MPD Server is not running. Would you like me to try to start it? " "1" "mpd_start"
-  [ "$mpd_start" = y ] || return 1
-  printf '\033[2J\033[H'
-  printf '\n\n\n'
-  printf_cyan "Attempting to start MPD server on $HOSTNAME"
-  mpd &>/dev/null &
-  exitCode=$?
-  __sleep 5
-  return ${exitCode:-0}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 __mpd_failed() {
-  printf '\033[2J\033[H'
-  printf '\n\n\n\n'
-  printf_yellow "Failed to connect to mpd daemon - $MPDCLIENT_MPD_SERVER_HOST"
-  if ! __server_reconnect; then
-    printf '\033[2J\033[H'
-    exit 1
-  fi
+  __connection_menu || exit 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __port_test() {
@@ -779,36 +777,19 @@ __notification_service() {
 __initialize_app() {
   printf '\033[2J\033[H'
   printf '\n\n\n'
-  printf_cyan "Initializing $APPNAME: $MPDCLIENT_MPD_SERVER_HOST" TEST_MPDSERVER_HOST="$MPDCLIENT_MPD_SERVER_HOST"
+  local TEST_MPDSERVER_HOST="$MPDCLIENT_MPD_SERVER_HOST"
+  local TEST_MPDSERVER_PORT="$MPDCLIENT_MPD_SERVER_PORT"
+  printf_cyan "Initializing $APPNAME: ${TEST_MPDSERVER_HOST:-localhost}:${TEST_MPDSERVER_PORT:-6600}"
   __cmd_exists mpc || pkmgr silent install mpc || printf_exit "mpc is not installed"
-  TEST_MPDSERVER_PORT="$MPDCLIENT_MPD_SERVER_PORT"
-  TEST_MPDSERVER_LOCAL_PORT="$(__pid_test)"
   if __mpd_server_test "$TEST_MPDSERVER_HOST" "$TEST_MPDSERVER_PORT"; then
     MPDSERVER_HOST="$TEST_MPDSERVER_HOST"
     MPDSERVER_PORT="$TEST_MPDSERVER_PORT"
-  elif __mpd_server_test "$MPDCLIENT_MPD_SERVER_HOST" "$MPDCLIENT_MPD_SERVER_PORT"; then
-    MPDSERVER_HOST="$MPDCLIENT_MPD_SERVER_HOST"
-    MPDSERVER_PORT="$MPDCLIENT_MPD_SERVER_PORT"
-  elif __mpd_daemon; then
-    TEST_MPDSERVER_LOCAL_PORT="$(__pid_test)"
-    __mpd_server_test "localhost" "$TEST_MPDSERVER_LOCAL_PORT" || __mpd_failed
-    MPDSERVER_HOST="localhost"
-    MPDSERVER_PORT="$TEST_MPDSERVER_LOCAL_PORT"
   else
-    MPDSERVER_HOST="$TEST_MPDSERVER_HOST"
-    MPDSERVER_PORT="$TEST_MPDSERVER_PORT"
     __mpd_failed
   fi
-
   SYSHOSTNAME="$(hostname -s)"
   SYSMPDSERVER="$MPDSERVER_HOST"
   mpd_status="start"
-
-  if mpc -h "$SYSHOSTNAME" 2>/dev/null | grep -iq playing; then
-    MPDSERVER_HOST="$SYSHOSTNAME"
-  else
-    MPDSERVER_HOST="${MPDSERVER_HOST:-localhost}"
-  fi
   export ORIG_MPDSERVER="$MPDSERVER_HOST"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -

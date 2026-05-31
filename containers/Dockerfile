@@ -1,7 +1,7 @@
 FROM casjaysdev/almalinux:latest AS base
 
 # Install bash, git, and systemd
-RUN dnf install -y bash git systemd
+RUN dnf install -y bash git systemd ca-certificates && update-ca-trust
 
 # Clone the scripts repository
 RUN git clone -q https://github.com/casjay-dotfiles/scripts /usr/local/share/CasjaysDev/scripts

@@ -140,7 +140,7 @@ _tmux-new() {
       ;;
     update)
       if [ $COMP_CWORD -eq 2 ]; then
-        COMPREPLY=($(compgen -W 'templates template all' -- "${cur}"))
+        COMPREPLY=($(compgen -W 'template sessions all' -- "${cur}"))
       else
         COMPREPLY=($(compgen -W '' -- "${cur}"))
       fi

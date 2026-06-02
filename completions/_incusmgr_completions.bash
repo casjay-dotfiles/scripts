@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202602200031-git
+##@Version           :  202606021538-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -36,8 +36,9 @@ _incusmgr() {
   local OPTS=""
   local SHORTOPTS="-f"
   local LONGOPTS="--completions --debug --no-color --options --config --version --help --force"
-  local ARRAY="init status version list ls info launch run start stop restart delete rm exec enter shell rename snapshot restore "
-  local ARRAY+="storage network profile image remote prune "
+  local ARRAY="init status version list ls ps inactive info launch run install start stop restart delete rm remove exec enter shell "
+  local ARRAY+="console log rename copy clone move update snapshot restore snapshots delsnapshot "
+  local ARRAY+="storage network profile volume image remote project prune config "
 
   _init_completion || return
 
@@ -107,7 +108,7 @@ _incusmgr() {
       fi
       ;;
 
-    launch | run)
+    launch | run | install)
       case $COMP_CWORD in
       2)
         COMPREPLY=($(compgen -W 'ubuntu: ubuntu-daily: images: local:' -- "${cur}"))
@@ -130,7 +131,7 @@ _incusmgr() {
       COMPREPLY=($(compgen -W '$(___incus_running)' -- "${cur}"))
       ;;
 
-    delete | rm)
+    delete | rm | remove)
       if [[ ${#COMP_WORDS[*]} -gt 3 ]]; then
         COMPREPLY=($(compgen -W '' -- "${cur}"))
       else
@@ -149,12 +150,82 @@ _incusmgr() {
       esac
       ;;
 
-    enter | shell)
+    enter | shell | console | log | logs)
       if [[ ${#COMP_WORDS[*]} -gt 3 ]]; then
         COMPREPLY=($(compgen -W '' -- "${cur}"))
       else
         COMPREPLY=($(compgen -W '$(___incus_instances)' -- "${cur}"))
       fi
+      ;;
+
+    update)
+      if [[ ${#COMP_WORDS[*]} -gt 3 ]]; then
+        COMPREPLY=($(compgen -W '' -- "${cur}"))
+      else
+        COMPREPLY=($(compgen -W '$(___incus_instances)' -- "${cur}"))
+      fi
+      ;;
+
+    copy | clone | move)
+      case $COMP_CWORD in
+      2)
+        COMPREPLY=($(compgen -W '$(___incus_instances)' -- "${cur}"))
+        ;;
+      3)
+        COMPREPLY=($(compgen -W '' -- "${cur}"))
+        ;;
+      *)
+        COMPREPLY=($(compgen -W '' -- "${cur}"))
+        ;;
+      esac
+      ;;
+
+    snapshots)
+      COMPREPLY=($(compgen -W '$(___incus_instances)' -- "${cur}"))
+      ;;
+
+    delsnapshot)
+      case $COMP_CWORD in
+      2)
+        COMPREPLY=($(compgen -W '$(___incus_instances)' -- "${cur}"))
+        ;;
+      3)
+        local instance="${COMP_WORDS[2]}"
+        COMPREPLY=($(compgen -W '$(___incus_snapshots "$instance")' -- "${cur}"))
+        ;;
+      *)
+        COMPREPLY=($(compgen -W '' -- "${cur}"))
+        ;;
+      esac
+      ;;
+
+    volume)
+      case "$prev" in
+      volume)
+        COMPREPLY=($(compgen -W 'list ls' -- "${cur}"))
+        ;;
+      list | ls)
+        COMPREPLY=($(compgen -W '$(___incus_storage)' -- "${cur}"))
+        ;;
+      *)
+        COMPREPLY=($(compgen -W 'list ls' -- "${cur}"))
+        ;;
+      esac
+      ;;
+
+    project)
+      case "$prev" in
+      project)
+        COMPREPLY=($(compgen -W 'list ls show' -- "${cur}"))
+        ;;
+      *)
+        COMPREPLY=($(compgen -W '' -- "${cur}"))
+        ;;
+      esac
+      ;;
+
+    config)
+      COMPREPLY=($(compgen -W '' -- "${cur}"))
       ;;
 
     rename)

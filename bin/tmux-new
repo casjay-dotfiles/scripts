@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605241230-git
+##@Version           :  202606021000-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605241230-git"
+VERSION="202606021000-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -412,28 +412,36 @@ __current_socket() {
   printf '%s' "tmux-new"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Weather function with caching
+# Weather function with caching — accepts optional terminal width for adaptive output.
+# Width >= 180: full "City, ST icon +XXF"   Width >= 120: "icon +XXF"   else: "+XXF"
 __exec_weather() {
+  local width="${1:-0}"
   local cache_dir="${TMUX_CACHE_DIR:-$HOME/.cache/tmux}"
   local socket="$(__current_socket)"
   local cache_file="$cache_dir/weather-$socket"
   local cache_ttl="${TMUX_WEATHER_INTERVAL:-3600}"
   local weather_server="${TMUX_WEATHER_SERVER:-https://wthr.top}"
   local weather_location="${MYLOCATION_NAME:-${TMUX_WEATHER_LOCATION:-New York, NY}}"
-  local weather_url
+  local weather_url weather
   weather_url="${weather_location// /%20}"
   [ -d "$cache_dir" ] || mkdir -p "$cache_dir" 2>/dev/null
   if __cache_valid "$cache_file" "$cache_ttl"; then
-    printf '%s\n' "$(<"$cache_file")" 2>/dev/null || echo "No Weather"
+    weather="$(cat "$cache_file" 2>/dev/null)"
   else
-    local weather
-    weather=$(curl -q -LSsf -m 2 "${weather_server}/${weather_url}?u&format=3" 2>/dev/null | sed 's/:/ /g;s/°F/F/g' || echo "No Weather")
-    echo "$weather" >"$cache_file" 2>/dev/null
+    weather="$(curl -q -LSsf -m 2 "${weather_server}/${weather_url}?u&format=3" 2>/dev/null | sed 's/:/ /g;s/°F/F/g')"
+    [ -n "$weather" ] && echo "$weather" >"$cache_file" 2>/dev/null
+  fi
+  [ -z "$weather" ] && return 0
+  if [ "$width" -ge 180 ] 2>/dev/null; then
     echo "$weather"
+  elif [ "$width" -ge 120 ] 2>/dev/null; then
+    echo "$weather" | awk '{print $(NF-1), $NF}'
+  else
+    echo "$weather" | awk '{print $NF}'
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Uptime function with caching
+# Uptime function with caching — reads /proc/uptime for reliable cross-platform output.
 __exec_uptime() {
   local cache_dir="${TMUX_CACHE_DIR:-$HOME/.cache/tmux}"
   local socket="$(__current_socket)"
@@ -443,12 +451,38 @@ __exec_uptime() {
   if __cache_valid "$cache_file" "$cache_ttl"; then
     cat "$cache_file" 2>/dev/null
   else
-    local uptime_info raw_uptime
-    raw_uptime="$(uptime 2>/dev/null)"
-    uptime_info="${raw_uptime#* * * }"
-    uptime_info="${uptime_info%%,*}"
+    local uptime_info
+    uptime_info="$(awk '{t=$1;d=int(t/86400);t=t%86400;h=int(t/3600);t=t%3600;m=int(t/60);out="";if(d>0)out=out d"d";if(h>0)out=out (out?":":"") h"h";if(m>0)out=out (out?":":"") m"m";if(out=="")out="0m";print out}' /proc/uptime 2>/dev/null \
+      || uptime | sed 's/.*up \([^,]*\),.*/\1/' | xargs)"
     echo "$uptime_info" >"$cache_file" 2>/dev/null
     echo "$uptime_info"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Git status function — outputs "branch [*+?]" for the repo at path, or nothing outside a repo.
+__exec_git() {
+  local search_dir="${1:-$PWD}"
+  local topdir
+  local cache_dir="${TMUX_CACHE_DIR:-$HOME/.cache/tmux}"
+  [ -d "$cache_dir" ] || mkdir -p "$cache_dir" 2>/dev/null
+  topdir="$(git -C "$search_dir" rev-parse --show-toplevel 2>/dev/null)" || { echo ""; return 0; }
+  local cache_key cache_file cache_ttl=5
+  cache_key="$(printf '%s' "$topdir" | tr '/' '_')"
+  cache_file="${cache_dir}/git_${cache_key}"
+  if __cache_valid "$cache_file" "$cache_ttl"; then
+    cat "$cache_file" 2>/dev/null
+  else
+    local branch="" flags="" git_data=""
+    branch="$(git -C "$topdir" symbolic-ref --short HEAD 2>/dev/null)" \
+      || branch="$(git -C "$topdir" rev-parse --short HEAD 2>/dev/null)" \
+      || branch="detached"
+    git -C "$topdir" diff --quiet 2>/dev/null           || flags="${flags}*"
+    git -C "$topdir" diff --cached --quiet 2>/dev/null  || flags="${flags}+"
+    [ -n "$(git -C "$topdir" ls-files --others --exclude-standard 2>/dev/null)" ] \
+                                                        && flags="${flags}?"
+    git_data="${branch}${flags:+ $flags}"
+    echo "$git_data" >"$cache_file" 2>/dev/null
+    echo "$git_data"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1605,11 +1639,15 @@ while :; do
     shift 1
     case "$1" in
     weather)
-      __exec_weather
+      __exec_weather "${2:-0}"
       exit $?
       ;;
     uptime)
       __exec_uptime
+      exit $?
+      ;;
+    git)
+      __exec_git "${2:-}"
       exit $?
       ;;
     keybindings)

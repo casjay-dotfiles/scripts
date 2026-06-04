@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606041110-git
+##@Version           :  202606041215-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -273,23 +273,54 @@ __service_banner() {
   printf '# - - - %s %-*s %s - - - #\n' "$icon" "$text_width" "$full_message" "$icon"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__find_php_bin() { find -L '/usr'/*bin -maxdepth 4 -name 'php-fpm*' 2>/dev/null | head -n1; }
+__find_php_bin() {
+  command -v php-fpm &>/dev/null || command -v php &>/dev/null || return 0
+  find -L '/usr'/*bin -maxdepth 4 -name 'php-fpm*' 2>/dev/null | head -n1
+}
 __find_php_ini() {
+  command -v php &>/dev/null || return 0
   local f
   f=$(find -L '/etc' -maxdepth 4 -name 'php.ini' 2>/dev/null | head -n1)
   [ -n "$f" ] && printf '%s\n' "${f%/php.ini}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__find_nginx_conf() { find -L '/etc' -maxdepth 4 -name 'nginx.conf' 2>/dev/null | head -n1; }
-__find_caddy_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'caddy.conf' 2>/dev/null | head -n1; }
-__find_lighttpd_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'lighttpd.conf' 2>/dev/null | head -n1; }
-__find_cherokee_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'cherokee.conf' 2>/dev/null | head -n1; }
-__find_httpd_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'httpd.conf' -o -iname 'apache2.conf' 2>/dev/null | head -n1; }
+__find_nginx_conf() {
+  command -v nginx &>/dev/null || return 0
+  find -L '/etc' -maxdepth 4 -name 'nginx.conf' 2>/dev/null | head -n1
+}
+__find_caddy_conf() {
+  command -v caddy &>/dev/null || return 0
+  find -L '/etc' -maxdepth 4 -type f -iname 'caddy.conf' 2>/dev/null | head -n1
+}
+__find_lighttpd_conf() {
+  command -v lighttpd &>/dev/null || return 0
+  find -L '/etc' -maxdepth 4 -type f -iname 'lighttpd.conf' 2>/dev/null | head -n1
+}
+__find_cherokee_conf() {
+  command -v cherokee &>/dev/null || command -v cherokee-admin &>/dev/null || return 0
+  find -L '/etc' -maxdepth 4 -type f -iname 'cherokee.conf' 2>/dev/null | head -n1
+}
+__find_httpd_conf() {
+  command -v httpd &>/dev/null || command -v apache2 &>/dev/null || return 0
+  find -L '/etc' -maxdepth 4 -type f \( -iname 'httpd.conf' -o -iname 'apache2.conf' \) 2>/dev/null | head -n1
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__find_mysql_conf() { find -L '/etc' -maxdepth 4 -type f -name 'my.cnf' 2>/dev/null | head -n1; }
-__find_pgsql_conf() { find -L '/var/lib' '/etc' -maxdepth 8 -type f -name 'postgresql.conf' 2>/dev/null | head -n1; }
-__find_couchdb_conf() { return; }
-__find_mongodb_conf() { return; }
+__find_mysql_conf() {
+  command -v mysqld &>/dev/null || command -v mariadbd &>/dev/null || command -v mysql &>/dev/null || return 0
+  find -L '/etc' -maxdepth 4 -type f -name 'my.cnf' 2>/dev/null | head -n1
+}
+__find_pgsql_conf() {
+  command -v postgres &>/dev/null || command -v pg_ctl &>/dev/null || return 0
+  find -L '/var/lib' '/etc' -maxdepth 8 -type f -name 'postgresql.conf' 2>/dev/null | head -n1
+}
+__find_couchdb_conf() {
+  command -v couchdb &>/dev/null || return 0
+  find -L '/opt/couchdb/etc' '/etc/couchdb' -maxdepth 4 -type f \( -name 'local.ini' -o -name 'default.ini' \) 2>/dev/null | head -n1
+}
+__find_mongodb_conf() {
+  command -v mongod &>/dev/null || return 0
+  find -L '/etc/mongodb' '/etc' -maxdepth 4 -type f \( -name 'mongod.conf' -o -name 'mongodb.conf' \) 2>/dev/null | head -n1
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __random_password() { tr -dc '0-9a-zA-Z' < /dev/urandom | head -c${1:-16} && echo ""; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -426,70 +457,105 @@ __create_ssl_cert() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__init_apache() {
-  local etc_dir="" conf_dir="" conf_dir="" www_dir="" apache_bin=""
-  etc_dir="/etc/${1:-apache2}"
-  conf_dir="/config/${1:-apache2}"
-  www_dir="${WWW_ROOT_DIR:-/data/htdocs}"
-  apache_bin="$(type -P 'httpd' || type -P 'apache2')"
+__init_service_conf() {
+  # Seed /config/$svc/ from build-time baked /etc sources on first container start.
+  # Copy only — no symlinks. Symlinking /etc back to /config/ is the service's own
+  # responsibility, done inside __update_conf_files in each init.d/*.sh script so
+  # each service controls its exact paths and variable substitution order.
   #
+  # Usage: __init_service_conf <conf_dir> <primary_etc_dir> [extra_etc_path ...]
+  #
+  #   primary_etc_dir  directory  → contents copied into conf_dir/ when conf_dir is empty
+  #   extra_etc_path   directory  → copied into conf_dir/<name>/ when that subdir is empty
+  #   extra_etc_path   file       → copied to conf_dir/<filename> when absent
+  local conf_dir="$1"
+  local primary_etc="$2"
+  shift 2
+  local src name
+  mkdir -p "$conf_dir"
+  if [ -d "$primary_etc" ] && __is_dir_empty "$conf_dir"; then
+    __copy_templates "$primary_etc/." "$conf_dir/"
+  fi
+  for src in "$@"; do
+    [ -e "$src" ] || continue
+    name="${src##*/}"
+    if [ -d "$src" ] && __is_dir_empty "$conf_dir/$name"; then
+      mkdir -p "$conf_dir/$name"
+      __copy_templates "$src/." "$conf_dir/$name/"
+    elif [ -f "$src" ] && [ ! -f "$conf_dir/$name" ]; then
+      cp -f "$src" "$conf_dir/$name"
+    fi
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_apache() {
+  command -v httpd &>/dev/null || command -v apache2 &>/dev/null || return 0
+  local svc="${1:-apache2}"
+  __init_service_conf "/config/$svc" "/etc/$svc"
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_nginx() {
-  local etc_dir="/etc/${1:-nginx}"
-  local conf_dir="/config/${1:-nginx}"
-  local www_dir="${WWW_ROOT_DIR:-/data/htdocs}"
-  local nginx_bin="$(type -P 'nginx')"
+  command -v nginx &>/dev/null || return 0
+  local svc="${1:-nginx}"
+  __init_service_conf "/config/$svc" "/etc/$svc"
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_php() {
-  local etc_dir="/etc/${1:-php}"
-  local conf_dir="/config/${1:-php}"
-  local php_bin="${PHP_BIN_DIR:-$(__find_php_bin)}"
+  command -v php &>/dev/null || return 0
+  local php_etc="${PHP_INI_DIR:-$(__find_php_ini)}"
+  __init_service_conf "/config/php" "${php_etc:-/etc/php}" \
+    "/etc/php.ini" "/etc/php-fpm" "/etc/php-fpm.conf"
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_mysql() {
-  local db_dir="/data/db/mysql"
-  local etc_dir="${home:-/etc/${1:-mysql}}"
-  local db_user="${SERVICE_USER:-mysql}"
-  local conf_dir="/config/${1:-mysql}"
-  local user_name="${MARIADB_USER:-root}"
-  local user_pass="${MARIADB_PASSWORD:-$MARIADB_ROOT_PASSWORD}"
-  local user_db="${MARIADB_DATABASE}"
-  local root_pass="$MARIADB_ROOT_PASSWORD"
-  local mysqld_bin="$(type -P 'mysqld')"
+  command -v mysqld &>/dev/null || command -v mariadbd &>/dev/null || return 0
+  local svc="${1:-mysql}"
+  __init_service_conf "/config/$svc" "/etc/$svc" "/etc/my.ini" "/etc/my.cnf"
+  [ -d "${DATABASE_DIR:-/data/db/$svc}" ] || mkdir -p "${DATABASE_DIR:-/data/db/$svc}"
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_mongodb() {
-  local home="${MONGODB_CONFIG_FILE:-$(__find_mongodb_conf)}"
-  local user_name="${INITDB_ROOT_USERNAME:-root}"
-  local user_pass="${MONGO_INITDB_ROOT_PASSWORD:-$_ROOT_PASSWORD}"
-  return
+  command -v mongod &>/dev/null || return 0
+  __init_service_conf "/config/mongodb" "/etc/mongodb" "/etc/mongod.conf"
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_postgres() {
-  local home="${PGSQL_CONFIG_FILE:-$(__find_pgsql_conf)}"
-  local user_name="${POSTGRES_USER:-root}"
-  local user_pass="${POSTGRES_PASSWORD:-$POSTGRES_ROOT_PASSWORD}"
-  return
+  command -v postgres &>/dev/null || command -v pg_ctl &>/dev/null || return 0
+  local pg_etc
+  pg_etc="${PGSQL_CONFIG_FILE:+${PGSQL_CONFIG_FILE%/*}}"
+  [ -n "$pg_etc" ] || pg_etc="$(__find_pgsql_conf)"
+  [ -n "$pg_etc" ] && pg_etc="${pg_etc%/*}"
+  [ -n "$pg_etc" ] && __init_service_conf "/config/postgres" "$pg_etc"
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_couchdb() {
-  local home="${COUCHDB_CONFIG_FILE:-$(__find_couchdb_conf)}"
-  local user_name="${COUCHDB_USER:-root}"
-  local user_pass="${COUCHDB_PASSWORD:-$SET_RANDOM_PASS}"
-  return
+  command -v couchdb &>/dev/null || return 0
+  __init_service_conf "/config/couchdb" "/etc/couchdb"
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show available init functions
 __init_help() {
   echo '
-__update_ssl_certs
-__create_ssl_cert
+Config seeding (copy /etc → /config, no symlinks):
+  __init_service_conf <conf_dir> <primary_etc_dir> [extra_etc_path ...]
+  __init_apache   [svc]   seeds /config/apache2  from /etc/apache2
+  __init_nginx    [svc]   seeds /config/nginx     from /etc/nginx
+  __init_php              seeds /config/php       from /etc/php* + /etc/php.ini + /etc/php-fpm
+  __init_mysql    [svc]   seeds /config/mysql     from /etc/mysql + /etc/my.{ini,cnf}
+  __init_mongodb          seeds /config/mongodb   from /etc/mongodb + /etc/mongod.conf
+  __init_postgres         seeds /config/postgres  from pg data dir
+  __init_couchdb          seeds /config/couchdb   from /etc/couchdb
+
+SSL:
+  __update_ssl_certs
+  __create_ssl_cert
 '
   return
 }
@@ -1299,95 +1365,6 @@ __initialize_custom_bin_dir() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__initialize_default_templates() {
-  local errors=0
-  if [ -n "$DEFAULT_TEMPLATE_DIR" ]; then
-    if [ "$CONFIG_DIR_INITIALIZED" = "no" ] && [ -d "/config" ]; then
-      [ -d "$DEFAULT_TEMPLATE_DIR" ] || return 0
-      __log_info "Copying default config files $DEFAULT_TEMPLATE_DIR > /config"
-      for create_config_template in "$DEFAULT_TEMPLATE_DIR"/*; do
-        if [ -e "$create_config_template" ]; then
-          create_template_name="${create_config_template##*/}"
-          if [ -d "$create_config_template" ]; then
-            mkdir -p "/config/$create_template_name/" || errors=$((errors + 1))
-            if __is_dir_empty "/config/$create_template_name"; then
-              if ! cp -Rf "$create_config_template/." "/config/$create_template_name/" 2>/dev/null; then
-                __log_warn "Failed to copy template directory: $create_template_name"
-                errors=$((errors + 1))
-              fi
-            fi
-          elif [ -f "$create_config_template" ]; then
-            if [ ! -e "/config/$create_template_name" ]; then
-              if ! cp -Rf "$create_config_template" "/config/$create_template_name" 2>/dev/null; then
-                __log_warn "Failed to copy template file: $create_template_name"
-                errors=$((errors + 1))
-              fi
-            fi
-          fi
-        fi
-      done
-      unset create_config_template create_template_name
-      __log_debug "Template initialization completed with $errors errors"
-    fi
-  fi
-  return 0
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__initialize_config_dir() {
-  local errors=0
-  if [ -n "$DEFAULT_CONF_DIR" ]; then
-    if [ "$CONFIG_DIR_INITIALIZED" = "no" ] && [ -d "/config" ]; then
-      [ -d "$DEFAULT_CONF_DIR" ] || return 0
-      __log_info "Copying custom config files: $DEFAULT_CONF_DIR > /config"
-      for create_config_template in "$DEFAULT_CONF_DIR"/*; do
-        if [ -e "$create_config_template" ]; then
-          create_config_name="${create_config_template##*/}"
-          if [ -d "$create_config_template" ]; then
-            mkdir -p "/config/$create_config_name" || errors=$((errors + 1))
-            if __is_dir_empty "/config/$create_config_name"; then
-              if ! cp -Rf "$create_config_template/." "/config/$create_config_name/" 2>/dev/null; then
-                __log_warn "Failed to copy config directory: $create_config_name"
-                errors=$((errors + 1))
-              fi
-            fi
-          elif [ -f "$create_config_template" ]; then
-            if [ ! -e "/config/$create_config_name" ]; then
-              if ! cp -Rf "$create_config_template" "/config/$create_config_name" 2>/dev/null; then
-                __log_warn "Failed to copy config file: $create_config_name"
-                errors=$((errors + 1))
-              fi
-            fi
-          fi
-        fi
-      done
-      unset create_config_template create_config_name
-      __log_debug "Config initialization completed with $errors errors"
-    fi
-  fi
-  return 0
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__initialize_data_dir() {
-  [ "$DATA_DIR_INITIALIZED" = "no" ] || return 0
-  if [ -d "/data" ]; then
-    if [ -n "$DEFAULT_DATA_DIR" ]; then
-      [ -d "$DEFAULT_DATA_DIR" ] || return 0
-      __log_info "Copying data files $DEFAULT_DATA_DIR > /data"
-      for create_data_template in "$DEFAULT_DATA_DIR"/*; do
-        create_data_name="${create_data_template##*/}"
-        if [ -n "$create_data_template" ]; then
-          if [ -d "$create_data_template" ]; then
-            mkdir -p "/data/$create_data_name"
-            __is_dir_empty "/data/$create_data_name" && cp -Rf "$create_data_template/." "/data/$create_data_name/" 2>/dev/null
-          elif [ -e "$create_data_template" ]; then
-            [ -e "/data/$create_data_name" ] || cp -Rf "$create_data_template" "/data/$create_data_name" 2>/dev/null
-          fi
-        fi
-      done
-      unset create_data_template
-    fi
-  fi
-}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_www_root() {
   local WWW_INIT=""
@@ -1401,7 +1378,7 @@ __initialize_www_root() {
     WWW_INIT="false"
   fi
   if [ "$WWW_INIT" = "true" ] && [ -d "$WWW_TEMPLATE" ]; then
-    cp -Rf "$DEFAULT_DATA_DIR/data/htdocs/." "$WWW_ROOT_DIR/" 2>/dev/null
+    cp -Rf "$WWW_TEMPLATE/." "$WWW_ROOT_DIR/" 2>/dev/null
   fi
   __initialize_web_health "$WWW_ROOT_DIR"
 }
@@ -1581,9 +1558,6 @@ export SSL_CA="${SSL_CA:-/config/ssl/ca.crt}"
 export SSL_KEY="${SSL_KEY:-/config/ssl/localhost.pem}"
 export SSL_CERT="${SSL_CERT:-/config/ssl/localhost.crt}"
 export LOCAL_BIN_DIR="${LOCAL_BIN_DIR:-/usr/local/bin}"
-export DEFAULT_DATA_DIR="${DEFAULT_DATA_DIR:-/usr/local/share/template-files/data}"
-export DEFAULT_CONF_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config}"
-export DEFAULT_TEMPLATE_DIR="${DEFAULT_TEMPLATE_DIR:-/usr/local/share/template-files/defaults}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Backup settings
 export BACKUP_MAX_DAYS="${BACKUP_MAX_DAYS:-}"

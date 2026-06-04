@@ -29,9 +29,7 @@ exitCode=0
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Predefined actions
-if [ -d "/usr/local/share/template-files/data" ]; then rm -Rf "/usr/local/share/template-files/data"/*; fi
-if [ -d "/usr/local/share/template-files/config" ]; then rm -Rf "/usr/local/share/template-files/config"/*; fi
-if [ -d "/usr/local/share/template-files/defaults" ]; then rm -Rf "/usr/local/share/template-files/defaults"/*; fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main script
 

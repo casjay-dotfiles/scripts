@@ -30,10 +30,9 @@ export SCRIPTS_PREFIX="dfmgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 #set opts
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
-#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 [ "$1" = "--no-color" ] && export SHOW_RAW="true"
-set -o pipefail
+set -eo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"

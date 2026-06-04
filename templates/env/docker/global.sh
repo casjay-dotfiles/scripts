@@ -9,5 +9,7 @@ ENV_PORTS="${ENV_PORTS//\/*/}"
 SERVICE_USER="${SERVICE_USER:-}"
 SERVICE_GROUP="${SERVICE_GROUP:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-SERVICE_UID="${SERVICE_UID:-}" # set the user id
-SERVICE_GID="${SERVICE_GID:-}" # set the group id
+# set the user id
+SERVICE_UID="${SERVICE_UID:-}"
+# set the group id
+SERVICE_GID="${SERVICE_GID:-}"

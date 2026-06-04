@@ -33,7 +33,7 @@ export SCRIPTS_PREFIX="dockermgr"
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 [ "$1" = "--no-color" ] && export SHOW_RAW="true"
-set -o pipefail -o noglob
+set -eo pipefail -o noglob
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -61,7 +61,7 @@ scripts_check
 setopts=$(getopt -o "i,s:,h:,d:,e:,m:,p:" --long "init,server:,host:,domain:,env:,mount:,port:" -n "$APPNAME" -- "$@" 2>/dev/null)
 set -- "${setopts[@]}" 2>/dev/null
 while :; do
-  case "$1" in #
+  case "$1" in
   --debug | --raw) shift 1 ;;
   -a | --name) APPNAME="$2" && shift 2 ;;
   -i | --init) ENV_INIT_SCRIPT_ONLY="yes" && shift 1 ;;
@@ -975,8 +975,10 @@ __custom_docker_clean_env() { grep -Ev '^$|^#' | sed 's|^|--env |g' | grep '\--'
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __trim() {
   local var="$*"
-  var="${var#"${var%%[![:space:]]*}"}" # remove leading whitespace characters
-  var="${var%"${var##*[![:space:]]}"}" # remove trailing whitespace characters
+  # remove leading whitespace characters
+  var="${var#"${var%%[![:space:]]*}"}"
+  # remove trailing whitespace characters
+  var="${var%"${var##*[![:space:]]}"}"
   printf '%s' "$var" | grep -v '^$' | sort -u | __remove_extra_spaces
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2558,23 +2560,40 @@ DOCKER_SET_ENV_VAR="${DOCKER_SET_ENV_FILE:-$DOCKER_SET_ENV_VAR}"
 DOCKER_CUSTOM_ARRAY="$(__retrieve_custom_env | __custom_docker_clean_env)"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clean up variables
-DOCKER_SET_PUBLISH="$(printf '%s\n' "${DOCKER_SET_TMP_PUBLISH[@]}" | sort -Vu | tr '\n' ' ')" # ensure only one
-DOCKER_HUB_IMAGE_URL="$(__trim "${DOCKER_HUB_IMAGE_URL[*]:-}")"                               # image url
-DOCKER_HUB_IMAGE_TAG="$(__trim "${DOCKER_HUB_IMAGE_TAG[*]:-}")"                               # image tag
-DOCKER_GET_CUSTOM="$(__trim "${DOCKER_CUSTOM_ARRAY[*]:-}")"                                   # --tty --rm --interactive
-DOCKER_GET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS_DEFAULT[*]:-}")"                           # --hostname --domain
-DOCKER_GET_CAP="$(__trim "${DOCKER_SET_CAP[*]:-}")"                                           # --capabilites
-DOCKER_GET_SYSCTL="$(__trim "${DOCKER_SET_SYSCTL[*]:-}")"                                     # --sysctl
-DOCKER_GET_ENV="$(__trim "${DOCKER_SET_ENV_VAR[*]:-}")"                                       # --env
-DOCKER_GET_DEV="$(__trim "${DOCKER_SET_DEV[*]:-}")"                                           # --device
-DOCKER_GET_DNS="$(__trim "${DOCKER_SET_DNS[*]:-}")"                                           # --dns
-DOCKER_GET_LINK="$(__trim "${DOCKER_SET_LINK[*]:-}")"                                         # --link
-DOCKER_GET_LABELS="$(__trim "${DOCKER_SET_LABELS[*]:-}")"                                     # --labels
-DOCKER_GET_DOCKER_ENV="$(__trim "${DOCKER_SET_OPTIONS_ENV[*]:-}")"                            # --hostname --domain
-DOCKER_GET_DOCKER_VOLUME="$(__trim "${DOCKER_SET_OPTIONS_VOLUME[*]:-}")"                      # --hostname --domain
-DOCKER_GET_MNT="$(__trim "${DOCKER_SET_MNT[*]:-}")"                                           # --volume
-DOCKER_GET_PUBLISH="$(__trim "${DOCKER_SET_PUBLISH[*]:-}")"                                   # --publish ports
-CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")"                                   # pass command to container
+# ensure only one
+DOCKER_SET_PUBLISH="$(printf '%s\n' "${DOCKER_SET_TMP_PUBLISH[@]}" | sort -Vu | tr '\n' ' ')"
+# image url
+DOCKER_HUB_IMAGE_URL="$(__trim "${DOCKER_HUB_IMAGE_URL[*]:-}")"
+# image tag
+DOCKER_HUB_IMAGE_TAG="$(__trim "${DOCKER_HUB_IMAGE_TAG[*]:-}")"
+# --tty --rm --interactive
+DOCKER_GET_CUSTOM="$(__trim "${DOCKER_CUSTOM_ARRAY[*]:-}")"
+# --hostname --domain
+DOCKER_GET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS_DEFAULT[*]:-}")"
+# --capabilites
+DOCKER_GET_CAP="$(__trim "${DOCKER_SET_CAP[*]:-}")"
+# --sysctl
+DOCKER_GET_SYSCTL="$(__trim "${DOCKER_SET_SYSCTL[*]:-}")"
+# --env
+DOCKER_GET_ENV="$(__trim "${DOCKER_SET_ENV_VAR[*]:-}")"
+# --device
+DOCKER_GET_DEV="$(__trim "${DOCKER_SET_DEV[*]:-}")"
+# --dns
+DOCKER_GET_DNS="$(__trim "${DOCKER_SET_DNS[*]:-}")"
+# --link
+DOCKER_GET_LINK="$(__trim "${DOCKER_SET_LINK[*]:-}")"
+# --labels
+DOCKER_GET_LABELS="$(__trim "${DOCKER_SET_LABELS[*]:-}")"
+# --hostname --domain
+DOCKER_GET_DOCKER_ENV="$(__trim "${DOCKER_SET_OPTIONS_ENV[*]:-}")"
+# --hostname --domain
+DOCKER_GET_DOCKER_VOLUME="$(__trim "${DOCKER_SET_OPTIONS_VOLUME[*]:-}")"
+# --volume
+DOCKER_GET_MNT="$(__trim "${DOCKER_SET_MNT[*]:-}")"
+# --publish ports
+DOCKER_GET_PUBLISH="$(__trim "${DOCKER_SET_PUBLISH[*]:-}")"
+# pass command to container
+CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")"
 [ -n "$CONTAINER_COMMANDS" ] || CONTAINER_COMMANDS="    "
 DOCKER_GET_ENV="$(__trim "$DOCKER_GET_ENV" "$DOCKER_GET_DOCKER_ENV")"
 DOCKER_GET_MNT="$(__trim "$DOCKER_GET_MNT" "$DOCKER_GET_DOCKER_VOLUME")"
@@ -2792,23 +2811,28 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
     for vhost in $NGINX_VHOST_SET_NAMES; do
       if [ -n "$vhost" ]; then
         set_vhost="${vhost// /}"
-        if printf '%s\n' "$set_vhost" | grep -q "[.]all$"; then # map to vhost.*
+        # map to vhost.*
+        if printf '%s\n' "$set_vhost" | grep -q "[.]all$"; then
           vhost="$(__set_vhost_alias "$set_vhost" ".all" ".*")"
           NGINX_VHOST_TMP_NAMES+=("$vhost")
           set_vhost=""
-        elif printf '%s\n' "$set_vhost" | grep -q "^all[.]"; then # map to *.vhost
+        # map to *.vhost
+        elif printf '%s\n' "$set_vhost" | grep -q "^all[.]"; then
           vhost="$(__set_vhost_alias "$set_vhost" "all." "*.")"
           NGINX_VHOST_TMP_NAMES+=("$vhost")
           set_vhost=""
-        elif printf '%s\n' "$set_vhost" | grep -q '[.]myhost$'; then # map to vhost.hostname
+        # map to vhost.hostname
+        elif printf '%s\n' "$set_vhost" | grep -q '[.]myhost$'; then
           vhost="$(__set_vhost_alias "$set_vhost" ".myhost" "")"
           NGINX_VHOST_TMP_NAMES+=("$vhost.$HOSTNAME")
           set_vhost=""
-        elif printf '%s\n' "$set_vhost" | grep -q '[.]mydomain$'; then # map to vhost.domain or map to vhost.hostname
+        # map to vhost.domain or map to vhost.hostname
+        elif printf '%s\n' "$set_vhost" | grep -q '[.]mydomain$'; then
           vhost="$(__set_vhost_alias "$set_vhost" ".mydomain" "")"
           NGINX_VHOST_TMP_NAMES+=("$vhost.$CONTAINER_DOMAINNAME")
           set_vhost=""
-        elif printf '%s\n' "$set_vhost" | grep -q '.*[a-zA-Z0-9]\.\*$'; then # map to vhost.*
+        # map to vhost.*
+        elif printf '%s\n' "$set_vhost" | grep -q '.*[a-zA-Z0-9]\.\*$'; then
           NGINX_VHOST_TMP_NAMES+=("$set_vhost")
           set_vhost=""
         else

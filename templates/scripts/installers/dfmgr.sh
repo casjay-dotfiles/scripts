@@ -38,10 +38,9 @@ APPDIR="$HOME/.config/$APPNAME"
 PLUGIN_DIR="$HOME/.local/share/$APPNAME/plugins"
 # Set bash options
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
-#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 [ "$1" = "--no-color" ] && export SHOW_RAW="true"
-set -o pipefail
+set -eo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 for app in curl wget git; do command -v "$app" &>/dev/null || missing_app+=("$app"); done && [ -z "${missing_app[*]}" ] || { printf '%s\n' "${missing_app[*]}" && exit 1; }
 connect_test() { curl -q -ILSsf --retry 1 --max-time 2 "https://1.1.1.1" 2>&1 | grep -iq 'server:*.cloudflare' || return 1; }

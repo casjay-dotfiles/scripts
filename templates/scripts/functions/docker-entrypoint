@@ -25,11 +25,11 @@ if [ -f "/config/.debug" ] && [ -z "$DEBUGGER_OPTIONS" ]; then
   export DEBUGGER_OPTIONS="$(<"/config/.debug")"
 fi
 if [ "$DEBUGGER" = "on" ] || [ -f "/config/.debug" ]; then
-  set -o pipefail
+  set -eo pipefail
   [ -n "$DEBUGGER_OPTIONS" ] && set -"$DEBUGGER_OPTIONS"
   export DEBUGGER="on"
 else
-  set -o pipefail
+  set -eo pipefail
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __remove_extra_spaces() { sed -E 's/  +/ /g; s|^ ||'; }
@@ -257,7 +257,8 @@ __trim() {
 __banner() {
   local message="$*"
   local total_width=80
-  local content_width=$((total_width - 14)) # Account for "# - - - " and " - - - #"
+  # Account for "# - - - " and " - - - #"
+  local content_width=$((total_width - 14))
   printf '# - - - %-*s - - - #\n' "$content_width" "$message"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -267,9 +268,12 @@ __service_banner() {
   local service="${3:-service}"
   local full_message="$message $service"
   local total_width=80
-  local content_width=$((total_width - 14))                # Account for "# - - - " and " - - - #"
-  local icon_width=2                                       # Most emojis are 2 chars wide
-  local text_width=$((content_width - icon_width * 2 - 2)) # Account for both icons and spaces
+  # Account for "# - - - " and " - - - #"
+  local content_width=$((total_width - 14))
+  # Most emojis are 2 chars wide
+  local icon_width=2
+  # Account for both icons and spaces
+  local text_width=$((content_width - icon_width * 2 - 2))
   printf '# - - - %s %-*s %s - - - #\n' "$icon" "$text_width" "$full_message" "$icon"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -325,9 +329,12 @@ __find_mongodb_conf() {
 __random_password() { tr -dc '0-9a-zA-Z' < /dev/urandom | head -c${1:-16} && echo ""; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_working_dir() {
-  local service_name="$SERVICE_NAME"                           # get service name
-  local workdir="$(eval echo "${WORK_DIR:-}")"                 # expand variables
-  local home="$(eval echo "${workdir//\/root/\/tmp\/docker}")" # expand variables
+  # get service name
+  local service_name="$SERVICE_NAME"
+  # expand variables
+  local workdir="$(eval echo "${WORK_DIR:-}")"
+  # expand variables
+  local home="$(eval echo "${workdir//\/root/\/tmp\/docker}")"
   # set working directories
   [ "$home" = "$workdir" ] && workdir=""
   [ "$home" = "/root" ] && home="/tmp/$service_name"
@@ -978,10 +985,10 @@ __start_init_scripts() {
   [ "$1" = " " ] && shift 1
   if [ "$DEBUGGER" = "on" ]; then
     echo "Enabling debugging"
-    set -o pipefail
+    set -eo pipefail
     [ -n "$DEBUGGER_OPTIONS" ] && set -"$DEBUGGER_OPTIONS"
   else
-    set -o pipefail
+    set -eo pipefail
   fi
   local retPID=""
   local basename=""

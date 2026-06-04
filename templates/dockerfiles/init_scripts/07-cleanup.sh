@@ -5,7 +5,7 @@ cat <<EOF
 ##@Version           :  $(date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}")
 # @@Author           :  CasjaysDev
 # @@Contact          :  CasjaysDev <docker-admin@casjaysdev.pro>
-# @@License          :  MIT
+# @@License          :  WTFPL
 # @@Copyright        :  Copyright $(date +'%Y') CasjaysDev
 # @@Created          :  $(date)
 # @@File             :  $custom_init_name
@@ -21,7 +21,7 @@ cat <<EOF
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-set -o pipefail
+set -eo pipefail
 [ "\$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -x\$DEBUGGER_OPTIONS
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Load functions

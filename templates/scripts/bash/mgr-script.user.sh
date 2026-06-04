@@ -20,16 +20,12 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# pipes fail
-set -o pipefail
+# set pipefail and error exit options
+set -eo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reopen in a terminal
-#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# -eq 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$(printf '%q ' "${0##*/}" "$@")" && exit || exit 1; fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set script title
-#CASJAYS_DEV_TITLE_FORMAT="${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${0##*/}"
-#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-${0##*/}}}"
-#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]0;%s\007' "$CASJAYS_DEV_TITLE_FORMAT" && CASJAYSDEV_TITLE_SET="${0##*/}"
 [ -n "${CASJAYSDEV_TITLE_PREV+x}" ] || [ -n "${CASJAYSDEV_TITLE_SET+x}" ] || {
   if [ -t 1 ]; then
     printf '\033[21t' >/dev/tty
@@ -126,7 +122,6 @@ GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Proj
 GEN_SCRIPT_REPLACE_ENV_TEMPLATE_NAME="${GEN_SCRIPT_REPLACE_ENV_TEMPLATE_NAME:-installers/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX.sh}"
 GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-https://github.com/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
 GEN_SCRIPT_REPLACE_ENV_REPO_API_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_API_URL:-https://api.github.com/orgs/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX/repos}"
-# TODO Make script self-contained
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -149,7 +144,6 @@ GEN_SCRIPT_REPLACE_FILENAME_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables
 export SCRIPTS_PREFIX="$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
-# TODO End
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send all output to /dev/null
 __devnull() {
@@ -799,20 +793,6 @@ while :; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get directory from args
-# set -- "$@"
-# for arg in "$@"; do
-# if [ -d "$arg" ]; then
-# GEN_SCRIPT_REPLACE_ENV_CWD="$arg" && shift 1
-# elif [ -f "$arg" ]; then
-# GEN_SCRIPT_REPLACE_ENV_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1
-# else
-# SET_NEW_ARGS+=("$arg")
-# fi
-# done
-# set -- "${SET_NEW_ARGS[@]}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set directory to first argument
-# [ -d "$1" ] && __is_an_option "$1" && GEN_SCRIPT_REPLACE_ENV_CWD="$1" && shift 1 || GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
 GEN_SCRIPT_REPLACE_ENV_CWD="$(realpath "${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}" 2>/dev/null)"
 # if [ -d "$GEN_SCRIPT_REPLACE_ENV_CWD" ] && cd "$GEN_SCRIPT_REPLACE_ENV_CWD"; then
 # if [ "$GEN_SCRIPT_REPLACE_ENV_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then

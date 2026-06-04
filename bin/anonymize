@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606041200-git
+##@Version           :  202606041330-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606041200-git"
+VERSION="202606041330-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -436,7 +436,44 @@ __proxy_setup() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__curl_dl() { curl -q -LSsf --retry 1 "$1" -o "$2" 2>/dev/null || return 1; }
+# Spinner helpers — used by __curl_dl; no-ops when NO_COLOR/SHOW_RAW is set
+__spinner_start() {
+  # Spin until the file descriptor 9 is closed by the caller
+  [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ] && return 0
+  local label="${1:-Downloading}"
+  local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+  local i=0
+  tput civis 2>/dev/null
+  while true; do
+    printf '\r\e[36m%s\e[0m %s ' "${frames[$((i % 10))]}" "$label"
+    i=$((i + 1))
+    sleep 0.1
+  done &
+  ANONYMIZE_SPINNER_PID=$!
+}
+__spinner_stop() {
+  local status="${1:-0}"
+  [ -z "${ANONYMIZE_SPINNER_PID:-}" ] && return 0
+  kill "$ANONYMIZE_SPINNER_PID" 2>/dev/null
+  wait "$ANONYMIZE_SPINNER_PID" 2>/dev/null
+  ANONYMIZE_SPINNER_PID=""
+  tput cnorm 2>/dev/null
+  # Overwrite spinner line with result icon
+  if [ "$status" -eq 0 ]; then
+    printf '\r\e[32m✔\e[0m Download complete             \n'
+  else
+    printf '\r\e[31m✘\e[0m Download failed               \n'
+  fi
+}
+# Download url to file with a spinner; returns curl exit code
+__curl_dl() {
+  local url="$1" dest="$2" label="${3:-Downloading $(basename "$1")}"
+  __spinner_start "$label"
+  curl -q -LSsf --retry 1 "$url" -o "$dest" 2>/dev/null
+  local rc=$?
+  __spinner_stop "$rc"
+  return "$rc"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_versions() {
   # Rebuild download URLs from the current version variables after __init_versions runs
@@ -465,6 +502,7 @@ __download_and_extract_archive() {
   local destination="$2"
   local strip_components="${3:-1}"
   local temp_file="${4:-$ANONYMIZE_TEMP_FILE}"
+  local label="${5:-Downloading $(basename "$url")}"
 
   if [ -z "$url" ] || [ -z "$destination" ]; then
     printf_red "Error: URL and destination required"
@@ -473,7 +511,7 @@ __download_and_extract_archive() {
 
   mkdir -p "$destination"
 
-  if __curl_dl "$url" "$temp_file"; then
+  if __curl_dl "$url" "$temp_file" "$label"; then
     if tar xf "$temp_file" -C "$destination" --strip-components="$strip_components" 2>/dev/null; then
       rm -f "$temp_file"
       return 0
@@ -563,10 +601,10 @@ __install_tor_browser() {
 
     download_url="https://dist.torproject.org/torbrowser/${version}/tor-browser-${os}-${arch}-${version}.tar.xz"
 
-    printf_cyan "Downloading tor-browser $version ($os/$arch): $download_url"
+    printf_cyan "tor-browser $version ($os/$arch)"
     rm -Rf "$tor_home"
 
-    if __download_and_extract_archive "$download_url" "$tor_home" 1 "$ANONYMIZE_TEMP_FILE"; then
+    if __download_and_extract_archive "$download_url" "$tor_home" 1 "$ANONYMIZE_TEMP_FILE" "Downloading tor-browser ${version} (${os}/${arch})"; then
       if [ -f "$tor_home/start-tor-browser.desktop" ]; then
         cd "$tor_home" && eval "$tor_home/start-tor-browser.desktop" --register-app | printf_readline
         exitCode=0
@@ -658,8 +696,7 @@ __install_i2p_server() {
   if [ "$ANONYMIZE_DOWNLOAD" = "true" ] || [ ! -f "$i2p_jar" ]; then
     mkdir -p "$i2p_home"
     if [ ! -f "$i2p_jar" ]; then
-      printf_cyan "Downloading I2P installer..."
-      if ! __curl_dl "$ANONYMIZE_I2P_JAR" "$i2p_jar"; then
+      if ! __curl_dl "$ANONYMIZE_I2P_JAR" "$i2p_jar" "Downloading I2P installer"; then
         printf_exit "Failed to download $ANONYMIZE_I2P_JAR"
       fi
     fi
@@ -701,8 +738,7 @@ __install_freenet_server() {
   if [ "$ANONYMIZE_DOWNLOAD" = "true" ] || [ ! -f "$freenet_jar" ]; then
     mkdir -p "$freenet_home"
     if [ ! -f "$freenet_jar" ]; then
-      printf_cyan "Downloading Freenet installer..."
-      if ! __curl_dl "$ANONYMIZE_FREENET_JAR" "$freenet_jar"; then
+      if ! __curl_dl "$ANONYMIZE_FREENET_JAR" "$freenet_jar" "Downloading Freenet installer"; then
         printf_exit "Failed to download $ANONYMIZE_FREENET_JAR"
       fi
     fi

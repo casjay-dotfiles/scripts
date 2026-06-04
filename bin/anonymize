@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605131600-git
+##@Version           :  202606040542-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605131600-git"
+VERSION="202606040542-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -240,12 +240,11 @@ __gen_config() {
   cat <<EOF >"$ANONYMIZE_CONFIG_DIR/$ANONYMIZE_CONFIG_FILE"
 # Settings for anonymize
 ANONYMIZE_HOME="${ANONYMIZE_HOME:-}"
-ANONYMIZE_TOR_VERSION_ARM64="${ANONYMIZE_TOR_VERSION_ARM64:-}"
-ANONYMIZE_I2P_VERSION="${ANONYMIZE_I2P_JAR_VERSION:-}"
+ANONYMIZE_TOR_VERSION="${ANONYMIZE_TOR_VERSION:-}"
+ANONYMIZE_I2P_VERSION="${ANONYMIZE_I2P_VERSION:-}"
 ANONYMIZE_FREENET_VERSION="${ANONYMIZE_FREENET_VERSION:-}"
 ANONYMIZE_I2P_JAR="${ANONYMIZE_I2P_JAR:-}"
 ANONYMIZE_FREENET_JAR="${ANONYMIZE_FREENET_JAR:-}"
-ANONYMIZE_TOR_ARM64="${ANONYMIZE_TOR_ARM64:-}"
 ANONYMIZE_TOR_HOME="${ANONYMIZE_TOR_HOME:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -535,18 +534,26 @@ __install_tor_browser() {
   local tor_home="$HOME/.local/share/tor/browser"
   local exitCode=0
   local download_url=""
-  local arch="$(uname -m)"
+  local arch os version
 
-  if [ "$arch" = "aarch64" ]; then
-    download_url="$ANONYMIZE_TOR_ARM64"
-  elif [ "$arch" = "x86_64" ]; then
-    local version="$(curl -q -LSsf "https://dist.torproject.org/torbrowser" | __get_current_version)"
-    download_url="https://dist.torproject.org/torbrowser/$version/tor-browser-linux-x86_64-$version.tar.xz"
-  else
-    printf_exit "Unsupported architecture: $arch"
-  fi
+  case "$(uname -m)" in
+  x86_64)  arch="x86_64" ;;
+  aarch64) arch="aarch64" ;;
+  *) printf_exit "Unsupported architecture: $(uname -m)" ;;
+  esac
 
-  printf_cyan "Grabbing tor-browser from $download_url"
+  case "$(uname -s)" in
+  Linux)  os="linux" ;;
+  Darwin) os="macos" ;;
+  *) printf_exit "Unsupported OS: $(uname -s)" ;;
+  esac
+
+  version="$(__get_latest_tor_version)"
+  [ -z "$version" ] && printf_exit "Could not determine Tor Browser version"
+
+  download_url="https://dist.torproject.org/torbrowser/${version}/tor-browser-${os}-${arch}-${version}.tar.xz"
+
+  printf_cyan "Grabbing tor-browser $version ($os/$arch) from $download_url"
   rm -Rf "$tor_home"
 
   if __download_and_extract_archive "$download_url" "$tor_home" 1 "$ANONYMIZE_TEMP_FILE"; then
@@ -734,69 +741,56 @@ __install_tor_server() {
 # Get latest I2P version
 __get_latest_i2p_version() {
   local version
-  # Try to fetch from the I2P download page
   version=$(curl -q -LSsf "https://geti2p.net/en/download" 2>/dev/null |
-    grep -oP 'i2pinstall_\K[0-9.]+(?=\.jar)' |
+    grep -oE 'i2pinstall_[0-9][0-9.]*\.jar' |
+    sed -E 's/i2pinstall_([0-9.]+)\.jar/\1/' |
     head -1)
 
   if [ -z "$version" ]; then
-    # Fallback to GitHub API if available
     version=$(curl -q -LSsf "https://api.github.com/repos/i2p/i2p.i2p/releases/latest" 2>/dev/null |
-      grep '"tag_name"' |
+      grep -- '"tag_name"' |
       sed -E 's/.*"i2p-([^"]+)".*/\1/')
   fi
 
-  # Return version or fallback to default
   echo "${version:-2.7.0}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get latest Freenet version
 __get_latest_freenet_version() {
   local version
-  # Try GitHub API for latest release
   version=$(curl -q -LSsf "https://api.github.com/repos/freenet/fred/releases/latest" 2>/dev/null |
-    grep '"tag_name"' |
+    grep -- '"tag_name"' |
     sed -E 's/.*"build0([^"]+)".*/\1/')
 
   if [ -z "$version" ]; then
-    # Try to get from releases page
     version=$(curl -q -LSsf "https://github.com/freenet/fred/releases" 2>/dev/null |
-      grep -oP 'build0\K[0-9]+' |
+      grep -oE 'build0[0-9]+' |
+      sed -E 's/build0([0-9]+)/\1/' |
       head -1)
   fi
 
-  # Return version or fallback to default
   echo "${version:-1499}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get latest Tor Browser version
 __get_latest_tor_version() {
   local version
-  local platform="$(__detect_platform)"
-
-  if [ "$platform" = "macos" ]; then
-    # Check Tor Project for macOS
-    version=$(curl -q -LSsf "https://www.torproject.org/download/" 2>/dev/null |
-      grep -oP 'tor-browser-\K[0-9.]+(?=-macos)' |
-      head -1)
-  else
-    # Check for Linux version
-    version=$(curl -q -LSsf "https://www.torproject.org/download/" 2>/dev/null |
-      grep -oP 'tor-browser-\K[0-9.]+(?=-linux)' |
-      head -1)
-  fi
+  # Official Tor Project downloads JSON — most reliable, no HTML scraping
+  version=$(curl -q -LSsf "https://aus1.torproject.org/torbrowser/update_3/release/downloads.json" 2>/dev/null |
+    grep -- '"version"' |
+    sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' |
+    head -1)
 
   if [ -z "$version" ]; then
-    # Try dist.torproject.org
+    # Fallback: parse dist directory listing
     version=$(curl -q -LSsf "https://dist.torproject.org/torbrowser/" 2>/dev/null |
-      grep -oP 'href="[0-9.]+/"' |
-      grep -oP '[0-9.]+' |
+      grep -oE '"[0-9][0-9.]*/"' |
+      tr -d '"/' |
       sort -V |
       tail -1)
   fi
 
-  # Return version or fallback to default
-  echo "${version:-13.0.9}"
+  echo "${version:-14.5}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get latest Lokinet version
@@ -827,7 +821,7 @@ __init_versions() {
 
     if [ -z "$ANONYMIZE_TOR_VERSION_LATEST" ]; then
       ANONYMIZE_TOR_VERSION_LATEST="$(__get_latest_tor_version)"
-      export ANONYMIZE_TOR_VERSION_ARM64="${ANONYMIZE_TOR_VERSION_ARM64:-$ANONYMIZE_TOR_VERSION_LATEST}"
+      export ANONYMIZE_TOR_VERSION="${ANONYMIZE_TOR_VERSION:-$ANONYMIZE_TOR_VERSION_LATEST}"
     fi
 
     # Save versions to config for offline use
@@ -836,7 +830,7 @@ __init_versions() {
 # Auto-generated version file - $(date)
 ANONYMIZE_I2P_VERSION="${ANONYMIZE_I2P_VERSION}"
 ANONYMIZE_FREENET_VERSION="${ANONYMIZE_FREENET_VERSION}"
-ANONYMIZE_TOR_VERSION_ARM64="${ANONYMIZE_TOR_VERSION_ARM64}"
+ANONYMIZE_TOR_VERSION="${ANONYMIZE_TOR_VERSION}"
 EOF
     fi
 
@@ -855,7 +849,7 @@ EOF
     fi
 
     if __cmd_exists torbrowser || __cmd_exists tor-browser || __cmd_exists torbrowser-launcher || [ -f "$HOME/.local/share/tor/browser/Browser/start-tor-browser" ]; then
-      version_message="$version_message Tor=$ANONYMIZE_TOR_VERSION_ARM64,"
+      version_message="$version_message Tor=$ANONYMIZE_TOR_VERSION,"
       has_installed=true
     fi
 
@@ -1381,10 +1375,9 @@ ANONYMIZE_NOTIFY_CLIENT_URGENCY="${ANONYMIZE_NOTIFY_CLIENT_URGENCY:-normal}"
 ANONYMIZE_HOME="${ANONYMIZE_HOME:-$HOME/.local/share/anonymize}"
 ANONYMIZE_I2P_VERSION="${ANONYMIZE_I2P_VERSION:-2.7.0}"
 ANONYMIZE_FREENET_VERSION="${ANONYMIZE_FREENET_VERSION:-1499}"
-ANONYMIZE_TOR_VERSION_ARM64="${ANONYMIZE_TOR_VERSION_ARM64:- 13.0.9}"
+ANONYMIZE_TOR_VERSION="${ANONYMIZE_TOR_VERSION:-14.5}"
 ANONYMIZE_I2P_JAR="${ANONYMIZE_I2P_JAR:-https://geti2p.net/en/download/${ANONYMIZE_I2P_VERSION}/clearnet/http/any/i2pinstall_${ANONYMIZE_I2P_VERSION}.jar}"
 ANONYMIZE_FREENET_JAR="${ANONYMIZE_FREENET_JAR:-https://github.com/freenet/fred/releases/download/build0${ANONYMIZE_FREENET_VERSION}/new_installer_offline_${ANONYMIZE_FREENET_VERSION}.jar}"
-ANONYMIZE_TOR_ARM64="${ANONYMIZE_TOR_ARM64:-https://sourceforge.net/projects/tor-browser-ports/files/${ANONYMIZE_TOR_VERSION_ARM64}-alsa/tor-browser-linux-arm64-${ANONYMIZE_TOR_VERSION_ARM64}_ALL.tar.xz}"
 ANONYMIZE_TOR_HOME="${ANONYMIZE_TOR_HOME:-http://vkul5467fnqt5lqatsqivdtg2mk3bbdtveqzsjudq5jc2sbr2eojwrqd.onion}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
@@ -1817,14 +1810,14 @@ versions)
     if [ "$1" = "update" ]; then
       ANONYMIZE_I2P_VERSION="$i2p_latest"
       ANONYMIZE_FREENET_VERSION="$freenet_latest"
-      ANONYMIZE_TOR_VERSION_ARM64="$tor_latest"
+      ANONYMIZE_TOR_VERSION="$tor_latest"
 
       # Save to config
       cat >"$ANONYMIZE_CONFIG_DIR/versions.conf" <<EOF
 # Auto-generated version file - $(date)
 ANONYMIZE_I2P_VERSION="$i2p_latest"
 ANONYMIZE_FREENET_VERSION="$freenet_latest"
-ANONYMIZE_TOR_VERSION_ARM64="$tor_latest"
+ANONYMIZE_TOR_VERSION="$tor_latest"
 EOF
       printf_green "\nVersions updated in config!"
     fi
@@ -1832,7 +1825,7 @@ EOF
     printf_cyan "=== Current Configured Versions ==="
     printf_yellow "I2P: ${ANONYMIZE_I2P_VERSION:-not set}"
     printf_yellow "Freenet: ${ANONYMIZE_FREENET_VERSION:-not set}"
-    printf_yellow "Tor Browser: ${ANONYMIZE_TOR_VERSION_ARM64:-not set}"
+    printf_yellow "Tor Browser: ${ANONYMIZE_TOR_VERSION:-not set}"
     printf_cyan "\nUse 'anonymize versions check' to check for updates"
     printf_cyan "Use 'anonymize versions update' to update to latest versions"
   fi

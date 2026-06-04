@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040808-git
+##@Version           :  202606040840-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -196,22 +196,22 @@ __help() {
   __printf_opts "transfer.sh:  Upload file to https://transfer.sh - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: transfer.sh [options] [commands]"
-  __printf_line "[file]                          - Upload file"
-  __printf_line "cat [file] |transfer.sh]        - Upload from stdin"
-  __printf_line "scan [file]                     - Scan a file for malware/viruses"
-  __printf_line "virustotal [file/dir]           - Upload and scan a file"
-  __printf_line "encrypt  [file/dir]             - encrypt and upload file"
-  __printf_line "backup [file/dir]               - archive/encrypt and upload "
-  __printf_line "list                            - List the link to uploaded files"
+  __printf_line "[file]                                 - Upload file"
+  __printf_line "cat [file] |transfer.sh]               - Upload from stdin"
+  __printf_line "scan [file]                            - Scan a file for malware/viruses"
+  __printf_line "virustotal [file/dir]                  - Upload and scan a file"
+  __printf_line "encrypt  [file/dir]                    - encrypt and upload file"
+  __printf_line "backup [file/dir]                      - archive/encrypt and upload "
+  __printf_line "list                                   - List the link to uploaded files"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "--help                          - Shows this message"
-  __printf_line "--config                        - Generate user config file"
-  __printf_line "--version                       - Show script version"
-  __printf_line "--options                       - Shows all available options"
-  __printf_line "--debug                         - Enables script debugging"
-  __printf_line "--no-color                      - Disable ANSI color output"
+  __printf_line "--help                                 - Shows this message"
+  __printf_line "--config                               - Generate user config file"
+  __printf_line "--version                              - Show script version"
+  __printf_line "--options                              - Shows all available options"
+  __printf_line "--debug                                - Enables script debugging"
+  __printf_line "--no-color                             - Disable ANSI color output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -

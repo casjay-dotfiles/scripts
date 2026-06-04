@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040808-git
+##@Version           :  202606040840-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -196,27 +196,27 @@ __help() {
   __printf_opts "ix.io:  command line pastebin tool to post to ix.io - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: ix.io [options] [commands] [File,Text]"
-  __printf_line "*                               - Paste file or text"
-  __printf_line "post                            - Paste file or text"
-  __printf_line "create                          - Creates a new user"
-  __printf_line "latest                          - Get the latest posts"
-  __printf_line "user                            - "
-  __printf_line "id                              - "
-  __printf_line "raw                             - "
-  __printf_line "-d [id]                         - Delete paste "
-  __printf_line "-i [id]                         - Replace ID"
-  __printf_line "-n [number]                     - Self destruct after x reads"
-  __printf_line "--anonymous                     - Post anonymously if you have username set"
-  __printf_line "--user                          - Creates a new user"
+  __printf_line "*                                      - Paste file or text"
+  __printf_line "post                                   - Paste file or text"
+  __printf_line "create                                 - Creates a new user"
+  __printf_line "latest                                 - Get the latest posts"
+  __printf_line "user                                   - "
+  __printf_line "id                                     - "
+  __printf_line "raw                                    - "
+  __printf_line "-d [id]                                - Delete paste "
+  __printf_line "-i [id]                                - Replace ID"
+  __printf_line "-n [number]                            - Self destruct after x reads"
+  __printf_line "--anonymous                            - Post anonymously if you have username set"
+  __printf_line "--user                                 - Creates a new user"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "--help                          - Shows this message"
-  __printf_line "--config                        - Generate user config file"
-  __printf_line "--version                       - Show script version"
-  __printf_line "--options                       - Shows all available options"
-  __printf_line "--debug                         - Enables script debugging"
-  __printf_line "--no-color                      - Disable ANSI color output"
+  __printf_line "--help                                 - Shows this message"
+  __printf_line "--config                               - Generate user config file"
+  __printf_line "--version                              - Show script version"
+  __printf_line "--options                              - Shows all available options"
+  __printf_line "--debug                                - Enables script debugging"
+  __printf_line "--no-color                             - Disable ANSI color output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -

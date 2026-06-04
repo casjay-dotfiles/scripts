@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040808-git
+##@Version           :  202606040840-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -198,24 +198,24 @@ __help() {
   __printf_opts "cheat.sh:  Get help with commands - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: cheat.sh [options] [commands]"
-  __printf_line "TOPIC                           - show cheat sheet on the TOPIC"
-  __printf_line "TOPIC/SUB                       - show cheat sheet on the SUB topic in TOPIC"
-  __printf_line "~KEYWORD                        - search cheat sheets for KEYWORD"
-  __printf_line ":list                           - list all cheat sheets"
-  __printf_line ":post                           - how to post new cheat sheet"
-  __printf_line ":styles                         - list of color styles"
-  __printf_line ":styles-demo                    - show color styles usage examples"
-  __printf_line ":random                         - fetches a random cheat sheet"
-  __printf_line ":help                           - this page"
+  __printf_line "TOPIC                                  - show cheat sheet on the TOPIC"
+  __printf_line "TOPIC/SUB                              - show cheat sheet on the SUB topic in TOPIC"
+  __printf_line "~KEYWORD                               - search cheat sheets for KEYWORD"
+  __printf_line ":list                                  - list all cheat sheets"
+  __printf_line ":post                                  - how to post new cheat sheet"
+  __printf_line ":styles                                - list of color styles"
+  __printf_line ":styles-demo                           - show color styles usage examples"
+  __printf_line ":random                                - fetches a random cheat sheet"
+  __printf_line ":help                                  - this page"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "--help                          - Shows this message"
-  __printf_line "--config                        - Generate user config file"
-  __printf_line "--version                       - Show script version"
-  __printf_line "--options                       - Shows all available options"
-  __printf_line "--debug                         - Enables script debugging"
-  __printf_line "--no-color                      - Disable ANSI color output"
+  __printf_line "--help                                 - Shows this message"
+  __printf_line "--config                               - Generate user config file"
+  __printf_line "--version                              - Show script version"
+  __printf_line "--options                              - Shows all available options"
+  __printf_line "--debug                                - Enables script debugging"
+  __printf_line "--no-color                             - Disable ANSI color output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -

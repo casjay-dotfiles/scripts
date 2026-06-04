@@ -1,70 +1,87 @@
 cat <<EOF
-name: $name
+name: Build and Push
 
-on: push
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 2 1 * *'
+  workflow_dispatch:
 
 jobs:
-  release-$name:
-    runs-on: act_runner
-    container:
-      image: catthehacker/ubuntu:act-latest
-    env:
-      RUNNER_TOOL_CACHE: /toolcache
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
-      - name: Get Meta
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Compute build metadata
         id: meta
         run: |
-          repo_version="\$(git describe --tags --always)"
-          repo_version="\${repo_version#v}"
-          docker_org="\${GITHUB_REPOSITORY%%/*}"
-          repo_name="\${GITHUB_REPOSITORY#*/}"
-          repo_name="\${repo_name#docker-}"
-          docker_tag="\${DOCKER_TAG:-latest}"
-          docker_hub="\${DOCKER_HUB:-docker.io}"
-          printf 'DATE_TAG=%s\n' "\$(date +'%y%m')" >> "\$GITHUB_OUTPUT"
-          printf 'REPO_VERSION=%s\n' "\$repo_version" >> "\$GITHUB_OUTPUT"
-          printf 'DOCKER_ORG=%s\n' "\$docker_org" >> "\$GITHUB_OUTPUT"
-          printf 'DOCKER_TAG=%s\n' "\$docker_tag" >> "\$GITHUB_OUTPUT"
-          printf 'DOCKER_HUB=%s\n' "\$docker_hub" >> "\$GITHUB_OUTPUT"
-          printf 'REPO_NAME=%s\n' "\$repo_name" >> "\$GITHUB_OUTPUT"
-          printf '%s\n' "\$docker_hub/\$docker_org/\$repo_name:\$docker_tag"
+          echo "build_date=\$(date -u +%Y%m%d%H%M)" >> "\$GITHUB_OUTPUT"
+          echo "tag_yymm=\$(date -u +%y%m)" >> "\$GITHUB_OUTPUT"
+          echo "git_commit=\${GITHUB_SHA::7}" >> "\$GITHUB_OUTPUT"
+          echo "registry_host=\$(echo '\${{ github.server_url }}' | sed 's|https://||')" >> "\$GITHUB_OUTPUT"
+          # tag_name uses IMAGE_TAG if set, falls back to latest
+          echo "tag_name=\${IMAGE_TAG:-latest}" >> "\$GITHUB_OUTPUT"
 
-      - name: Set up Docker BuildX
-        uses: docker/setup-buildx-action@v2
-
-      - name: Login to DockerHub
-        uses: docker/login-action@v2
+      # ── Always: login to Gitea (GITEA_TOKEN is auto-provided) ────────────────
+      - name: Login to Gitea registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
-          password: \${{ secrets.DOCKER_TOKEN }}
-          username: \${{ secrets.DOCKER_USERNAME }}
-          registry: \${{ steps.meta.outputs.DOCKER_HUB }}
+          registry: \${{ steps.meta.outputs.registry_host }}
+          username: \${{ github.repository_owner }}
+          password: \${{ secrets.GITEA_TOKEN }}
 
+      # ── Optional: login to Docker Hub when vars.DOCKER_USERNAME is configured ─
+      # Login uses vars.DOCKER_USERNAME; secrets.DOCKER_PASSWORD is passed only
+      # via with: and never touches a shell.
+      - name: Login to Docker Hub
+        if: vars.DOCKER_USERNAME != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: \${{ vars.DOCKER_USERNAME }}
+          password: \${{ secrets.DOCKER_PASSWORD }}
+
+      # ── Build once, push to all logged-in registries ─────────────────────────
+      # Image namespace uses vars.DOCKER_ORG when set, falls back to vars.DOCKER_USERNAME.
       - name: Build and push
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
-          file: ./Dockerfile
-          platforms: |
-            linux/amd64
-            linux/arm64
+          platforms: linux/amd64,linux/arm64
           push: true
-          build-args: |
-            IMAGE_NAME=\${{ steps.meta.outputs.REPO_NAME }}
-            BUILD_DATE=\$(date -u +'%Y%m%d%H%M')
-            BUILD_VERSION=\$(date -u +'%Y%m%d%H%M')
-            GIT_COMMIT=\${{ github.sha }}
-            TIMEZONE=America/New_York
-            LANGUAGE=en_US.UTF-8
-            LICENSE=WTFPL
-            TZ=America/New_York
           tags: |
-            \${{ steps.meta.outputs.DOCKER_HUB }}/\${{ steps.meta.outputs.DOCKER_ORG }}/\${{ steps.meta.outputs.REPO_NAME }}:\${{ steps.meta.outputs.DATE_TAG }}
-            \${{ steps.meta.outputs.DOCKER_HUB }}/\${{ steps.meta.outputs.DOCKER_ORG }}/\${{ steps.meta.outputs.REPO_NAME }}:\${{ steps.meta.outputs.DOCKER_TAG }}
-
+            \${{ steps.meta.outputs.registry_host }}/\${{ github.repository }}:\${{ steps.meta.outputs.tag_yymm }}
+            \${{ steps.meta.outputs.registry_host }}/\${{ github.repository }}:\${{ steps.meta.outputs.tag_name }}
+            \${{ vars.DOCKER_USERNAME != '' && format('{0}/{1}:{2}', vars.DOCKER_ORG || vars.DOCKER_USERNAME, github.event.repository.name, steps.meta.outputs.tag_yymm) || '' }}
+            \${{ vars.DOCKER_USERNAME != '' && format('{0}/{1}:{2}', vars.DOCKER_ORG || vars.DOCKER_USERNAME, github.event.repository.name, steps.meta.outputs.tag_name) || '' }}
+          build-args: |
+            BUILD_DATE=\${{ steps.meta.outputs.build_date }}
+            GIT_COMMIT=\${{ steps.meta.outputs.git_commit }}
+            BUILD_VERSION=\${{ steps.meta.outputs.tag_yymm }}
+          annotations: |
+            org.opencontainers.image.created=\${{ steps.meta.outputs.build_date }}
+            org.opencontainers.image.version=\${{ steps.meta.outputs.tag_name }}
+            org.opencontainers.image.revision=\${{ steps.meta.outputs.git_commit }}
+            org.opencontainers.image.title=\${{ github.event.repository.name }}
+            org.opencontainers.image.description=Containerized version of \${{ github.event.repository.name }}
+            org.opencontainers.image.vendor=CasjaysDev
+            org.opencontainers.image.authors=CasjaysDev
+            org.opencontainers.image.licenses=WTFPL
+            org.opencontainers.image.url=\${{ github.server_url }}/\${{ github.repository }}
+            org.opencontainers.image.source=\${{ github.server_url }}/\${{ github.repository }}
+            org.opencontainers.image.documentation=\${{ github.server_url }}/\${{ github.repository }}
+            org.opencontainers.image.vcs-type=Git
+            com.github.containers.toolbox=false
 EOF

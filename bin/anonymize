@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606041500-git
+##@Version           :  202606041600-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606041500-git"
+VERSION="202606041600-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -466,11 +466,11 @@ __spinner_stop() {
   wait "$ANONYMIZE_SPINNER_PID" 2>/dev/null
   ANONYMIZE_SPINNER_PID=""
   tput cnorm 2>/dev/null
-  # Overwrite spinner line with result icon
+  # Erase the full spinner line, then print the result icon
   if [ "$status" -eq 0 ]; then
-    printf '\r\e[32m✔\e[0m Download complete             \n'
+    printf '\033[2K\r\e[32m✔\e[0m Download complete\n'
   else
-    printf '\r\e[31m✘\e[0m Download failed               \n'
+    printf '\033[2K\r\e[31m✘\e[0m Download failed\n'
   fi
 }
 # Download url to file with a spinner; returns curl exit code
@@ -520,12 +520,24 @@ __download_and_extract_archive() {
   mkdir -p "$destination"
 
   if __curl_dl "$url" "$temp_file" "$label"; then
-    if tar xf "$temp_file" -C "$destination" --strip-components="$strip_components" 2>/dev/null; then
-      rm -f "$temp_file"
+    # Select decompression flag from URL extension — avoids relying on
+    # magic-byte detection when the temp file has no extension
+    local tar_flag
+    case "$url" in
+    *.tar.xz | *.txz) tar_flag="J" ;;
+    *.tar.gz | *.tgz) tar_flag="z" ;;
+    *.tar.bz2 | *.tbz2) tar_flag="j" ;;
+    *.tar.zst) tar_flag="--zstd -" ;;
+    *) tar_flag="" ;;
+    esac
+    local tar_err
+    tar_err=$(tar "${tar_flag}xf" "$temp_file" -C "$destination" --strip-components="$strip_components" 2>&1)
+    local tar_rc=$?
+    rm -f "$temp_file"
+    if [ "$tar_rc" -eq 0 ]; then
       return 0
     else
-      rm -f "$temp_file"
-      printf_red "Failed to extract archive"
+      printf_red "Failed to extract archive: $tar_err"
       return 1
     fi
   else
@@ -609,7 +621,6 @@ __install_tor_browser() {
 
     download_url="https://dist.torproject.org/torbrowser/${version}/tor-browser-${os}-${arch}-${version}.tar.xz"
 
-    printf_cyan "tor-browser $version ($os/$arch)"
     rm -Rf "$tor_home"
 
     if __download_and_extract_archive "$download_url" "$tor_home" 1 "$ANONYMIZE_TEMP_FILE" "Downloading tor-browser ${version} (${os}/${arch})"; then
@@ -693,11 +704,42 @@ __install_openvpn_client() {
     return 0
   fi
   printf_cyan "Installing OpenVPN client..."
-  if pkmgr silent install openvpn; then
+  local platform pkg
+  platform="$(__detect_platform)"
+  # Package name is 'openvpn' on every distro; map here for explicitness
+  # and to allow per-distro overrides as needed in the future
+  case "$platform" in
+  ubuntu | debian | linuxmint | pop | elementary | kali | parrot)
+    pkg="openvpn" ;;
+  fedora | nobara)
+    pkg="openvpn" ;;
+  centos | rhel | rocky | almalinux | ol)
+    pkg="openvpn" ;;
+  arch | manjaro | endeavouros | garuda)
+    pkg="openvpn" ;;
+  opensuse* | sles | sled)
+    pkg="openvpn" ;;
+  alpine)
+    pkg="openvpn" ;;
+  void)
+    pkg="openvpn" ;;
+  macos)
+    if __cmd_exists brew; then
+      brew install openvpn && printf_green "OpenVPN client installed successfully" && return 0
+      printf_red "Failed to install OpenVPN via brew"
+      return 1
+    else
+      printf_red "Please install Homebrew first"
+      return 1
+    fi ;;
+  *)
+    pkg="openvpn" ;;
+  esac
+  if pkmgr silent install "$pkg"; then
     printf_green "OpenVPN client installed successfully"
     return 0
   else
-    printf_red "Failed to install OpenVPN client"
+    printf_red "Failed to install OpenVPN client (package: $pkg)"
     return 1
   fi
 }
@@ -708,20 +750,43 @@ __install_wireguard_client() {
     return 0
   fi
   printf_cyan "Installing WireGuard client..."
-  local platform
+  local platform pkg
   platform="$(__detect_platform)"
-  if [ "$platform" = "macos" ]; then
+  # Debian/Ubuntu ship a 'wireguard' meta-package that pulls in everything;
+  # most other distros use 'wireguard-tools' (kernel module ships separately
+  # or is built-in since Linux 5.6)
+  case "$platform" in
+  ubuntu | debian | linuxmint | pop | elementary | kali | parrot)
+    pkg="wireguard" ;;
+  fedora | nobara)
+    pkg="wireguard-tools" ;;
+  centos | rhel | rocky | almalinux | ol)
+    pkg="wireguard-tools" ;;
+  arch | manjaro | endeavouros | garuda)
+    pkg="wireguard-tools" ;;
+  opensuse* | sles | sled)
+    pkg="wireguard-tools" ;;
+  alpine)
+    pkg="wireguard-tools" ;;
+  void)
+    pkg="wireguard-tools" ;;
+  macos)
     if __cmd_exists brew; then
-      brew install wireguard-tools
+      brew install wireguard-tools && printf_green "WireGuard client installed successfully" && return 0
+      printf_red "Failed to install WireGuard via brew"
+      return 1
     else
       printf_red "Please install Homebrew first"
       return 1
-    fi
-  elif pkmgr silent install wireguard-tools || pkmgr silent install wireguard; then
+    fi ;;
+  *)
+    pkg="wireguard-tools" ;;
+  esac
+  if pkmgr silent install "$pkg"; then
     printf_green "WireGuard client installed successfully"
     return 0
   else
-    printf_red "Failed to install WireGuard client"
+    printf_red "Failed to install WireGuard client (package: $pkg)"
     return 1
   fi
 }

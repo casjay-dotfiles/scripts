@@ -2,7 +2,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Bash completion support for: gen-dockermgr
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202606040928-git
 ##@Author            :  Jason Hempstead
 ##@Contact           :  jason@casjaysdev.pro
 ##@License           :  LICENSE.md

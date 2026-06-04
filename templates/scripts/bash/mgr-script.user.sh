@@ -304,7 +304,6 @@ __help() {
   __printf_line "--no-color                             - Disable ANSI color output"
   __printf_line "--no                                   - No options"
   __printf_line "--yes                                  - Yes options"
-  __printf_line ""
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040542-git
+##@Version           :  202606040550-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606040542-git"
+VERSION="202606040550-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -438,7 +438,11 @@ __proxy_setup() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_dl() { curl -q -LSsf --retry 1 "$1" -o "$2" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__create_versions() { return; }
+__create_versions() {
+  # Rebuild download URLs from the current version variables after __init_versions runs
+  ANONYMIZE_I2P_JAR="https://geti2p.net/en/download/${ANONYMIZE_I2P_VERSION}/clearnet/http/any/i2pinstall_${ANONYMIZE_I2P_VERSION}.jar"
+  ANONYMIZE_FREENET_JAR="https://github.com/freenet/fred/releases/download/build0${ANONYMIZE_FREENET_VERSION}/new_installer_offline_${ANONYMIZE_FREENET_VERSION}.jar"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check and install Java if not present
 __java_install() {
@@ -534,34 +538,53 @@ __install_tor_browser() {
   local tor_home="$HOME/.local/share/tor/browser"
   local exitCode=0
   local download_url=""
-  local arch os version
+  local arch os
 
   case "$(uname -m)" in
-  x86_64)  arch="x86_64" ;;
-  aarch64) arch="aarch64" ;;
+  x86_64) arch="x86_64" ;;
+  # Tor Project does not publish official aarch64 Linux builds — skip to package manager
+  aarch64)
+    printf_yellow "No official Tor Browser build for aarch64 — falling back to package manager"
+    arch=""
+    ;;
   *) printf_exit "Unsupported architecture: $(uname -m)" ;;
   esac
 
   case "$(uname -s)" in
   Linux)  os="linux" ;;
-  Darwin) os="macos" ;;
+  # macOS release is a .dmg, not a tar.xz — skip to package manager
+  Darwin)
+    printf_yellow "macOS Tor Browser is a .dmg and cannot be auto-extracted — falling back to package manager"
+    os=""
+    ;;
   *) printf_exit "Unsupported OS: $(uname -s)" ;;
   esac
 
-  version="$(__get_latest_tor_version)"
-  [ -z "$version" ] && printf_exit "Could not determine Tor Browser version"
+  if [ -n "$arch" ] && [ -n "$os" ]; then
+    # Pull the binary URL directly from the per-platform JSON (authoritative, no URL construction)
+    download_url=$(curl -q -LSsf "https://aus1.torproject.org/torbrowser/update_3/release/download-${os}-${arch}.json" 2>/dev/null |
+      grep -- '"binary"' |
+      sed -E 's/.*"binary"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' |
+      head -1)
 
-  download_url="https://dist.torproject.org/torbrowser/${version}/tor-browser-${os}-${arch}-${version}.tar.xz"
-
-  printf_cyan "Grabbing tor-browser $version ($os/$arch) from $download_url"
-  rm -Rf "$tor_home"
-
-  if __download_and_extract_archive "$download_url" "$tor_home" 1 "$ANONYMIZE_TEMP_FILE"; then
-    if [ -f "$tor_home/start-tor-browser.desktop" ]; then
-      cd "$tor_home" && eval "$tor_home/start-tor-browser.desktop" --register-app | printf_readline
-      exitCode=0
-    else
+    if [ -z "$download_url" ]; then
+      printf_red "Could not retrieve Tor Browser download URL for ${os}/${arch}"
       exitCode=1
+    else
+      printf_cyan "Downloading tor-browser for ${os}/${arch}: $download_url"
+      rm -Rf "$tor_home"
+
+      if __download_and_extract_archive "$download_url" "$tor_home" 1 "$ANONYMIZE_TEMP_FILE"; then
+        if [ -f "$tor_home/start-tor-browser.desktop" ]; then
+          cd "$tor_home" && eval "$tor_home/start-tor-browser.desktop" --register-app | printf_readline
+          exitCode=0
+        else
+          printf_red "Extracted archive but start-tor-browser.desktop not found"
+          exitCode=1
+        fi
+      else
+        exitCode=1
+      fi
     fi
   else
     exitCode=1
@@ -752,7 +775,12 @@ __get_latest_i2p_version() {
       sed -E 's/.*"i2p-([^"]+)".*/\1/')
   fi
 
-  echo "${version:-2.7.0}"
+  if [ -z "$version" ]; then
+    printf_yellow "Warning: could not fetch latest I2P version; using bundled fallback 2.7.0" >&2
+    version="2.7.0"
+  fi
+
+  echo "$version"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get latest Freenet version
@@ -769,14 +797,19 @@ __get_latest_freenet_version() {
       head -1)
   fi
 
-  echo "${version:-1499}"
+  if [ -z "$version" ]; then
+    printf_yellow "Warning: could not fetch latest Freenet version; using bundled fallback 1499" >&2
+    version="1499"
+  fi
+
+  echo "$version"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get latest Tor Browser version
 __get_latest_tor_version() {
   local version
-  # Official Tor Project downloads JSON — most reliable, no HTML scraping
-  version=$(curl -q -LSsf "https://aus1.torproject.org/torbrowser/update_3/release/downloads.json" 2>/dev/null |
+  # Official per-platform JSON (downloads.json is deprecated; use download-$platform.json)
+  version=$(curl -q -LSsf "https://aus1.torproject.org/torbrowser/update_3/release/download-linux-x86_64.json" 2>/dev/null |
     grep -- '"version"' |
     sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' |
     head -1)
@@ -790,7 +823,12 @@ __get_latest_tor_version() {
       tail -1)
   fi
 
-  echo "${version:-14.5}"
+  if [ -z "$version" ]; then
+    printf_yellow "Warning: could not fetch latest Tor version; using bundled fallback 15.0.15" >&2
+    version="15.0.15"
+  fi
+
+  echo "$version"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get latest Lokinet version
@@ -1562,8 +1600,8 @@ export ANONYMIZE_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 #__requiresudo "$0" "$@" || exit 2     # exit 2 if errors
-#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
-#am_i_online --error || exit 4           # exit 4 if no internet
+__cmd_exists bash || { printf_red "bash is not installed" && exit 3; }
+__am_i_online || { printf_red "You're offline" && exit 4; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 
@@ -1581,7 +1619,7 @@ export ANONYMIZE_CWD
 case "$1" in
 init)
   shift 1
-  __init_versions
+  __init_versions || printf_yellow "Warning: version check failed; using bundled defaults"
   __create_versions
   __install_tor_browser
   exit $?
@@ -1613,11 +1651,12 @@ servers)
     ;;
   # install and configure the i2p server, freenet server, lokinet server, and tor server
   *)
-    __install_tor_server
-    __install_lokinet_server
-    __install_i2p_server
-    __install_freenet_server
-    exit $?
+    local _srv_exit=0
+    __install_tor_server    || _srv_exit=$((_srv_exit + 1))
+    __install_lokinet_server || _srv_exit=$((_srv_exit + 1))
+    __install_i2p_server    || _srv_exit=$((_srv_exit + 1))
+    __install_freenet_server || _srv_exit=$((_srv_exit + 1))
+    exit $_srv_exit
     ;;
   esac
   ;;

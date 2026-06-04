@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606041930-git
+##@Version           :  202606042000-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606041930-git"
+VERSION="202606042000-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -52,13 +52,6 @@ __devnull() {
   return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Send errors to /dev/null
-__devnull2() {
-  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
-  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
-  return ${exitCode:-0}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 # See if the executable exists
 __cmd_exists() {
   local exitCode=0
@@ -75,6 +68,20 @@ __cmd_exists() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __sleep() { sleep "${1:-1}"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Inline fallback for the external netstatg helper
+__netstatg() {
+  local port="${1:-}"
+  if __cmd_exists netstatg; then
+    netstatg "$port" 2>/dev/null
+  elif __cmd_exists ss; then
+    ss -tlnp 2>/dev/null | grep -- ":${port}[[:space:]]"
+  elif __cmd_exists netstat; then
+    netstat -tlnp 2>/dev/null | grep -- ":${port}[[:space:]]"
+  elif __cmd_exists lsof; then
+    lsof -i ":${port}" -n -P 2>/dev/null
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
 __am_i_online() {
@@ -196,7 +203,7 @@ printf_custom() {
 printf_readline() {
   set -o pipefail
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
-  while read line; do
+  while IFS= read -r line; do
     printf_color "$line" "${PRINTF_COLOR:-$color}"
     printf "\n"
   done
@@ -319,9 +326,6 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# check if arg is a builtin option
-__is_an_option() { if [[ "$ARRAY" == *"${1:-^}"* ]]; then return 1; else return 0; fi; }
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
   { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
@@ -344,7 +348,7 @@ __sudoask() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run sudo
 __sudorun() {
-  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && "$@"; }
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -359,18 +363,6 @@ __sudoif() {
   __user_is_root && return 0
   __can_i_sudo "${RUN_USER:-$USER}" && return 0
   __user_is_not_root && __sudoask && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Run command as root
-__requiresudo() {
-  if [ "$ANONYMIZE_REQUIRE_SUDO" = "yes" ] && [ -z "$ANONYMIZE_REQUIRE_SUDO_RUN" ]; then
-    export ANONYMIZE_REQUIRE_SUDO="no"
-    export ANONYMIZE_REQUIRE_SUDO_RUN="true"
-    __sudo "$@"
-    exit $?
-  else
-    return 0
-  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute sudo
@@ -423,7 +415,8 @@ __open_browser() {
   [ -z "$url" ] && return 1
   if __has_display; then
     if [ -n "${BROWSER:-}" ]; then
-      eval "$BROWSER" "$url" &>/dev/null &
+      # $BROWSER intentionally unquoted — may contain args (e.g. "firefox --private")
+      $BROWSER "$url" &>/dev/null &
     elif __cmd_exists xdg-open; then
       xdg-open "$url" &>/dev/null &
     else
@@ -434,7 +427,6 @@ __open_browser() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_current_version() { sed -e 's/<[^>]*>//g' -e 's|/>||g' | grep '/' | grep '[0-9]' | awk -F '/' '{print $1}' | sed 's| ||g' | sort -ur | head -n1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __proxy_setup() {
@@ -443,7 +435,7 @@ __proxy_setup() {
   proxy="${2:-http://localhost:9080}"
   browser="${3:-https://check.torproject.org}"
   port="$(echo "$proxy" | sed -e 's|.*://||g' | awk -F: '{print $2}' || echo "$proxy")"
-  if netstatg "$port" | grep -q "$progname"; then
+  if __netstatg "$port" | grep -q -- "$progname"; then
     SET_PROXY="$proxy"
     SET_PROXY_NONE="127.0.0.1,localhost,.localdomain.com,.local"
     export http_proxy="$SET_PROXY"
@@ -459,7 +451,7 @@ __proxy_setup() {
     export ALL_PROXY="$SET_PROXY"
     export NO_PROXY="${SET_PROXY_NONE:-}"
     printf_cyan "Proxy is set to $SET_PROXY"
-    mybrowser "$browser"
+    __open_browser "$browser"
     curl -q -LSsf "https://check.torproject.org" |
       grep -q 'Congratulations. This browser is configured to use Tor' &&
       printf_yellow "Torifing your shell - exit to quit"
@@ -501,7 +493,7 @@ __spinner_stop() {
 }
 # Download url to file with a spinner; returns curl exit code
 __curl_dl() {
-  local url="$1" dest="$2" label="${3:-Downloading $(basename "$1")}"
+  local url="$1" dest="$2" label="${3:-Downloading ${1##*/}}"
   __spinner_start "$label"
   curl -q -LSsf --retry 1 "$url" -o "$dest" 2>/dev/null
   local rc=$?
@@ -536,7 +528,7 @@ __download_and_extract_archive() {
   local destination="$2"
   local strip_components="${3:-1}"
   local temp_file="${4:-$ANONYMIZE_TEMP_FILE}"
-  local label="${5:-Downloading $(basename "$url")}"
+  local label="${5:-Downloading ${url##*/}}"
 
   if [ -z "$url" ] || [ -z "$destination" ]; then
     printf_red "Error: URL and destination required"
@@ -546,18 +538,18 @@ __download_and_extract_archive() {
   mkdir -p "$destination"
 
   if __curl_dl "$url" "$temp_file" "$label"; then
-    # Select decompression flag from URL extension — avoids relying on
+    # Select decompression args from URL extension — avoids relying on
     # magic-byte detection when the temp file has no extension
-    local tar_flag
+    local -a tar_args
     case "$url" in
-    *.tar.xz | *.txz) tar_flag="J" ;;
-    *.tar.gz | *.tgz) tar_flag="z" ;;
-    *.tar.bz2 | *.tbz2) tar_flag="j" ;;
-    *.tar.zst) tar_flag="--zstd -" ;;
-    *) tar_flag="" ;;
+    *.tar.xz | *.txz) tar_args=(-Jxf) ;;
+    *.tar.gz | *.tgz) tar_args=(-zxf) ;;
+    *.tar.bz2 | *.tbz2) tar_args=(-jxf) ;;
+    *.tar.zst) tar_args=(--zstd -xf) ;;
+    *) tar_args=(-xf) ;;
     esac
     local tar_err
-    tar_err=$(tar "${tar_flag}xf" "$temp_file" -C "$destination" --strip-components="$strip_components" 2>&1)
+    tar_err=$(tar "${tar_args[@]}" "$temp_file" -C "$destination" --strip-components="$strip_components" 2>&1)
     local tar_rc=$?
     rm -f "$temp_file"
     if [ "$tar_rc" -eq 0 ]; then
@@ -598,7 +590,7 @@ __find_executable() {
 __create_wrapper_script() {
   local wrapper_path="$1"
   local target_bin="$2"
-  local target_dir="$(dirname "$target_bin")"
+  local target_dir="${target_bin%/*}"
 
   if [ -z "$wrapper_path" ] || [ -z "$target_bin" ]; then
     return 1
@@ -658,7 +650,8 @@ __install_tor_browser() {
 
     if __download_and_extract_archive "$download_url" "$tor_home" 1 "$ANONYMIZE_TEMP_FILE" "Downloading tor-browser ${version} (${os}/${arch})"; then
       if [ -f "$tor_home/start-tor-browser.desktop" ]; then
-        cd "$tor_home" && eval "$tor_home/start-tor-browser.desktop" --register-app | printf_readline
+        chmod +x "$tor_home/start-tor-browser.desktop" 2>/dev/null
+        cd "$tor_home" && "$tor_home/start-tor-browser.desktop" --register-app | printf_readline
         exitCode=0
       else
         printf_red "Extracted archive but start-tor-browser.desktop not found"
@@ -737,7 +730,8 @@ __install_openvpn_client() {
     return 0
   fi
   printf_cyan "Installing OpenVPN client..."
-  local platform pkg
+  local platform
+  local pkg
   platform="$(__detect_platform)"
   # Package name is 'openvpn' on every distro; map here for explicitness
   # and to allow per-distro overrides as needed in the future
@@ -783,7 +777,8 @@ __install_wireguard_client() {
     return 0
   fi
   printf_cyan "Installing WireGuard client..."
-  local platform pkg
+  local platform
+  local pkg
   platform="$(__detect_platform)"
   # Debian/Ubuntu ship a 'wireguard' meta-package that pulls in everything;
   # most other distros use 'wireguard-tools' (kernel module ships separately
@@ -833,7 +828,7 @@ __install_i2p_server() {
 
   if [ -f "$i2p_router" ] && [ "$ANONYMIZE_DOWNLOAD" != "true" ]; then
     printf_cyan "Starting existing I2P installation..."
-    eval "$i2p_router" start &
+    "$i2p_router" start &
     __sleep 10
     return 0
   fi
@@ -856,7 +851,7 @@ __install_i2p_server() {
   fi
 
   if [ -f "$i2p_router" ]; then
-    eval "$i2p_router" start &
+    "$i2p_router" start &
     __sleep 10
     printf_green "I2P server started successfully"
     return 0
@@ -875,7 +870,7 @@ __install_freenet_server() {
 
   if [ -f "$freenet_runner" ] && [ "$ANONYMIZE_DOWNLOAD" != "true" ]; then
     printf_cyan "Starting existing Freenet installation..."
-    eval "$freenet_runner" start &
+    "$freenet_runner" start &
     __sleep 10
     return 0
   fi
@@ -898,7 +893,7 @@ __install_freenet_server() {
   fi
 
   if [ -f "$freenet_runner" ]; then
-    eval "$freenet_runner" start &
+    "$freenet_runner" start &
     __sleep 10
     printf_green "Freenet server started successfully"
     return 0
@@ -935,7 +930,7 @@ __install_tor_server() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get latest I2P version
 __get_latest_i2p_version() {
-  local version
+  local version=""
   version=$(curl -q -LSsf "https://geti2p.net/en/download" 2>/dev/null |
     grep -oE 'i2pinstall_[0-9][0-9.]*\.jar' |
     sed -E 's/i2pinstall_([0-9.]+)\.jar/\1/' |
@@ -1097,7 +1092,7 @@ __check_service_status() {
   local service="$1"
   case "$service" in
   tor)
-    if pgrep -f "tor-browser\|torbrowser" &>/dev/null; then
+    if pgrep -Ef "tor-browser|torbrowser" &>/dev/null; then
       printf_green "Tor Browser is running"
       return 0
     elif __cmd_exists tor && pgrep tor &>/dev/null; then
@@ -1109,7 +1104,7 @@ __check_service_status() {
     fi
     ;;
   i2p)
-    if netstatg 7657 2>&1 | grep -q 'java'; then
+    if __netstatg 7657 | grep -q -- 'java'; then
       printf_green "I2P is running on port 7657"
       return 0
     else
@@ -1118,7 +1113,7 @@ __check_service_status() {
     fi
     ;;
   freenet)
-    if netstatg 8888 2>&1 | grep -q 'java'; then
+    if __netstatg 8888 | grep -q -- 'java'; then
       printf_green "Freenet is running on port 8888"
       return 0
     else
@@ -1160,7 +1155,7 @@ __stop_service() {
   local service="$1"
   case "$service" in
   tor)
-    pkill -f "tor-browser\|torbrowser" 2>/dev/null
+    pkill -Ef "tor-browser|torbrowser" 2>/dev/null
     pkill tor 2>/dev/null
     printf_green "Tor services stopped"
     ;;
@@ -1252,7 +1247,8 @@ __check_dns_leak() {
 # Install Lokinet
 __install_lokinet_server() {
   printf_cyan "Installing Lokinet..."
-  local platform="$(__detect_platform)"
+  local platform
+  platform="$(__detect_platform)"
 
   if [ "$platform" = "macos" ]; then
     if __cmd_exists brew; then
@@ -1263,8 +1259,10 @@ __install_lokinet_server() {
       return 1
     fi
   elif [ "$platform" = "debian" ] || [ "$platform" = "ubuntu" ]; then
+    local _codename
+    _codename=$(lsb_release -sc 2>/dev/null || grep -- 'VERSION_CODENAME' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')
     curl -q -LSsf "https://seed.lokinet.org/lokinet.gpg" | sudo gpg --dearmor -o /usr/share/keyrings/lokinet.gpg
-    echo "deb [signed-by=/usr/share/keyrings/lokinet.gpg] https://deb.oxen.io $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/lokinet.list
+    echo "deb [signed-by=/usr/share/keyrings/lokinet.gpg] https://deb.oxen.io ${_codename} main" | sudo tee /etc/apt/sources.list.d/lokinet.list
     sudo apt update && sudo apt install lokinet
   elif __cmd_exists dnf; then
     sudo dnf copr enable oxen-io/lokinet -y
@@ -1371,7 +1369,7 @@ __kill_switch() {
       sudo ifconfig en0 down
       sudo ifconfig en1 down
     else
-      for iface in $(ip link show 2>/dev/null | grep -E "^[0-9]+:" | cut -d: -f2 | grep -v lo); do
+      for iface in $(ip link show 2>/dev/null | grep -E "^[0-9]+:" | cut -d: -f2 | tr -d ' ' | grep -v lo); do
         sudo ip link set "$iface" down
       done
     fi
@@ -1382,7 +1380,7 @@ __kill_switch() {
       sudo ifconfig en0 up
       sudo ifconfig en1 up
     else
-      for iface in $(ip link show 2>/dev/null | grep -E "^[0-9]+:" | cut -d: -f2 | grep -v lo); do
+      for iface in $(ip link show 2>/dev/null | grep -E "^[0-9]+:" | cut -d: -f2 | tr -d ' ' | grep -v lo); do
         sudo ip link set "$iface" up
       done
     fi
@@ -1395,8 +1393,9 @@ __randomize_mac() {
   local interface="${1:-eth0}"
 
   if [[ "$(__detect_platform)" == "macos" ]]; then
-    # macOS
-    local new_mac=$(openssl rand -hex 6 | sed 's/\(..\)/\1:/g; s/:$//')
+    # macOS — locally-administered unicast: first byte has bit 0 clear, bit 1 set
+    local new_mac
+    new_mac=$(openssl rand -hex 6 | sed 's/\(..\)/\1:/g; s/:$//')
     sudo ifconfig "$interface" ether "$new_mac"
     printf_green "MAC address changed to: $new_mac"
   elif __cmd_exists macchanger; then
@@ -1404,7 +1403,12 @@ __randomize_mac() {
     sudo macchanger -r "$interface"
   elif __cmd_exists ip; then
     # Linux with ip command
-    local new_mac=$(printf '%02x' $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)) | sed 's/../&:/g;s/:$//')
+    # First byte: clear multicast bit (& 254), set locally-administered bit (| 2)
+    local _b0=$(( (RANDOM % 256) & 254 | 2 ))
+    local new_mac
+    new_mac=$(printf '%02x:%02x:%02x:%02x:%02x:%02x' \
+      "$_b0" $((RANDOM % 256)) $((RANDOM % 256)) \
+      $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)))
     sudo ip link set dev "$interface" down
     sudo ip link set dev "$interface" address "$new_mac"
     sudo ip link set dev "$interface" up
@@ -1442,7 +1446,7 @@ __profile_manager() {
     ;;
   list)
     printf_cyan "Available profiles:"
-    ls -1 "$profile_dir" 2>/dev/null || printf_yellow "No profiles found"
+    find "$profile_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || printf_yellow "No profiles found"
     ;;
   delete)
     if [ -n "$profile" ] && [ -d "$profile_dir/$profile" ]; then
@@ -1677,7 +1681,6 @@ while :; do
     export SCRIPT_OPTS="--debug"
     export _DEBUG="on"
     __devnull() { tee || return 1; }
-    __devnull2() { eval "$@" |& tee -p || return 1; }
     ;;
   --completions)
     if [ "$2" = "short" ]; then
@@ -1794,7 +1797,7 @@ init)
   shift 1
   __init_versions || printf_yellow "Warning: version check failed; using bundled defaults"
   __create_versions
-  local _init_exit=0
+  _init_exit=0
   # Client privacy tools
   __install_tor_browser      || _init_exit=$((_init_exit + 1))
   __install_tor_server       || _init_exit=$((_init_exit + 1))
@@ -1833,7 +1836,7 @@ servers)
     ;;
   # install and configure the i2p server, freenet server, lokinet server, and tor server
   *)
-    local _srv_exit=0
+    _srv_exit=0
     __install_tor_server    || _srv_exit=$((_srv_exit + 1))
     __install_lokinet_server || _srv_exit=$((_srv_exit + 1))
     __install_i2p_server    || _srv_exit=$((_srv_exit + 1))
@@ -1898,7 +1901,7 @@ i2p)
   shift 1
   __init_versions
   __install_i2p_server
-  netstatg 7657 2>&1 | grep -q 'java' || printf_exit "i2p does not seem to be running"
+  __netstatg 7657 | grep -q -- 'java' || printf_exit "i2p does not seem to be running"
   __open_browser "http://localhost:7657"
   exit $?
   ;;
@@ -1907,7 +1910,7 @@ freenet)
   shift 1
   __init_versions
   __install_freenet_server
-  netstatg 8888 2>&1 | grep -q 'java' || printf_exit "Freenet does not seem to be running"
+  __netstatg 8888 | grep -q -- 'java' || printf_exit "Freenet does not seem to be running"
   __open_browser "http://localhost:8888"
   exit $?
   ;;
@@ -1941,10 +1944,10 @@ restart)
   __stop_service "$service"
   __sleep 2
   case "$service" in
-  tor) $0 tor ;;
-  i2p) $0 i2p ;;
-  freenet) $0 freenet ;;
-  zerotier) $0 zerotier ;;
+  tor) "$0" tor ;;
+  i2p) "$0" i2p ;;
+  freenet) "$0" freenet ;;
+  zerotier) "$0" zerotier ;;
   *) printf_red "Unknown service: $service" ;;
   esac
   exit $?

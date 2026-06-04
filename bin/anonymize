@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606041600-git
+##@Version           :  202606041700-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606041600-git"
+VERSION="202606041700-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -391,6 +391,9 @@ __sudo() {
 # End of sudo functions
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
+  # Subshells (e.g. __notifications background worker) inherit this trap;
+  # guard so only the main process performs cleanup
+  [ "$$" = "${ANONYMIZE_MAIN_PID:-}" ] || return 0
   exitCode=${exitCode:-0}
   # Kill any in-flight spinner and restore cursor on any exit path including Ctrl+C
   if [ -n "${ANONYMIZE_SPINNER_PID:-}" ]; then
@@ -1568,6 +1571,8 @@ ANONYMIZE_TOR_HOME="${ANONYMIZE_TOR_HOME:-http://vkul5467fnqt5lqatsqivdtg2mk3bbd
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ANONYMIZE_TEMP_FILE="${ANONYMIZE_TEMP_FILE:-$(mktemp $ANONYMIZE_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Record main PID so __trap_exit can skip cleanup in inherited subshells
+ANONYMIZE_MAIN_PID=$$
 # Setup traps — EXIT covers normal exit; INT/TERM cover Ctrl+C and kill signals
 trap '__trap_exit' EXIT
 trap 'exitCode=130; exit 130' INT TERM
@@ -1830,20 +1835,25 @@ wireguard)
 
 tor)
   shift 1
-  if [ $? -ne 0 ]; then printf_red "Tor browser does not seem to be installed" && __notifications "Please install Tor Browser"; fi
   if __cmd_exists tor-browser; then
-    __notifications "Launching tor-browser -new-tab --allow-remote"
+    __notifications "Launching tor-browser"
     tor-browser -new-tab --allow-remote "$ANONYMIZE_TOR_HOME" &>/dev/null &
+    exit 0
   elif __cmd_exists torbrowser; then
-    __notifications "Launching torbrowser -new-tab --allow-remote"
+    __notifications "Launching torbrowser"
     torbrowser -new-tab --allow-remote "$ANONYMIZE_TOR_HOME" &>/dev/null &
+    exit 0
   elif __cmd_exists systemmgr; then
     sudo -n true
     systemmgr install tor &>/dev/null
     __sleep 10
     __proxy_setup "tor" "http://localhost:9080"
+    exit $?
+  else
+    printf_red "Tor Browser is not installed — run: anonymize init"
+    __notifications "Tor Browser not found — run: anonymize init"
+    exit 1
   fi
-  exit $?
   ;;
 
 i2p)

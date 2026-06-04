@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605241245-git
+##@Version           :  202606041110-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -1303,11 +1303,8 @@ __initialize_default_templates() {
   local errors=0
   if [ -n "$DEFAULT_TEMPLATE_DIR" ]; then
     if [ "$CONFIG_DIR_INITIALIZED" = "no" ] && [ -d "/config" ]; then
+      [ -d "$DEFAULT_TEMPLATE_DIR" ] || return 0
       __log_info "Copying default config files $DEFAULT_TEMPLATE_DIR > /config"
-      if [ ! -d "$DEFAULT_TEMPLATE_DIR" ]; then
-        __log_warn "Template directory not found: $DEFAULT_TEMPLATE_DIR"
-        return 0
-      fi
       for create_config_template in "$DEFAULT_TEMPLATE_DIR"/*; do
         if [ -e "$create_config_template" ]; then
           create_template_name="${create_config_template##*/}"
@@ -1340,11 +1337,8 @@ __initialize_config_dir() {
   local errors=0
   if [ -n "$DEFAULT_CONF_DIR" ]; then
     if [ "$CONFIG_DIR_INITIALIZED" = "no" ] && [ -d "/config" ]; then
+      [ -d "$DEFAULT_CONF_DIR" ] || return 0
       __log_info "Copying custom config files: $DEFAULT_CONF_DIR > /config"
-      if [ ! -d "$DEFAULT_CONF_DIR" ]; then
-        __log_warn "Config directory not found: $DEFAULT_CONF_DIR"
-        return 0
-      fi
       for create_config_template in "$DEFAULT_CONF_DIR"/*; do
         if [ -e "$create_config_template" ]; then
           create_config_name="${create_config_template##*/}"
@@ -1377,6 +1371,7 @@ __initialize_data_dir() {
   [ "$DATA_DIR_INITIALIZED" = "no" ] || return 0
   if [ -d "/data" ]; then
     if [ -n "$DEFAULT_DATA_DIR" ]; then
+      [ -d "$DEFAULT_DATA_DIR" ] || return 0
       __log_info "Copying data files $DEFAULT_DATA_DIR > /data"
       for create_data_template in "$DEFAULT_DATA_DIR"/*; do
         create_data_name="${create_data_template##*/}"

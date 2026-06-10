@@ -9,10 +9,11 @@ Read both files at session start before doing any work.
 
 ## Session Start (every time)
 
-1. Read `IDEA.md`
-2. Read `AI.md`
-3. Check `TODO.AI.md` — resume in-flight tasks if present
-4. `git status` + `git log -5`
+1. Sync with remote: `git status --porcelain` → stash if dirty → `git pull` → pop stash
+2. Read `IDEA.md`
+3. Read `AI.md`
+4. Check `TODO.AI.md` — resume in-flight tasks if present
+5. `git status` + `git log -5`
 
 ---
 
@@ -25,7 +26,7 @@ gitcommit --dir /absolute/path/to/project all
 ```
 
 Never `git commit`, never `git push`, never `-m`/`--message`. Always write `.git/COMMIT_MESS` first.
-Subject line ≤72 chars. Body bullets: `- path: change`.
+Subject line ≤64 chars. Body bullets: `- path: change`.
 
 ### Version stamps
 

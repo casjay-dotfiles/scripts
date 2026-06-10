@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606101400-git
+##@Version           :  202606101630-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606101400-git"
+VERSION="202606101630-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -618,9 +618,10 @@ __zone_identifier() {
   printf '%s' "$id"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Print "<id> <type>" for each A/AAAA/CNAME under $CLOUDFLARE_ZONE_NAME matching $1; expands short names to FQDN first.
+# Print "<id> <type>" for records under $CLOUDFLARE_ZONE_NAME matching $1; optional $2 filters to that type. Returns all types when $2 is empty.
 __cf_records_for_host() {
   local host="${1:-$CLOUDFLARE_HOSTNAME}"
+  local want_type="${2:-}"
   local fqdn results
   fqdn="$(__cf_fqdn "$host" "$CLOUDFLARE_ZONE_NAME")"
   results="$(__cf_curl -X GET "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records?per_page=1000&name=$fqdn" 2>/dev/null)"
@@ -628,11 +629,11 @@ __cf_records_for_host() {
   if printf '%s' "$results" | __jq -e '.success == false' >/dev/null 2>&1; then
     return 1
   fi
-  printf '%s' "$results" | __jq -r '
-    .result[]
-    | select(.type == "A" or .type == "AAAA" or .type == "CNAME")
-    | "\(.id) \(.type)"
-  '
+  if [ -n "$want_type" ]; then
+    printf '%s' "$results" | __jq -r --arg t "$want_type" '.result[] | select(.type == $t) | "\(.id) \(.type)"'
+  else
+    printf '%s' "$results" | __jq -r '.result[] | "\(.id) \(.type)"'
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Print the first matching record id for $1; optional $2 narrows to A/AAAA/CNAME. rc=1 with no output if no match.
@@ -679,9 +680,9 @@ __delete_record() {
     results="$(__cf_curl -X DELETE "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$id" 2>/dev/null)"
     printf '%s' "$results" >"$CLOUDFLARE_TEMP_FILE"
     __message "Successfully deleted $host ($type)" || exitStatus=1
-  done < <(__cf_records_for_host "$host")
+  done < <(__cf_records_for_host "$host" "$CLOUDFLARE_DNS_TYPE")
   if [ "$any" = "0" ]; then
-    printf_yellow "No A/AAAA/CNAME records found for $host"
+    printf_yellow "No ${CLOUDFLARE_DNS_TYPE} records found for $host"
     return 1
   fi
   return $exitStatus
@@ -741,6 +742,11 @@ __create_record() {
     # Single CNAME; content was set by __cloudflare_zone to $CLOUDFLARE_ZONE_NAME (or what the user passed via --ip).
     __cf_upsert "$CLOUDFLARE_HOSTNAME" "CNAME" "$CLOUDFLARE_ADDR_IPv4"
     __message "Successfully created/updated $CLOUDFLARE_HOSTNAME (CNAME)" || exitStatus=1
+  elif [ "$CLOUDFLARE_DNS_TYPE" != "A" ] && [ "$CLOUDFLARE_DNS_TYPE" != "AAAA" ]; then
+    # TXT, MX, NS, CAA, and other non-A/AAAA/CNAME types: content must be supplied via --ip.
+    [ -n "$CLOUDFLARE_ADDR_IPv4" ] || printf_exit "$CLOUDFLARE_DNS_TYPE records require content; pass it with --ip"
+    __cf_upsert "$CLOUDFLARE_HOSTNAME" "$CLOUDFLARE_DNS_TYPE" "$CLOUDFLARE_ADDR_IPv4"
+    __message "Successfully created/updated $CLOUDFLARE_HOSTNAME ($CLOUDFLARE_DNS_TYPE)" || exitStatus=1
   elif [ "$CLOUDFLARE_HOSTNAME" = '@' ]; then
     # Apex: A + AAAA + www CNAME -> apex. www gets its own (host,type) lookup so the fallback patches the right record.
     __cf_upsert "www" "CNAME" "$CLOUDFLARE_ZONE_NAME"
@@ -789,6 +795,11 @@ __update_record() {
   if [ "$CLOUDFLARE_DNS_TYPE" = "CNAME" ]; then
     __curl_record_update "$CLOUDFLARE_HOSTNAME" "CNAME" "$CLOUDFLARE_ADDR_IPv4"
     __message "Successfully updated ${CLOUDFLARE_HOSTNAME} (CNAME)" || exitStatus=1
+  elif [ "$CLOUDFLARE_DNS_TYPE" != "A" ] && [ "$CLOUDFLARE_DNS_TYPE" != "AAAA" ]; then
+    # TXT, MX, NS, CAA, and other non-A/AAAA/CNAME types: update directly using the specified type and content.
+    [ -n "$CLOUDFLARE_ADDR_IPv4" ] || printf_exit "$CLOUDFLARE_DNS_TYPE records require content; pass it with --ip"
+    __curl_record_update "$CLOUDFLARE_HOSTNAME" "$CLOUDFLARE_DNS_TYPE" "$CLOUDFLARE_ADDR_IPv4"
+    __message "Successfully updated ${CLOUDFLARE_HOSTNAME} ($CLOUDFLARE_DNS_TYPE)" || exitStatus=1
   elif [ "$CLOUDFLARE_HOSTNAME" = '@' ]; then
     __curl_record_update "@" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
@@ -831,15 +842,14 @@ __cloudflare_zone() {
   [ "$CLOUDFLARE_PROXY_ENABLED" = "no" ] && CLOUDFLARE_PROXY_ENABLED=false
   [ "$CLOUDFLARE_PROXY_ENABLED" = "yes" ] && CLOUDFLARE_PROXY_ENABLED=true
   [ -n "$CLOUDFLARE_PROXY_ENABLED" ] || CLOUDFLARE_PROXY_ENABLED="true"
-  # Content per type: CNAME -> zone apex (or --ip), AAAA -> ADDR_IPv6 (else __get_ip6), A -> ADDR_IPv4 (else __get_ip4).
-  if [ "$CLOUDFLARE_DNS_TYPE" = "CNAME" ]; then
-    CLOUDFLARE_ADDR_IPv4="${CLOUDFLARE_ADDR_IPv4:-$CLOUDFLARE_ZONE_NAME}"
-  elif [ "$CLOUDFLARE_DNS_TYPE" = "AAAA" ]; then
-    CLOUDFLARE_ADDR_IPv6="${CLOUDFLARE_ADDR_IPv6:-$(__get_ip6)}"
-    CLOUDFLARE_ADDR_IPv4="$CLOUDFLARE_ADDR_IPv6"
-  else
-    CLOUDFLARE_ADDR_IPv4="${CLOUDFLARE_ADDR_IPv4:-$(__get_ip4)}"
-  fi
+  # Content per type: CNAME -> zone apex (or --ip), AAAA -> IPv6 (else auto-detect), A -> IPv4 (else auto-detect).
+  # TXT/MX/other: content must be supplied via --ip; no auto-resolution.
+  case "$CLOUDFLARE_DNS_TYPE" in
+  CNAME) CLOUDFLARE_ADDR_IPv4="${CLOUDFLARE_ADDR_IPv4:-$CLOUDFLARE_ZONE_NAME}" ;;
+  AAAA)  CLOUDFLARE_ADDR_IPv6="${CLOUDFLARE_ADDR_IPv6:-$(__get_ip6)}"; CLOUDFLARE_ADDR_IPv4="$CLOUDFLARE_ADDR_IPv6" ;;
+  A)     CLOUDFLARE_ADDR_IPv4="${CLOUDFLARE_ADDR_IPv4:-$(__get_ip4)}" ;;
+  *)     ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __usage() {
@@ -885,9 +895,17 @@ __cf_response_succeeded() {
   __jq -e '.success == true' "$CLOUDFLARE_TEMP_FILE" >/dev/null 2>&1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Returns the proxied value appropriate for a DNS record type. Non-proxiable types (TXT, MX, NS, etc.) always return false.
+__cf_proxied() {
+  case "${1:-}" in
+  A|AAAA|CNAME) printf '%s' "${CLOUDFLARE_PROXY_ENABLED:-true}" ;;
+  *)            printf 'false' ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_record_create() {
   local exitCode=0
-  __cf_curl -X POST --data "{\"name\":\"$1\",\"type\":\"$2\",\"content\":\"$3\",\"ttl\":3600,\"priority\":0,\"proxied\":${CLOUDFLARE_PROXY_ENABLED}}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
+  __cf_curl -X POST --data "{\"name\":\"$1\",\"type\":\"$2\",\"content\":\"$3\",\"ttl\":3600,\"priority\":0,\"proxied\":$(__cf_proxied "$2")}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
   __cf_response_succeeded || exitCode=1
   return $exitCode
 }
@@ -900,7 +918,7 @@ __curl_record_update() {
   if [ -z "$record_id" ]; then
     return 1
   fi
-  __cf_curl -X PATCH --data "{\"name\":\"$host\",\"ttl\":3600,\"type\":\"$type\",\"proxied\":${CLOUDFLARE_PROXY_ENABLED},\"content\":\"$content\"}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$record_id" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
+  __cf_curl -X PATCH --data "{\"name\":\"$host\",\"ttl\":3600,\"type\":\"$type\",\"proxied\":$(__cf_proxied "$type"),\"content\":\"$content\"}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$record_id" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
   __cf_response_succeeded || exitCode=1
   return $exitCode
 }

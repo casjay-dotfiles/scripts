@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202606101630-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -23,7 +23,6 @@ _cloudflare() {
   local CONFFILE="settings.conf"
   local CONFDIR="$HOME/.config/myscripts/cloudflare"
   local SEARCHDIR="${CONFDIR:-$HOME/.config/myscripts/cloudflare}"
-  #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1" | sort -u)"
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
   local OPTS=""
@@ -78,6 +77,16 @@ _cloudflare() {
       return
       ;;
 
+    --record)
+      local prev="--record"
+      COMPREPLY=($(compgen -W 'A AAAA CNAME TXT MX NS CAA' -- "${cur}"))
+      ;;
+
+    --proxy)
+      local prev="--proxy"
+      COMPREPLY=($(compgen -W 'true false yes no' -- "${cur}"))
+      ;;
+
     --id)
       prev="${COMP_WORDS[1]}"
       COMPREPLY=($(compgen -W 'zone=\"\" record=\"\"' -- ${cur}))
@@ -94,13 +103,6 @@ _cloudflare() {
       ;;
     esac
   fi
-  #
-  # [[ ${cword} == 2 ]] && _filedir && compopt -o nospace
-  # [[ $COMP_CWORD -eq 2 ]] && COMPREPLY=($(compgen -W '{a..z} {A..Z} {0..9}' -o nospace -- "${cur}"))
-  # [[ $COMP_CWORD -eq 3 ]] && COMPREPLY=($(compgen -W '$(_filedir)' -o filenames -o dirnames -- "${cur}"))
-  # [[ $COMP_CWORD -gt 3 ]] && COMPREPLY=($(compgen -W '' -- "${cur}"))
-  #prev=""
-  #compopt -o nospace
   $split && return
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - -

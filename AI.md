@@ -25,10 +25,18 @@ What the project is: see `IDEA.md`.
 ## Session Startup Checklist
 
 Every session, in order:
-1. Read `IDEA.md` — understand what the project is
-2. Read this file (`AI.md`) — understand how to work
-3. Check `TODO.AI.md` if it exists — resume in-flight tasks
-4. `git status` + `git log -5` — current working tree state
+
+1. Sync `{project_dir}` with the remote:
+   - `git status --porcelain` — check for uncommitted changes
+   - If dirty: `git stash push -m "session-start auto-stash"`
+   - `git pull`
+   - If stashed: `git stash pop`
+   - If `stash pop` conflicts: report conflicting files and wait — never auto-resolve
+   - If pull fails (no remote, offline, diverged): report it and wait
+2. Read `IDEA.md` — understand what the project is
+3. Read this file (`AI.md`) — understand how to work
+4. Check `TODO.AI.md` if it exists — resume in-flight tasks
+5. `git status` + `git log -5` — current working tree state
 
 **Compliance schedule:** re-read relevant parts before each task; verify against spec every 3–5 changes; full compliance check before task completion.
 
@@ -38,9 +46,19 @@ Every session, in order:
 
 - Read files, run `bash -n`, check `git status`, run `--help` — do these without asking
 - `?` at end of a message = question; answer or clarify, do not execute
-- Do not expand scope beyond what was asked; note related issues, don't fix them
+- A message ending in `?` that contains an action verb is still a question — answer it; only act if the user re-sends without `?` or says "yes" / "do it" / "go ahead"
+- Action commands ("fix all issues", "run the tests") → execute fully without step-by-step confirmation
+- "Run X" pre-authorizes X and its entire workflow (subcommands, loops, retries, pipes) for this session
+- Do not expand scope beyond what was asked; note related issues, do not fix them
 - When 2+ tasks are given, populate `TODO.AI.md` immediately
-- Plan (use plan mode) for changes touching 3+ files or with ambiguous requirements
+- **Plan mode for genuine ambiguity only** — not for file count; mechanical changes across many files do not need a plan
+
+### Task Dependency Ordering
+
+Dependency graph takes priority over label order. Numbered/lettered sequence is a tiebreaker only.
+- Scan any task list for stated dependencies before starting; topological-sort the graph
+- A task is only "ready" when all its prerequisites are complete
+- For non-trivial graphs (3+ dependencies), document the resolved order at the top of `TODO.AI.md` or `PLAN.AI.md`
 
 ---
 
@@ -53,6 +71,50 @@ Every session, in order:
 
 ---
 
+## Verification & Safety
+
+- Confirm before: `rm -rf`, force pushes, dropping branches, anything irreversible
+- **Never run unrequested destructive ops, even to "fix"** — stop and ask
+- **Never auto-bypass a hook block** — if a PreToolUse hook returns `BLOCKED:`, tell the user; only they decide
+- Verify APIs/flags exist before using them; run code before calling it done; iterate until verification passes
+- **kill scoping** — `kill $PID` only when `$PID` was captured at launch in the current task (`PID=$!`)
+- **systemctl gate** — `status`/`is-active`/`is-enabled`/`cat`/`show` and `--user` variants are always OK; `restart`/`stop`/`start`/`reload`/`disable`/`enable`/`mask` on host services require user confirmation
+
+---
+
+## Self-Validation
+
+- **Verify against ground truth** — logic: compare to expected output; data: spot-check a sample
+- **Iterate until passing** — do not stop at "compiles"; keep going until success criteria are met
+- **Define success up front** — before non-trivial work, state what "done" looks like
+- **Add tests for new behavior** — add a test that fails before and passes after, then run it
+- **One run, then fix** — do not loop on flaky failures without a hypothesis
+
+---
+
+## Output Rules
+
+- No preamble, no reflexive agreement, no closing recap
+- **Tight output budget** — status updates: 1–3 sentences max; no headers/bullets unless the task requires structured output
+- Show diffs, not prose retellings of changes
+- No emojis in code or inline tool output unless asked; emojis are appropriate in READMEs, docs, and commit messages
+- **No AI attribution** — no `Co-Authored-By:`, AI-tool trailers, or "Generated with X" footers anywhere
+- Next step is clear → do it; pause only for genuine blockers or destructive-op confirmation
+
+---
+
+## Agent Usage & Token Discipline
+
+- **Explorer subagent for broad searches** — 3+ files, unknown locations, or multiple naming conventions
+- **Read files narrowly** — files >500 lines: use `offset`/`limit` or grep first; never load 2000 lines for 50
+- **No speculative reads** — only read files the current task directly requires
+- **Don't re-read after editing** — exception: re-read `COMMIT_MESS` once before `gitcommit` to verify it matches the diff
+- **Don't spawn agents for small tasks** — 2–3 direct tool calls: do it inline
+- **Haiku for trivial tasks** — renames, single-line edits, simple lookups, mechanical refactors
+- **Agents never commit** — agents edit and report back; main instance reviews the diff, writes `COMMIT_MESS`, runs `gitcommit`
+
+---
+
 ## Git & Commit Workflow
 
 ### The only commit path
@@ -62,22 +124,32 @@ Every session, in order:
 git status --porcelain
 git diff --stat
 
-# 2. Write the commit message
+# 2. Run syntax check + lint gate
+bash -n bin/{script}
+script-lint bin/{script}
+
+# 3. Write the commit message
 cat > .git/COMMIT_MESS << 'EOF'
-{emoji} {subject} — <=72 chars total {emoji}
+{emoji} {subject} — ≤64 chars total {emoji}
 
 {body: what and why, not how}
 
 - {path}: {one-line description of change}
 EOF
 
-# 3. Commit + push (absolute path required for --dir)
+# 4. Commit + push (absolute path required for --dir)
 gitcommit --dir /absolute/path/to/project all
 ```
 
 `gitcommit` signs, commits, and pushes in one shot. The wrapper deletes `COMMIT_MESS` on success. Push is immediate and irreversible — use `touch .no_push` at repo root (confirm with user first) to skip.
 
 **Key behavior:** when `.git/COMMIT_MESS` exists, `gitcommit` stages ALL changed files regardless of subcommand. Use `all` as the standard subcommand.
+
+### Test & lint gates
+
+- **Syntax gate:** `bash -n bin/{script}` — must pass before every commit
+- **Lint gate:** `script-lint bin/{script}` — never commit with violations
+- If `script-lint` is absent: run `bash -n` as minimum; shellcheck when available
 
 ### Subcommand reference
 
@@ -96,7 +168,7 @@ gitcommit --dir /absolute/path/to/project all
 ### Commit message format
 
 ```
-{emoji} {subject} — <=72 chars total {emoji}
+{emoji} {subject} — ≤64 chars total {emoji}
 
 {body: what and why, not how}
 
@@ -180,6 +252,30 @@ Use the shell's native idioms fully. The shebang or extension determines which c
 
 ## Code Standards
 
+### File operations & paths
+
+- **`cd` always uses absolute paths** in scripts, Makefiles, CI steps, and Claude's own Bash tool calls
+- **External commands always use `\command`** — bypass aliases, call the real binary (`\grep`, `\curl`, `\rm`)
+- **Read current file state before any edit** — never edit from memory
+- **Working-set discipline** — scope is set when the user names files/dirs; never expand on your own initiative. Exception: spelling/grammar fixes in files already being edited
+- **Fix completeness** — when a pattern changes, find and fix ALL instances across the working set with `grep -rn` before committing
+- **Search before write** — search all candidate locations before adding a value; replace in place if found, only create/append if not
+- **Create parent directories before writing** — `mkdir -p "$(dirname -- "$f")"` in shell
+
+### Code quality
+
+- **No partially implemented code** — every committed line must work as written; no stubs, no `TODO` placeholders inside logic
+- **No TODO/FIXME/HACK in committed code**
+- **No commented-out code** — delete it; git history preserves it if needed
+- **Spelling & grammar** — always fix clear spelling and grammar errors in any file being edited; never alter technical terms or domain-specific names
+
+### Comments
+
+- Always **above** the code they describe — NEVER inline at end of line
+- Single line, ≤180 characters
+- Describe WHY not WHAT
+- **Comments are never valid in:** JSON files · `.env`/`app.env`/`default.env` KEY=VALUE files · CSV/TSV · binary/compiled artifacts
+
 ### Naming
 
 - Functions: `__` prefix — `__my_function` (no exceptions)
@@ -187,11 +283,6 @@ Use the shell's native idioms fully. The shebang or extension determines which c
 - Local variables: `local varname` inside functions
 - Well-known globals exempt from prefix: `VERSION`, `APPNAME`, `RUN_USER`, `USER`, `HOME`, `PATH`, `PWD`
 - Always use `_` — never `-` in variable or function names
-
-### Comments
-
-- Always **above** the code they describe — NEVER inline at end of line
-- Describe WHY not WHAT
 
 ### Versioning
 
@@ -281,6 +372,8 @@ done
 ```
 
 `getopt` normalizes both `--flag value` and `--flag=value` automatically.
+
+**Every flag handled in `case` must also appear in `LONGOPTS` (or `SHORTOPTS`).** A flag absent from `LONGOPTS` is silently dropped by `getopt` — a common source of broken flags.
 
 ---
 
@@ -385,11 +478,25 @@ Only inline functions the script actually calls. Audit by grep — never rely on
 - **Sudo functions** (`requiresudo`, `__sudo`, `__sudorun`, `__sudoif`, `__can_i_sudo`, `__sudoask`, `__sudo_group`, `__user_is_root`, `__user_is_not_root`): include only if the script body actually calls them
 - **Installer helpers** (`user_install`, `__options`): never include — they belong to the external functions library
 
+### External → internal function migration
+
+The project is moving away from the sourced external functions file.
+
+- **Replace `cmd_exists`** with the inline `__cmd_exists` + `printf_exit`:
+  ```bash
+  # before
+  cmd_exists --error tmux || exit 3
+  # after
+  __cmd_exists tmux || printf_exit "tmux is not installed" 3
+  ```
+- Apply this to every `cmd_exists` call in the file being edited — do not leave mixed usage.
+- Other external-only helpers (`requiresudo`, `am_i_online`, etc.): find or add the inline equivalent, remove the external call.
+
 ### Colorization block — both branches required
 
 The colorization `if/else` block must define `printf_column` in **both** branches:
 - no-color branch: `printf_column() { tee | grep -- '^'; }`
-- color branch: full `column | while IFS= read -r line; do printf_color "$line\n" "$color"; done` implementation
+- color branch: `printf_column() { column -t 2>/dev/null; }`
 
 Corrected sed ANSI-stripping regex (no spurious space after `[`):
 ```bash
@@ -537,3 +644,7 @@ Decisions and conventions established — not a work log.
 - **2026-05**: gen-header structural update: 4 header fields restored (@@Other, @@Resource, @@Terminal App, @@sudo/root); boilerplate aligned to bash/system template
 - **2026-05**: Self-contained migration rule: only inline functions the script calls; drop sudo functions when not used (verify by grep, not header); never include user_install, __options, or other external-lib entrypoints
 - **2026-05**: Batch migration of 10 scripts to self-contained (urldecode, urlencode, command, decrypt, encrypt, expandurl, pslist, myps, covid19, check_app); printf_column required in both colorization branches; corrected sed ANSI regex
+- **2026-06**: acme-cli overhaul — LONGOPTS fixes (--key, --server were silently dropped); heredoc `\$VAR` literal bug fixed via post-parse expansion; --folder renamed to --name; renew-all vs single-cert via ACME_CLI_CERT_DIR_EXPLICIT flag; grep -V → grep -v bug fixed (three sites)
+- **2026-06**: cloudflare --zone bug — passing --zone now clears CLOUDFLARE_ZONE_ID to force re-lookup; previously a config-cached ID shadowed the flag silently
+- **2026-06**: Vim modeline corrected project-wide to `# ex: ts=2 sw=2 et filetype=sh` (was incorrectly written as `vim: set ft=sh ts=4 sw=4 st=4 et :` in some edits)
+- **2026-06**: AI.md synced to global CLAUDE.md — added session-start git sync, Verification & Safety, Self-Validation, Output Rules, Agent Usage & Token Discipline, Task Dependency Ordering; fixed commit subject line from 72 → 64 chars; fixed plan-mode rule; updated colorization color branch to `column -t 2>/dev/null`; added no-commented-code, comments-above-only, \command, cd-absolute-paths, working-set rules

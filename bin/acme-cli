@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606101215-git
+##@Version           :  202606101230-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606101215-git"
+VERSION="202606101230-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -425,7 +425,11 @@ __certbot_test() {
     printf_yellow "Testing if we can get certificates"
     while [ $setDebug -ne 0 ]; do debugLevel+="v" && setDebug=$((setDebug - 1)); done
     if [ "$type" = "renew" ]; then
-      CERTBOT_COMMAND_TEST="renew -$debugLevel -n --dry-run --agree-tos $ACME_CLI_SET_EMAIL_OPTIONS --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE"
+      if [ "$ACME_CLI_CERT_DIR_EXPLICIT" = "true" ]; then
+        CERTBOT_COMMAND_TEST="renew -$debugLevel -n --dry-run --agree-tos $ACME_CLI_SET_EMAIL_OPTIONS --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE"
+      else
+        CERTBOT_COMMAND_TEST="renew -$debugLevel -n --dry-run --agree-tos $ACME_CLI_SET_EMAIL_OPTIONS --expand --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE"
+      fi
       eval certbot $CERTBOT_COMMAND_TEST 2>"$ACME_CLI_LOG_ERROR_FILE" >/dev/null
       exitCode=$?
     else
@@ -458,10 +462,20 @@ __certbot_test() {
 __certbot_renew() {
   local exitStatus=1
   local scripts_dir="$ACME_CLI_CONFIG_DIR/scripts"
-  __cert_dir_exists || [ -f "/etc/letsencrypt/renewal/$ACME_CLI_CERT_DIR.conf" ] || [ -f "/etc/letsencrypt/renewal/domain.conf" ] || return 1
+  if [ "$ACME_CLI_CERT_DIR_EXPLICIT" = "true" ]; then
+    __cert_dir_exists || [ -f "/etc/letsencrypt/renewal/$ACME_CLI_CERT_DIR.conf" ] || return 1
+  else
+    local _confs=(/etc/letsencrypt/renewal/*.conf)
+    [ -f "${_confs[0]}" ] || return 1
+  fi
   __certbot_test renew || printf_exit "certbot test has failed"
-  printf_purple "Attempting to renew certificates"
-  CERTBOT_COMMAND_RENEW="renew $ACME_CLI_SERVER_OPTIONS -n --agree-tos --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE"
+  if [ "$ACME_CLI_CERT_DIR_EXPLICIT" = "true" ]; then
+    printf_purple "Attempting to renew certificate: $ACME_CLI_CERT_DIR"
+    CERTBOT_COMMAND_RENEW="renew $ACME_CLI_SERVER_OPTIONS -n --agree-tos --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE"
+  else
+    printf_purple "Attempting to renew all certificates"
+    CERTBOT_COMMAND_RENEW="renew $ACME_CLI_SERVER_OPTIONS -n --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE"
+  fi
   certbot $CERTBOT_COMMAND_RENEW 2>"$ACME_CLI_LOG_ERROR_FILE" >/dev/null
   exitStatus=$?
   if [ -n "$CERTBOT_COMMAND_RENEW" ]; then
@@ -982,6 +996,7 @@ ACME_CLI_ADD_DOMAINS="${ACME_CLI_ADD_DOMAINS:-}"
 ACME_CLI_RUN_TEST="${ACME_CLI_RUN_TEST:-yes}"
 ACME_CLI_RYSNC="${ACME_CLI_RYSNC:-false}"
 ACME_CLI_CERT_DIR="${ACME_CLI_CERT_DIR:-domain}"
+ACME_CLI_CERT_DIR_EXPLICIT="false"
 ACME_CLI_CONF_FILE="${ACME_CLI_CONF_FILE:-/etc/certbot/dns.conf}"
 ACME_CLI_EMAIL="${ACME_CLI_EMAIL:-$CERTBOT_REGISTERED_EMAIL}"
 ACME_CLI_PRIMARY_DNS_IP="${ACME_CLI_PRIMARY_DNS_IP:-$(grep -sh -- 'dns_rfc2136_server.*=' "$ACME_CLI_CONF_FILE" | sed 's|^dns_rfc2136_server =.* ||g' | grep -- '^')}"
@@ -1199,6 +1214,7 @@ while :; do
     ACME_CLI_CERT_DIR="${2%/}"
     ACME_CLI_CERT_DIR="${ACME_CLI_CERT_DIR##*/}"
     [ -n "$ACME_CLI_CERT_DIR" ] || printf_exit "--folder requires a name, not a path"
+    ACME_CLI_CERT_DIR_EXPLICIT="true"
     shift 2
     ;;
   --acme)

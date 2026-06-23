@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606231657-git
+##@Version           :  202606231700-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -18,7 +18,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606231657-git"
+VERSION="202606231700-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -616,6 +616,75 @@ __registry_delete_tag() {
   [ "$http_code" = "204" ] || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Delete a tag from any OCI-compliant registry using only curl + jq.
+# Usage: __registry_delete_tag_oci <full-image-ref>  e.g. ghcr.io/org/repo:tag
+__registry_delete_tag_oci() {
+  local full_ref="$1"
+  local log_file="$DOCKERMGR_CACHE_DIR/delete.log"
+  printf '%s' "$(printf_cyan "Attempting to delete temporary tag: $full_ref"): "
+  # Parse registry host, repo path, and tag from the full reference
+  local ref_notag tag registry repo_path
+  tag="${full_ref##*:}"
+  ref_notag="${full_ref%:*}"
+  local first="${ref_notag%%/*}"
+  # A registry host contains a dot or colon; bare names are Docker Hub
+  if printf '%s' "$first" | grep -q -- '[.:]'; then
+    registry="$first"
+    repo_path="${ref_notag#*/}"
+  else
+    registry="registry-1.docker.io"
+    repo_path="$ref_notag"
+  fi
+  # Read stored credentials from docker config (base64 user:pass or user:token)
+  local auth_b64 creds
+  auth_b64="$(jq -r --arg reg "$registry" '.auths[$reg].auth // empty' ~/.docker/config.json 2>/dev/null)"
+  [ -n "$auth_b64" ] && creds="$(printf '%s' "$auth_b64" | base64 -d)"
+  # Perform OCI token auth challenge to obtain a bearer token
+  local challenge realm service token
+  challenge="$(curl -q -LSsf -o /dev/null -D - "https://$registry/v2/" 2>/dev/null | grep -i 'www-authenticate:')"
+  realm="$(printf '%s' "$challenge" | grep -o 'realm="[^"]*"' | head -1 | cut -d'"' -f2)"
+  service="$(printf '%s' "$challenge" | grep -o 'service="[^"]*"' | head -1 | cut -d'"' -f2)"
+  if [ -n "$realm" ] && [ -n "$creds" ]; then
+    token="$(curl -q -LSsf -u "$creds" "$realm?service=$service&scope=repository:$repo_path:pull,delete" 2>/dev/null | jq -r '.token // .access_token // empty')"
+  elif [ -n "$realm" ]; then
+    token="$(curl -q -LSsf "$realm?service=$service&scope=repository:$repo_path:pull,delete" 2>/dev/null | jq -r '.token // .access_token // empty')"
+  fi
+  if [ -z "$token" ]; then
+    printf '%b' "Cannot get token for $registry\n" >>"$log_file"
+    return 1
+  fi
+  # Resolve the digest — some registries require DELETE by digest, not by tag name
+  local digest
+  digest="$(curl -q -LSsf \
+    -H "Authorization: Bearer $token" \
+    -H "Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+    -I "https://$registry/v2/$repo_path/manifests/$tag" 2>/dev/null \
+    | grep -i '^docker-content-digest:' | tr -d '\r' | awk '{print $2}')"
+  local delete_ref="${digest:-$tag}"
+  local http_code
+  http_code="$(curl -q -LSsf \
+    -H "Authorization: Bearer $token" \
+    -X DELETE \
+    -o "$log_file" \
+    -w "%{http_code}" \
+    "https://$registry/v2/$repo_path/manifests/$delete_ref" 2>>"$log_file")"
+  [ "$http_code" = "202" ] || [ "$http_code" = "204" ] || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Build a single-platform image from stdin Dockerfile and push it to the registry.
+# Usage: __buildx_push_platform <from-image> <platform> <push-tag> <log-file> [extra-flags...]
+__buildx_push_platform() {
+  local from_image="$1" platform="$2" push_tag="$3" log_file="$4"
+  shift 4
+  printf '%s\n' "FROM $from_image" | docker buildx build \
+    --platform "$platform" \
+    --push \
+    --provenance=false \
+    -t "$push_tag" \
+    "$@" \
+    -f - . 2>"$log_file" >/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __fetch_tags_dockerhub() {
   local image="$1"
   local org repo
@@ -1056,7 +1125,7 @@ __create_manifest() {
       local platform_tag="${platform#linux/}"
       set_push="${push//:*/}:${tag_push//*:/}-$platform_tag"
       printf_cyan "Attempting to build and push $image$tag for platform: $platform"
-      if echo "FROM $image$tag" | docker buildx build --platform "$platform" --push --provenance=false -t "$set_push" "${oci_labels[@]}" "${oci_annotations[@]}" -f - . 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" >/dev/null; then
+      if __buildx_push_platform "$image$tag" "$platform" "$set_push" "$DOCKERMGR_LOG_DIR/$manifest_log_file.log" "${oci_labels[@]}" "${oci_annotations[@]}"; then
         amend+="$set_push "
         delete_tag+="$set_push "
       else
@@ -1082,11 +1151,8 @@ __create_manifest() {
       if [ -z "$do_not_delete" ]; then
         if [ "$is_docker_hub" = "yes" ]; then
           __registry_delete_tag "$rm_name" "$rm_tag" && printf_green "Success 😺" || { printf_red "Failed 😿" && code=1; }
-        elif __cmd_exists skopeo; then
-          printf '%s' "$(printf_cyan "Attempting to delete temporary tag: $del_tag"): "
-          skopeo delete "docker://$del_tag" 2>>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" && printf_green "Success 😺" || { printf_red "Failed 😿" && code=1; }
         else
-          printf_yellow "Cannot delete remote tag $del_tag — skopeo not installed"
+          __registry_delete_tag_oci "$del_tag" && printf_green "Success 😺" || { printf_red "Failed 😿" && code=1; }
         fi
       fi
       local_id="$(docker images -q "$del_tag" 2>/dev/null)"

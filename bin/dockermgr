@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606231800-git
+##@Version           :  202606231900-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -10,7 +10,7 @@
 # @Created           :  Saturday, Aug 28, 2021 19:04 EDT
 # @File              :  dockermgr
 # @Description       :  docker script to manage containers
-# @Changelog         :  Use existing local manifest file before downloading; fix manifest push error propagation
+# @Changelog         :  Switch to docker buildx with --provenance=false to push single-platform image manifests instead of OCI indexes
 # @TODO              :
 # @Other             :
 # @Resource          :
@@ -18,7 +18,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606231800-git"
+VERSION="202606231900-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1034,23 +1034,14 @@ __create_manifest() {
     [ -n "$DOCKERMGR_IMAGE_BASE_DIGEST" ] && oci_labels+=("--label" "org.opencontainers.image.base.digest=$DOCKERMGR_IMAGE_BASE_DIGEST")
 
     for platform in $platforms; do
-      local set_tag="$tag"
-      local new_tag="$set_tag-$platform"
       local platform_tag="${platform#linux/}"
       set_push="${push//:*/}:${tag_push//*:/}-$platform_tag"
-      printf_cyan "Attempting to build $image$tag for platform: $platform"
-      if echo "FROM --platform=$platform $image$tag" | docker build --load --pull -t "$set_push" "${oci_labels[@]}" -f - . 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" >/dev/null; then
-        printf_yellow "Pushing $set_push"
-        if docker push -q "$set_push" >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log"; then
-          amend+="$set_push "
-          delete_tag+="$set_push "
-        else
-          printf_red "Failed to push $set_push"
-          __docker_manifest_log 1 "$manifest_log_file"
-          code=$((code + 1))
-        fi
+      printf_cyan "Attempting to build and push $image$tag for platform: $platform"
+      if echo "FROM --platform=$platform $image$tag" | docker buildx build --platform "$platform" --push --provenance=false -t "$set_push" "${oci_labels[@]}" -f - . 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" >/dev/null; then
+        amend+="$set_push "
+        delete_tag+="$set_push "
       else
-        printf_red "Failed to build $set_push"
+        printf_red "Failed to build/push $set_push"
         __docker_manifest_log 1 "$manifest_log_file"
         code=$((code + 1))
       fi

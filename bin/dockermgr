@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606232200-git
+##@Version           :  202606231657-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -18,7 +18,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606232200-git"
+VERSION="202606231657-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1010,12 +1010,13 @@ __create_manifest() {
     if [ -z "$docker_hub" ] || [ "$docker_hub" = "docker.io" ]; then
       is_docker_hub="yes"
     fi
-    # Prepare ALL OCI labels (complete spec)
+    # Prepare ALL OCI labels and manifest-level annotations (complete spec)
     local build_date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
     local git_commit="$(git -C "$PWD" rev-parse HEAD 2>/dev/null || echo 'unknown')"
     local oci_labels=()
+    local oci_annotations=()
 
-    # Required/Common labels
+    # Required/Common labels (image config)
     oci_labels+=("--label" "org.opencontainers.image.created=$build_date")
     oci_labels+=("--label" "org.opencontainers.image.title=$name")
     oci_labels+=("--label" "org.opencontainers.image.description=${description:-Docker image for $name}")
@@ -1023,6 +1024,15 @@ __create_manifest() {
     oci_labels+=("--label" "org.opencontainers.image.source=$pull_from_pretty")
     oci_labels+=("--label" "org.opencontainers.image.revision=$git_commit")
     oci_labels+=("--label" "org.opencontainers.image.ref.name=${tag_push#:}")
+
+    # Required/Common annotations (manifest level — picked up by ghcr.io, Docker Hub, etc.)
+    oci_annotations+=("--annotation" "org.opencontainers.image.created=$build_date")
+    oci_annotations+=("--annotation" "org.opencontainers.image.title=$name")
+    oci_annotations+=("--annotation" "org.opencontainers.image.description=${description:-Docker image for $name}")
+    oci_annotations+=("--annotation" "org.opencontainers.image.version=${tag_push#:}")
+    oci_annotations+=("--annotation" "org.opencontainers.image.source=$pull_from_pretty")
+    oci_annotations+=("--annotation" "org.opencontainers.image.revision=$git_commit")
+    oci_annotations+=("--annotation" "org.opencontainers.image.ref.name=${tag_push#:}")
 
     # Optional labels (use env vars or defaults)
     [ -n "$DOCKERMGR_IMAGE_URL" ] && oci_labels+=("--label" "org.opencontainers.image.url=$DOCKERMGR_IMAGE_URL")
@@ -1033,11 +1043,20 @@ __create_manifest() {
     [ -n "$DOCKERMGR_IMAGE_BASE_NAME" ] && oci_labels+=("--label" "org.opencontainers.image.base.name=$DOCKERMGR_IMAGE_BASE_NAME")
     [ -n "$DOCKERMGR_IMAGE_BASE_DIGEST" ] && oci_labels+=("--label" "org.opencontainers.image.base.digest=$DOCKERMGR_IMAGE_BASE_DIGEST")
 
+    # Optional annotations (mirror of optional labels)
+    [ -n "$DOCKERMGR_IMAGE_URL" ] && oci_annotations+=("--annotation" "org.opencontainers.image.url=$DOCKERMGR_IMAGE_URL")
+    [ -n "$DOCKERMGR_IMAGE_DOCUMENTATION" ] && oci_annotations+=("--annotation" "org.opencontainers.image.documentation=$DOCKERMGR_IMAGE_DOCUMENTATION")
+    [ -n "$DOCKERMGR_IMAGE_AUTHORS" ] && oci_annotations+=("--annotation" "org.opencontainers.image.authors=$DOCKERMGR_IMAGE_AUTHORS")
+    [ -n "$DOCKERMGR_IMAGE_VENDOR" ] && oci_annotations+=("--annotation" "org.opencontainers.image.vendor=$DOCKERMGR_IMAGE_VENDOR")
+    [ -n "$DOCKERMGR_IMAGE_LICENSES" ] && oci_annotations+=("--annotation" "org.opencontainers.image.licenses=$DOCKERMGR_IMAGE_LICENSES")
+    [ -n "$DOCKERMGR_IMAGE_BASE_NAME" ] && oci_annotations+=("--annotation" "org.opencontainers.image.base.name=$DOCKERMGR_IMAGE_BASE_NAME")
+    [ -n "$DOCKERMGR_IMAGE_BASE_DIGEST" ] && oci_annotations+=("--annotation" "org.opencontainers.image.base.digest=$DOCKERMGR_IMAGE_BASE_DIGEST")
+
     for platform in $platforms; do
       local platform_tag="${platform#linux/}"
       set_push="${push//:*/}:${tag_push//*:/}-$platform_tag"
       printf_cyan "Attempting to build and push $image$tag for platform: $platform"
-      if echo "FROM $image$tag" | docker buildx build --platform "$platform" --push --provenance=false -t "$set_push" "${oci_labels[@]}" -f - . 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" >/dev/null; then
+      if echo "FROM $image$tag" | docker buildx build --platform "$platform" --push --provenance=false -t "$set_push" "${oci_labels[@]}" "${oci_annotations[@]}" -f - . 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" >/dev/null; then
         amend+="$set_push "
         delete_tag+="$set_push "
       else
@@ -1060,8 +1079,15 @@ __create_manifest() {
     for del_tag in $delete_tag; do
       rm_tag="${del_tag//*:/}"
       rm_name="${push//:*/}"
-      if [ -z "$do_not_delete" ] && [ "$is_docker_hub" = "yes" ]; then
-        __registry_delete_tag "$rm_name" "$rm_tag" && printf_green "Success 😺" || { printf_red "Failed 😿" && code=1; }
+      if [ -z "$do_not_delete" ]; then
+        if [ "$is_docker_hub" = "yes" ]; then
+          __registry_delete_tag "$rm_name" "$rm_tag" && printf_green "Success 😺" || { printf_red "Failed 😿" && code=1; }
+        elif __cmd_exists skopeo; then
+          printf '%s' "$(printf_cyan "Attempting to delete temporary tag: $del_tag"): "
+          skopeo delete "docker://$del_tag" 2>>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" && printf_green "Success 😺" || { printf_red "Failed 😿" && code=1; }
+        else
+          printf_yellow "Cannot delete remote tag $del_tag — skopeo not installed"
+        fi
       fi
       local_id="$(docker images -q "$del_tag" 2>/dev/null)"
       [ -n "$local_id" ] && docker rmi "$del_tag" >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" && printf_cyan "🦄 Deleted local image $del_tag 🦄"

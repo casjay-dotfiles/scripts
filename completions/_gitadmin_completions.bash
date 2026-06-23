@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202606231600-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -279,6 +279,9 @@ _gitadmin() {
         prev="private"
         COMPREPLY=($(compgen -W 'init clone push pull remote update branch repos migrate' -- "$cur"))
         prev=$cur
+      elif [ "${words[$COMP_CWORD]}" = "migrate" ] || [ "$prev" = "migrate" ]; then
+        COMPREPLY=($(compgen -W 'all' -- "$cur"))
+        prev="migrate"
       elif [ "${words[$COMP_CWORD]}" = "update" ] || [ "$prev" = "update" ]; then
         COMPREPLY=($(compgen -o nospace -W "description= website= private= has_issues= has_projects= has_wiki=" -- "$cur"))
         compopt -o nospace

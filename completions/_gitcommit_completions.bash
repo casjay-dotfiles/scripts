@@ -28,7 +28,7 @@ _gitcommit() {
   local LONGOPTS="--completions --debug --no-color --options --version --help --config --silent --dir --message --amend --force --all"
   local SHORTOPTS="-m"
   local ARRAY="ai is all amend status s log l reset branch fixup fix fix-last squash push pull merge merge-resolve "
-  local ARRAY+="version files modified updated deleted added renamed changed restored spelling changelog "
+  local ARRAY+="version files modified updated deleted added renamed changed restored spelling changelog spec "
   local ARRAY+="new improved fixes fixed release deploy docs test breaking refactor performance "
   local ARRAY+="permissions permission bugs bug docker node ruby php perl python scratchpad "
   local ARRAY+="todo recipe notes blog init setup emojify emj emojy random custom tag tar search alot "

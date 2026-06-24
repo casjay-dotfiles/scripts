@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606241900-git
+##@Version           :  202606242000-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -29,9 +29,9 @@ _latest-iso() {
   local SHORTOPTS="-C"
   local LONGOPTS="--no-color --debug --completions --options --version --help --config --silent --dir --force --all --ask --filename --arch --release --name --test"
   local SUBCMDS="all gui iso server"
-  local ARRAY="aeryn alma alpine arch archcraft bazzite blackarch cachy centos chimera clonezilla debian debian-server endeavour fedora flatcar "
+  local ARRAY="aeryn alma alpine arch archcraft bazzite blackarch cachy centos chimera clonezilla debian endeavour fedora flatcar "
   local ARRAY+="freenas garuda gentoo gparted heads hirens kali macos manjaro nixos nobara opensuse openvz parrot peppermint pfsense "
-  local ARRAY+="photon popos proxmox redcore rocky solus tails tiny ubuntu ubuntu-server vanilla void xcp-ng"
+  local ARRAY+="photon popos proxmox redcore rocky solus tails tiny ubuntu vanilla void xcp-ng"
 
   _init_completion || return
 
@@ -88,7 +88,7 @@ _latest-iso() {
       ;;
 
     server)
-      COMPREPLY=($(compgen -W 'debian ubuntu cachy' -- "${cur}"))
+      COMPREPLY=($(compgen -W 'debian ubuntu fedora opensuse cachy' -- "${cur}"))
       ;;
 
     *)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606242400-git
+##@Version           :  202606242500-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -31,7 +31,8 @@ _latest-iso() {
   local SUBCMDS="all gui iso server"
   local ARRAY="aeryn alma alpine arch archcraft bazzite blackarch cachy centos chimera clonezilla debian endeavour fedora flatcar "
   local ARRAY+="freebsd freenas garuda gentoo ghostbsd gparted heads hirens kali macos manjaro netbsd nixos nobara "
-  local ARRAY+="openbsd opensuse openvz parrot peppermint pfsense photon popos proxmox redcore rocky solus tails tiny ubuntu vanilla void xcp-ng"
+  local ARRAY+="omnios openindiana openbsd opensuse openvz parrot peppermint pfsense photon popos proxmox redcore rocky "
+  local ARRAY+="smartos solus tails tiny ubuntu vanilla void xcp-ng"
 
   _init_completion || return
 

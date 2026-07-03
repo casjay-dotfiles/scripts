@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607031054-git
+##@Version           :  202607031100-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607031054-git"
+VERSION="202607031100-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -363,6 +363,12 @@ __has_pgp_error() {
   echo "$output" | grep -qiE 'unknown trust|invalid.*signature|corrupted.*PGP|signature.*invalid|key.*could not be looked up|required key missing'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Detect SSL/TLS download errors caused by bad or unreachable mirrors
+__has_ssl_error() {
+  local output="$1"
+  echo "$output" | grep -qiE 'OpenSSL|SSL_read|SSL routines|decryption failed or bad record mac|failed retrieving file'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Detect Arch-based distribution for pacman-key --populate
 __detect_arch_distro() {
   if grep -qi "cachyos" /etc/os-release 2>/dev/null; then
@@ -438,7 +444,6 @@ __exec_pacman_with_recovery() {
     printf_yellow "Detected PGP/signature error, attempting automatic recovery..."
     if __pacman_reinit_keyring "$(__detect_arch_distro)" "false"; then
       printf_cyan "Retrying package operation..."
-      # Retry the command
       if command -v script >/dev/null 2>&1; then
         script -qefc "$cmd" /dev/null 2>&1
         exit_code=$?
@@ -449,6 +454,21 @@ __exec_pacman_with_recovery() {
         bash -c "$cmd" 2>&1
         exit_code=$?
       fi
+    fi
+  # Check for SSL/TLS mirror errors and attempt recovery by refreshing mirrors
+  elif [ $exit_code -ne 0 ] && __has_ssl_error "$(cat "$temp_output" 2>/dev/null)"; then
+    printf_yellow "Detected SSL mirror error, refreshing mirror list and retrying..."
+    __update_mirrors
+    printf_cyan "Retrying package operation..."
+    if command -v script >/dev/null 2>&1; then
+      script -qefc "$cmd" /dev/null 2>&1
+      exit_code=$?
+    elif command -v stdbuf >/dev/null 2>&1; then
+      stdbuf -o0 -e0 bash -c "$cmd" 2>&1
+      exit_code=$?
+    else
+      bash -c "$cmd" 2>&1
+      exit_code=$?
     fi
   fi
   rm -f "$temp_output" 2>/dev/null
@@ -1252,9 +1272,10 @@ __initialize_variables() {
         printf_cyan "Disabling pacman GPG verification temporarily"                                                                                                         #
         sudo cp -f /etc/pacman.conf "$PKMGR_TEMP_DIR/pacman.conf.gpgskip.bak"                                                                                               #
         sudo sed -i 's/^SigLevel.*/SigLevel = Never/' /etc/pacman.conf                                                                                                      #
-        # On checksum/mirror failure, wipe corrupted cached packages and retry once
+        # On SSL/checksum/mirror failure, refresh mirrors, wipe cache, and retry once
         if ! sudo --preserve-env=PATH /usr/bin/pacman -Syyu --noconfirm; then                                                                                               #
-          printf_yellow "Upgrade failed, clearing package cache and retrying"                                                                                               #
+          printf_yellow "Upgrade failed, refreshing mirrors and clearing package cache before retry"                                                                        #
+          __update_mirrors                                                                                                                                                   #
           __pkgmgrbincle                                                                                                                                                     #
           sudo --preserve-env=PATH /usr/bin/pacman -Syyu --noconfirm || rc=$((rc + 1))                                                                                     #
         fi                                                                                                                                                                   #
@@ -1297,9 +1318,10 @@ __initialize_variables() {
         printf_cyan "Disabling pacman GPG verification temporarily"                                                                                             #
         sudo cp -f /etc/pacman.conf "$PKMGR_TEMP_DIR/pacman.conf.gpgskip.bak"                                                                                   #
         sudo sed -i 's/^SigLevel.*/SigLevel = Never/' /etc/pacman.conf                                                                                          #
-        # On checksum/mirror failure, wipe corrupted cached packages and retry once
+        # On SSL/checksum/mirror failure, refresh mirrors, wipe cache, and retry once
         if ! sudo --preserve-env=PATH /usr/bin/pacman -Syyu --noconfirm; then                                                                                   #
-          printf_yellow "Upgrade failed, clearing package cache and retrying"                                                                                   #
+          printf_yellow "Upgrade failed, refreshing mirrors and clearing package cache before retry"                                                            #
+          __update_mirrors                                                                                                                                       #
           __pkgmgrbincle                                                                                                                                         #
           sudo --preserve-env=PATH /usr/bin/pacman -Syyu --noconfirm || rc=$((rc + 1))                                                                         #
         fi                                                                                                                                                       #

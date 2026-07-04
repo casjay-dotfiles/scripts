@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202607041149-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -9,7 +9,7 @@
 # @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
 # @@Created          :  Thursday, Aug 04, 2022 22:30 EDT
 # @@File             :  clean-system
-# @@Description      :  remove old logs
+# @@Description      :  Comprehensive system cleaner: logs, caches, temp files, orphans, coredumps, user caches, docker, language caches
 # @@Changelog        :  Fix `set -o pipefail braceexpand glob` clobbering $@ (broke every CLI option), stop deleting logrotate cron jobs, restart uptimed/downtimed after cleanup, fix /root/* and ~/* glob bugs, age-guard /var/log year-named prune, quoting and typo cleanup
 # @@TODO             :  Better documentation
 # @@Other            :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605071902-git"
+VERSION="202607041149-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -96,7 +96,7 @@ __cmd_exists() {
 # Check for a valid internet connection
 __am_i_online() {
   local exitCode=0
-  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi -- 'server:.*cloudflare' || exitCode=4
   return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -121,7 +121,7 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
   ICON_WARN="[ warn ]"
   ICON_ERROR="[ error ]"
   ICON_QUESTION="[ ? ]"
-  printf_column() { tee | grep '^'; }
+  printf_column() { tee | grep -- '^'; }
   printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
@@ -174,7 +174,7 @@ CLEAN_SYSTEM_NOTIFY_CLIENT_ICON="${CLEAN_SYSTEM_NOTIFY_CLIENT_ICON:-}"
 CLEAN_SYSTEM_NOTIFY_CLIENT_URGENCY="${CLEAN_SYSTEM_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
-  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if builtin type -t __gen_config_local | grep -q -- 'function'; then __gen_config_local; fi
   if [ -f "$CLEAN_SYSTEM_CONFIG_DIR/$CLEAN_SYSTEM_CONFIG_FILE" ]; then
     [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
     . "$CLEAN_SYSTEM_CONFIG_DIR/$CLEAN_SYSTEM_CONFIG_FILE"
@@ -189,10 +189,24 @@ EOF
 # Help function - Align to 50
 __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "clean-system:  remove old logs - $VERSION"
+  __printf_opts "clean-system:  comprehensive disk-space reclaimer - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: clean-system [options]"
-  __printf_line "(no args)                              - Clean rotated logs in /var/log + old user logs/tmp"
+  __printf_line "(no args)                              - Run all cleanup stages and report reclaimed space"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Cleanup stages (all distros, smart detection)"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "  Logs          - Force logrotate, prune rotated /var/log files (>7 days)"
+  __printf_line "  Journal       - journalctl vacuum (2 weeks / 500 MB)"
+  __printf_line "  Coredumps     - /var/lib/systemd/coredump and /var/crash"
+  __printf_line "  Pkg cache     - pacman/apt/dnf/yum/zypper/apk/xbps/tdnf/brew cache clean"
+  __printf_line "  Pkg orphans   - Remove unneeded dependency packages"
+  __printf_line "  /tmp          - Files older than 1 day; /var/tmp older than 7 days"
+  __printf_line "  User caches   - Thumbnails and Trash older than 7 days (all users)"
+  __printf_line "  Docker        - Stopped containers, dangling images, build cache"
+  __printf_line "  Lang caches   - npm/.npm, pip, yarn, go-build per user; gem system-wide"
+  __printf_line "  Font cache    - fc-cache -f rebuild"
+  __printf_line "  User tmp/log  - ~/.local/tmp (>1d), ~/.local/log (>7d)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -227,7 +241,7 @@ __user_is_not_root() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if user is a member of sudo
 __sudo_group() {
-  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+  grep -sh -- "${1:-$USER}" "/etc/group" | grep -Eq -- 'wheel|adm|sudo' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # # Get sudo password
@@ -244,7 +258,7 @@ __sudorun() {
 # Test if user has access to sudo
 __can_i_sudo() {
   __user_is_root && return 0
-  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq -- 'may not' >/dev/null && return 0
   __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -288,7 +302,7 @@ __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$CLEAN_SYSTEM_TEMP_FILE" ] && rm -Rf "$CLEAN_SYSTEM_TEMP_FILE" &>/dev/null
   #unset CASJAYSDEV_TITLE_SET && printf '\033]2;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
-  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  if builtin type -t __trap_exit_local | grep -q -- 'function'; then __trap_exit_local; fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -309,6 +323,128 @@ __rm_after() {
 __logrotate() {
   __cmd_exists logrotate || return 2
   logrotate "$@" |& __devnull
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__clean_journal() {
+  __cmd_exists journalctl || return 0
+  printf_cyan "Vacuuming systemd journal (keeping 2 weeks / 500 MB)"
+  journalctl --vacuum-time=2weeks 2>/dev/null || true
+  journalctl --vacuum-size=500M 2>/dev/null || true
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__clean_coredumps() {
+  if [ -d "/var/lib/systemd/coredump" ]; then
+    printf_cyan "Removing coredumps from /var/lib/systemd/coredump"
+    find /var/lib/systemd/coredump -mindepth 1 -maxdepth 1 -type f -delete 2>/dev/null || true
+  fi
+  if [ -d "/var/crash" ]; then
+    printf_cyan "Removing crash reports from /var/crash"
+    find /var/crash -mindepth 1 -maxdepth 1 -type f -delete 2>/dev/null || true
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__clean_pkg_cache() {
+  printf_cyan "Cleaning package manager cache"
+  if __cmd_exists pacman; then
+    printf 'y\ny\n' | pacman -Scc 2>/dev/null || true
+  elif __cmd_exists apt-get; then
+    apt-get clean 2>/dev/null || true
+    apt-get autoclean 2>/dev/null || true
+  elif __cmd_exists dnf; then
+    dnf clean all 2>/dev/null || true
+  elif __cmd_exists yum; then
+    yum clean all 2>/dev/null || true
+  elif __cmd_exists zypper; then
+    zypper clean --all 2>/dev/null || true
+  elif __cmd_exists apk; then
+    apk cache clean 2>/dev/null || true
+  elif __cmd_exists xbps-install; then
+    xbps-remove -O 2>/dev/null || true
+  elif __cmd_exists tdnf; then
+    tdnf clean all 2>/dev/null || true
+  elif __cmd_exists brew; then
+    brew cleanup -s 2>/dev/null || true
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__clean_pkg_orphans() {
+  printf_cyan "Removing orphaned packages"
+  if __cmd_exists pacman; then
+    local -a orphans
+    mapfile -t orphans < <(pacman -Qtdq 2>/dev/null)
+    if [ "${#orphans[@]}" -gt 0 ]; then
+      pacman -Rns --noconfirm "${orphans[@]}" 2>/dev/null || true
+    else
+      printf_green "No orphaned packages found"
+    fi
+  elif __cmd_exists apt-get; then
+    apt-get autoremove -y 2>/dev/null || true
+  elif __cmd_exists dnf; then
+    dnf autoremove -y 2>/dev/null || true
+  elif __cmd_exists yum; then
+    yum autoremove -y 2>/dev/null || true
+  elif __cmd_exists xbps-remove; then
+    xbps-remove -o 2>/dev/null || true
+  elif __cmd_exists brew; then
+    brew autoremove 2>/dev/null || true
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__clean_tmp_dirs() {
+  printf_cyan "Removing stale files from /tmp (>1 day) and /var/tmp (>7 days)"
+  find /tmp -mindepth 1 -maxdepth 1 -mtime +1 -exec rm -rf {} \; 2>/dev/null || true
+  find /var/tmp -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} \; 2>/dev/null || true
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__clean_user_caches() {
+  printf_cyan "Cleaning per-user thumbnail caches and trash (>7 days)"
+  local home
+  for home in /root /home/*; do
+    [ -d "$home" ] || continue
+    if [ -d "$home/.cache/thumbnails" ]; then
+      find "$home/.cache/thumbnails" -type f -mtime +7 -delete 2>/dev/null || true
+    fi
+    if [ -d "$home/.local/share/Trash/files" ]; then
+      find "$home/.local/share/Trash/files" -mindepth 1 -mtime +7 -exec rm -rf {} \; 2>/dev/null || true
+      find "$home/.local/share/Trash/info" -mindepth 1 -name '*.trashinfo' -mtime +7 -delete 2>/dev/null || true
+    fi
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__clean_docker() {
+  __cmd_exists docker || return 0
+  docker info &>/dev/null || return 0
+  printf_cyan "Pruning Docker: stopped containers, dangling images, unused networks, build cache"
+  docker system prune -f 2>/dev/null || true
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__clean_lang_caches() {
+  printf_cyan "Cleaning per-user language caches (npm, pip, yarn, go-build)"
+  local home
+  for home in /root /home/*; do
+    [ -d "$home" ] || continue
+    if [ -d "$home/.npm" ]; then
+      find "$home/.npm" -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} \; 2>/dev/null || true
+    fi
+    if [ -d "$home/.cache/pip" ]; then
+      rm -rf "$home/.cache/pip/http"* 2>/dev/null || true
+    fi
+    if [ -d "$home/.cache/yarn" ]; then
+      find "$home/.cache/yarn" -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} \; 2>/dev/null || true
+    fi
+    if [ -d "$home/.cache/go-build" ]; then
+      find "$home/.cache/go-build" -mindepth 1 -maxdepth 1 -mtime +30 -exec rm -rf {} \; 2>/dev/null || true
+    fi
+  done
+  if __cmd_exists gem; then
+    gem cleanup 2>/dev/null || true
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__clean_font_cache() {
+  __cmd_exists fc-cache || return 0
+  printf_cyan "Rebuilding font cache"
+  fc-cache -f 2>/dev/null || true
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -420,7 +556,7 @@ while :; do
     ICON_WARN="[ warn ]"
     ICON_ERROR="[ error ]"
     ICON_QUESTION="[ ? ]"
-    printf_column() { tee | grep '^'; }
+    printf_column() { tee | grep -- '^'; }
     printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
@@ -527,13 +663,15 @@ requiresudo "$0" "$@" || exit 2 # exit 2 if errors
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-printf_red "Cleaning old logs"
+CLEAN_BEFORE_KB="$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')"
+printf_yellow "System cleanup started — disk free before: $(df -h / 2>/dev/null | awk 'NR==2 {print $4}')"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+printf_red "Rotating and pruning system logs"
 if __user_is_root || __can_i_sudo; then
   __logrotate -f /etc/logrotate.conf
   __rm_now /var/log/bandwidth
-  # Remove rotated/archived logs at depths 1-3 in /var/log:
-  #   *.gz, *.old, *.<digits>, year-stamped names
-  # Limited to files older than 7 days so active logs aren't yanked.
+  # Remove rotated/archived logs at depths 1-4 in /var/log:
+  #   *.gz, *.old, *.<digits>, year-stamped names; only files older than 7 days
   find /var/log -mindepth 1 -maxdepth 4 -type f -mtime +7 \
     \( -name '*.gz' \
        -o -name '*.old' \
@@ -544,17 +682,26 @@ if __user_is_root || __can_i_sudo; then
   if [ -f "$HOME/.config/logrotate/config" ]; then
     __logrotate -fv "$HOME/.config/logrotate/config"
   fi
-  if [ -d "/var/spool/uptimed" ]; then
+  if [ -d "/var/spool/uptimed" ] && __cmd_exists systemctl; then
     systemctl stop uptimed |& __devnull
     __rm_now /var/spool/uptimed/*
     systemctl start uptimed |& __devnull
   fi
-  if [ -d "/var/lib/downtimed/downtimedb" ]; then
+  if [ -d "/var/lib/downtimed/downtimedb" ] && __cmd_exists systemctl; then
     systemctl stop downtimed |& __devnull
     __rm_now /var/lib/downtimed/downtimedb/*
     touch /var/lib/downtimed/downtimedb/downtime.db |& __devnull
     systemctl start downtimed |& __devnull
   fi
+  __clean_journal
+  __clean_coredumps
+  __clean_pkg_cache
+  __clean_pkg_orphans
+  __clean_tmp_dirs
+  __clean_user_caches
+  __clean_docker
+  __clean_lang_caches
+  __clean_font_cache
   __rm_after 1 /root/.local/tmp/*
   __rm_after 7 /root/.local/log/*
   __rm_after 1 /home/*/.local/tmp/*
@@ -563,6 +710,17 @@ else
   __rm_after 1 ~/.local/tmp/*
   __rm_after 7 ~/.local/log/*
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+CLEAN_AFTER_KB="$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')"
+CLEAN_FREED_KB=$(( CLEAN_AFTER_KB - CLEAN_BEFORE_KB ))
+if [ "$CLEAN_FREED_KB" -gt 1024 ]; then
+  printf_green "Reclaimed approximately $(( CLEAN_FREED_KB / 1024 )) MB"
+elif [ "$CLEAN_FREED_KB" -gt 0 ]; then
+  printf_green "Reclaimed approximately ${CLEAN_FREED_KB} KB"
+else
+  printf_yellow "No additional disk space reclaimed"
+fi
+printf_cyan "Disk free after cleanup: $(df -h / 2>/dev/null | awk 'NR==2 {print $4}')"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-0}"

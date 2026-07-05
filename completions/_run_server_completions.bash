@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202607051400-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -14,91 +14,50 @@
 # @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - -'
 _run_server() {
-  ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
-  local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
-  local cur prev words cword opts split
+  local cur prev words cword
   local cur="${COMP_WORDS[$COMP_CWORD]}"
   local prev="${COMP_WORDS[$COMP_CWORD - 1]}"
-  local CONFFILE="settings.conf"
   local CONFDIR="$HOME/.config/myscripts/run_server"
-  local SEARCHDIR="${CONFDIR:-$HOME/.config/myscripts/run_server}"
-  #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1" | sort -u)"
-  local SHOW_COMP_OPTS=""
-  local FILEDIR="yes"
-  local OPTS=""
-  local LONGOPTS="--completions --config --debug --dir --help --options --no-color --version --silent "
-  local LONGOPTS+=",--bg --screen --editor --filemanager --browser --console --enable-browser --enable-filemanager "
-  local LONGOPTS+=",--enable-editor --enable-all --disable-browser --disable-filemanager --disable-editor --disable-all --allow-root"
+
+  local LONGOPTS="completions: config debug dir: help options no-color version silent"
+  LONGOPTS="$LONGOPTS bg screen editor filemanager browser console"
+  LONGOPTS="$LONGOPTS enable-browser enable-filemanager enable-editor enable-all"
+  LONGOPTS="$LONGOPTS disable-browser disable-filemanager disable-editor disable-all allow-root"
+
   local SHORTOPTS=""
-  local ARRAY="-- static proxy caddy go jekyll nginx"
-  local ARRAY+="js php rails ruby python2 python3 netcat default "
+  local COMMANDS="write static proxy caddy go jekyll js php rails ruby python2 python3 netcat nginx default"
 
   _init_completion || return
 
-  if [[ "$SHOW_COMP_OPTS" != "" ]]; then
-    local SHOW_COMP_OPTS_SEP="${SHOW_COMP_OPTS//,/ }"
-    compopt -o $SHOW_COMP_OPTS_SEP
-  fi
-
   if [[ ${cur} == --* ]]; then
-    COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
-    return
-  elif [[ ${cur} == -* ]]; then
-    COMPREPLY=($(compgen -W '${SHORTOPTS} ${LONGOPTS}' -- ${cur}))
-    return
-  else
-    case "${COMP_CWORD:-$prev}" in
-    --options)
-      local prev="--options"
-      COMPREPLY=($(compgen -W '' -- "${cur}"))
-      ;;
-
-    --config)
-      local prev="--config"
-      COMPREPLY=($(compgen -W '' -- "${cur}"))
-      ;;
-
-    --help)
-      prev="--help"
-      COMPREPLY=($(compgen -W '' -- "${cur}"))
-      ;;
-
-    --version)
-      local prev="--version"
-      COMPREPLY=($(compgen -W '' -- "${cur}"))
-      ;;
-
-    --dir)
-      local prev="dir"
-      _filedir
-      return
-      ;;
-
-    *)
-      [ -e "${cword}" ] && shift
-      if [[ ${#COMP_WORDS[@]} -eq 2 ]]; then
-        _filedir
-        return
-      elif [[ ${#COMP_WORDS[@]} -eq 3 ]]; then
-        COMPREPLY=($(compgen -W '${ARRAY}' -o nospace -- "${cur}"))
-        return
-      elif [[ ${#COMP_WORDS[@]} -eq 4 ]]; then
-        compopt -o nospace
-        COMPREPLY+=($(compgen -W '{19000..19019}' -o nospace -- "${cur}"))
-        return
-      elif [[ ${#COMP_WORDS[@]} -gt 4 ]]; then
-        compopt -o nospace
-        COMPREPLY+=($(compgen -W '{1..9}' -- "${cur}"))
-        return
-      else
-        COMPREPLY=($(compgen -W '${ARRAY}' -- ${cur}))
-        return
-      fi
-      ;;
-    esac
+    local options=$(echo "$LONGOPTS" | sed 's/:$//' | sed 's/ / --/g' | sed 's/^/--/')
+    COMPREPLY=($(compgen -W "$options" -- ${cur}))
+    return 0
   fi
-  $split && return
+
+  if [[ ${cur} == -* ]]; then
+    COMPREPLY=($(compgen -W "$SHORTOPTS" -- ${cur}))
+    return 0
+  fi
+
+  case "${prev}" in
+  --dir)
+    local cur="${COMP_WORDS[$COMP_CWORD]}"
+    _filedir -d
+    return 0
+    ;;
+  --completions)
+    COMPREPLY=($(compgen -W "short long array list" -- "${cur}"))
+    return 0
+    ;;
+  esac
+
+  if [[ ${#COMP_WORDS[@]} -eq 2 ]]; then
+    COMPREPLY=($(compgen -W "$COMMANDS" -- "${cur}"))
+    return 0
+  fi
+
+  COMPREPLY=($(compgen -W "$COMMANDS" -- "${cur}"))
+  return 0
 } &&
-  # - - - - - - - - - - - - - - - - - - - - - - - - -
-  # enable completions
-  complete -F _run_server run_server
+complete -F _run_server run_server

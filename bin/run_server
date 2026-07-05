@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202607051630-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605122035-git"
+VERSION="202607051630-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -46,38 +46,19 @@ export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$
 # pipes fail
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import functions
-CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
-SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
-SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
-  . "$PWD/$SCRIPTSFUNCTFILE"
-elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
-  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
-else
-  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 1
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Options are: *_install
-# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
-user_install && __options "$@"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send all output to /dev/null
 __devnull() {
   tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # See if the executable exists
 __cmd_exists() {
   local exitCode=0
@@ -96,8 +77,35 @@ __cmd_exists() {
 # Check for a valid internet connection
 __am_i_online() {
   local exitCode=0
-  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi -- 'server:.*cloudflare' || exitCode=4
   return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get the system hostname
+__gethostname() {
+  hostname -f 2>/dev/null || hostnamectl 2>/dev/null | grep -- 'Static hostname' | awk -F ': ' '{print $2}' | grep -- '^' || echo 'localhost'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get the local IP address and set CURRENT_IP_4, CURRENT_IP_6, NETDEV
+__getlipaddr() {
+  local IFCONFIG
+  if [[ "$OSTYPE" =~ ^darwin ]]; then
+    NETDEV="$(route get default 2>/dev/null | grep -- interface | awk '{print $2}')"
+  else
+    NETDEV="$(ip route 2>/dev/null | grep -- default | sed -e 's/^.*dev.//' -e 's/.proto.*//' | awk '{print $1}' | head -n1 | grep -- '^' || echo 'eth0')"
+  fi
+  IFCONFIG="$(builtin type -P /sbin/ifconfig 2>/dev/null || builtin type -P ifconfig 2>/dev/null || echo '')"
+  if [ -f "$IFCONFIG" ]; then
+    CURRENT_IP_4="$($IFCONFIG "$NETDEV" 2>/dev/null | grep -E -- "venet|inet" | grep -v -- "127\.0\.0\." | grep -- 'inet' | grep -v -- inet6 | awk '{print $2}' | sed 's/addr://g' | head -n1 | grep -- '^')"
+    CURRENT_IP_6="$($IFCONFIG "$NETDEV" 2>/dev/null | grep -E -- "venet|inet" | grep -- 'inet6' | grep -i -- global | awk '{print $2}' | head -n1 | grep -- '^')"
+  else
+    CURRENT_IP_4="$(ip -o -f inet address show "$NETDEV" | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep -- '^')"
+    CURRENT_IP_6="$(ip -o -f inet6 address show "$NETDEV" | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep -- '^')"
+  fi
+  [ -n "$NETDEV" ] || NETDEV="lo"
+  [ -n "$CURRENT_IP_4" ] || CURRENT_IP_4="127.0.0.1"
+  [ -n "$CURRENT_IP_6" ] || CURRENT_IP_6="::1"
+  export CURRENT_IP_4 CURRENT_IP_6 NETDEV
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
@@ -121,11 +129,37 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
   ICON_WARN="[ warn ]"
   ICON_ERROR="[ error ]"
   ICON_QUESTION="[ ? ]"
-  printf_column() { tee | grep '^'; }
+  printf_column() { tee | grep -- '^'; }
   printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
 else
+  printf_column() { tee | column -t; }
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color printf functions
+printf_blue() { printf_color "$1\n" 4; }
+printf_cyan() { printf_color "$1\n" 6; }
+printf_green() { printf_color "$1\n" 2; }
+printf_yellow() { printf_color "$1\n" 3; }
+printf_red() { printf_color "$1\n" 1; }
+printf_purple() { printf_color "$1\n" 5; }
+printf_newline() { printf '\n'; }
+printf_readline() { local _line; while IFS= read -r _line; do printf '%s\n' "$_line"; done; }
+printf_exit() {
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="208"
+  test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
+  local msg="$*"
+  printf_color "$msg" "$color" 1>&2
+  printf '\n'
+  exit "$exitCode"
+}
+printf_pause() {
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="5"
+  local msg="${*:-Press any key to continue}"
+  printf_color "$msg " "${PRINTF_COLOR:-$color}"
+  read -r -n 1 -s
+  printf '\n'
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional printf_ colors
 __printf_head() { printf_blue "$1"; }
@@ -183,7 +217,7 @@ RUN_SERVER_NOTIFY_CLIENT_ICON="${RUN_SERVER_NOTIFY_CLIENT_ICON:-}"
 RUN_SERVER_NOTIFY_CLIENT_URGENCY="${RUN_SERVER_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
-  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if builtin type -t __gen_config_local | grep -q -- 'function'; then __gen_config_local; fi
   if [ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ]; then
     [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
     . "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE"
@@ -200,32 +234,58 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "run_server:  Start an HTTP server from a directory - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: run_server [options] [commands]"
-  __printf_line "write                                  - "
-  __printf_line "static                                 - "
-  __printf_line "proxy                                  - "
-  __printf_line "caddy                                  - "
-  __printf_line "go                                     - "
-  __printf_line "jekyll                                 - "
-  __printf_line "js                                     - "
-  __printf_line "php                                    - "
-  __printf_line "rails                                  - "
-  __printf_line "ruby                                   - "
-  __printf_line "python2                                - "
-  __printf_line "python3                                - "
-  __printf_line "netcat                                 - "
-  __printf_line "default                                - "
-  __printf_line "*                                      - "
-  __printf_line "--dir                                  - Sets the working directory"
+  __printf_line "Usage: run_server [options] [command] [port]"
+  __printf_line ""
+  __printf_opts "Server Commands"
+  __printf_line "write                                  - Listen for netcat input"
+  __printf_line "static                                 - Start static file server"
+  __printf_line "proxy                                  - Setup reverse proxy"
+  __printf_line "caddy                                  - Start caddy server"
+  __printf_line "go                                     - Start gohttpserver"
+  __printf_line "jekyll                                 - Start jekyll server"
+  __printf_line "js                                     - Start http-server (Node.js)"
+  __printf_line "php                                    - Start PHP built-in server"
+  __printf_line "rails                                  - Start rails server"
+  __printf_line "ruby                                   - Start ruby http server"
+  __printf_line "python2                                - Start python2 http.server"
+  __printf_line "python3                                - Start python3 http.server"
+  __printf_line "netcat                                 - Start netcat server"
+  __printf_line "default                                - Try available servers"
+  __printf_line ""
+  __printf_opts "Server Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "Other Options"
+  __printf_line "--dir [path]                           - Set working directory"
+  __printf_line ""
+  __printf_opts "Control Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "--help                                 - Shows this message"
-  __printf_line "--config                               - Generate user config file"
+  __printf_line "--bg                                   - Run in background"
+  __printf_line "--screen                               - Use GNU screen for layout"
+  __printf_line "--console                              - Run in console mode"
+  __printf_line ""
+  __printf_opts "Browser/Editor Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--browser                              - Open browser window"
+  __printf_line "--editor                               - Open file editor"
+  __printf_line "--filemanager                          - Open file manager"
+  __printf_line "--enable-browser                       - Enable browser on startup"
+  __printf_line "--enable-editor                        - Enable editor on startup"
+  __printf_line "--enable-filemanager                   - Enable file manager on startup"
+  __printf_line "--enable-all                           - Enable all features"
+  __printf_line "--disable-browser                      - Disable browser"
+  __printf_line "--disable-editor                       - Disable editor"
+  __printf_line "--disable-filemanager                  - Disable file manager"
+  __printf_line "--disable-all                          - Disable all features"
+  __printf_line ""
+  __printf_opts "Utility Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                                 - Display this message"
+  __printf_line "--config                               - Generate config file"
   __printf_line "--version                              - Show script version"
-  __printf_line "--options                              - Shows all available options"
-  __printf_line "--debug                                - Enables script debugging"
-  __printf_line "--no-color                             - Disable ANSI color output"
+  __printf_line "--options                              - Show all options"
+  __printf_line "--debug                                - Enable debug mode"
+  __printf_line "--no-color                             - Disable color output"
+  __printf_line "--silent                               - Silent mode"
+  __printf_line "--allow-root                           - Allow running as root"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -244,12 +304,12 @@ __user_is_not_root() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if user is a member of sudo
 __sudo_group() {
-  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+  grep -sh -- "${1:-$USER}" "/etc/group" | grep -Eq -- 'wheel|adm|sudo' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# # Get sudo password
+# Get sudo password by validating sudo credentials
 __sudoask() {
-  ask_for_password sudo true && return 0 || return 1
+  sudo -v 2>/dev/null && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run sudo
@@ -260,7 +320,7 @@ __sudorun() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Test if user has access to sudo
 __can_i_sudo() {
-  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq -- 'may not' >/dev/null && return 0
   __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -305,7 +365,7 @@ __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$RUN_SERVER_TEMP_FILE" ] && rm -Rf "$RUN_SERVER_TEMP_FILE" &>/dev/null
   #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
-  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  if builtin type -t __trap_exit_local | grep -q -- 'function'; then __trap_exit_local; fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -333,18 +393,18 @@ __number_test() { test -n "$1" && test -z "${1//[0-9]/}" && return 0 || return 1
 __sleep() { sleep "${1:-1}"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_daemon_name() {
-  __netstat | grep -F ":$RUN_SERVER_PORT" |
-    grep -v 'TIME_WAIT' | awk -F'/' '{print $NF}' | sed 's| ||g;s|:.*||g'
+  __netstat | grep -F -- ":$RUN_SERVER_PORT" |
+    grep -v -- 'TIME_WAIT' | awk -F'/' '{print $NF}' | sed 's| ||g;s|:.*||g'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_server_pid() {
   local prog="${RUN_SERVER_DAEMON:-$RUN_SERVER_PROGRAM}"
-  __netstat | grep -F ":$RUN_SERVER_PORT" | grep "${prog:-^}" | sed 's|.*LISTEN||g;s| *||g' | awk -F'/' '{print $1}' | awk -F ':' '{print $1}' | grep '^' || return 1
+  __netstat | grep -F -- ":$RUN_SERVER_PORT" | grep -- "${prog:-^}" | sed 's|.*LISTEN||g;s| *||g' | awk -F'/' '{print $1}' | awk -F ':' '{print $1}' | grep -- '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_server_prog() {
   local basename=""
-  basename="$(__netstat | grep LISTEN | grep -F "${1:-$RUN_SERVER_PORT}" | sed 's|.*LISTEN||g;s| *||g' | awk -F'/' '{print $2}' | awk -F ':' '{print $1}' | sed 's|:$||g' | head -n1 | grep '^' || echo '')"
+  basename="$(__netstat | grep -- LISTEN | grep -F -- "${1:-$RUN_SERVER_PORT}" | sed 's|.*LISTEN||g;s| *||g' | awk -F'/' '{print $2}' | awk -F ':' '{print $1}' | sed 's|:$||g' | head -n1 | grep -- '^' || echo '')"
   [ -n "$basename" ] && echo "$basename" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -489,6 +549,13 @@ EOF
     printf_blue "Created: $RUN_SERVER_CONFIG_DIR/runserverc"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Launch GNU screen with the run_server configuration
+exec_screen() {
+  __cmd_exists screen || { printf_exit "screen is not installed"; return 1; }
+  __screen_config
+  exec screen -U -c "$RUN_SERVER_CONFIG_DIR/runserverc" -S "$APPNAME"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_server() {
   { "$@" &>"$RUN_SERVER_LOG_DIR/init.log" || __return_error || exit 1; } &
   export RUN_SERVER_SRV_WAIT_PID="$!"
@@ -503,11 +570,11 @@ run_editor() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 open_editor() {
-  local PATH="$SRC_DIR:$PATH"
+  local PATH="$SCRIPT_SRC_DIR:$PATH"
   cd "$1" || return 1
   RUN_SERVER_OPEN_EDITOR_CMD="$RUN_SERVER_OPEN_EDITOR_CMD $1"
   [ -n "$RUN_SERVER_NO_MESSAGE" ] || printf_purple "Launching: $RUN_SERVER_OPEN_EDITOR_CMD"
-  [ -n "$SCREEN_SESSION" ] || $RUN_SERVER_OPEN_EDITOR_CMD 2>/dev/null
+  [ -n "$SCREEN_SESSION" ] || $RUN_SERVER_OPEN_EDITOR_CMD 2>/dev/null &
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 run_filemanager() {
@@ -517,11 +584,11 @@ run_filemanager() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 open_filemanager() {
-  local PATH="$SRC_DIR:$PATH"
+  local PATH="$SCRIPT_SRC_DIR:$PATH"
   cd "$1" || return 1
   RUN_SERVER_OPEN_FILE_MANAGER_CMD="$RUN_SERVER_OPEN_FILE_MANAGER_CMD $1"
   [ -n "$RUN_SERVER_NO_MESSAGE" ] || printf_purple "Launching: $RUN_SERVER_OPEN_FILE_MANAGER_CMD"
-  [ -n "$SCREEN_SESSION" ] || $RUN_SERVER_OPEN_FILE_MANAGER_CMD 2>/dev/null
+  [ -n "$SCREEN_SESSION" ] || $RUN_SERVER_OPEN_FILE_MANAGER_CMD 2>/dev/null &
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 run_web_browser() {
@@ -531,13 +598,12 @@ run_web_browser() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 open_browser() {
-  local PATH="$SRC_DIR:$PATH"
+  local PATH="$SCRIPT_SRC_DIR:$PATH"
   [ -n "$RUN_SERVER_OPEN_BROWSER_CMD" ] || RUN_SERVER_OPEN_BROWSER_CMD="mybrowser"
   [ -n "$SCREEN_SESSION" ] || [ -n "$RUN_SERVER_BROWSER_ARGS" ] || RUN_SERVER_BROWSER_ARGS="--private"
   RUN_SERVER_OPEN_BROWSER_CMD="$RUN_SERVER_OPEN_BROWSER_CMD $1 $RUN_SERVER_BROWSER_ARGS"
   [ -n "$RUN_SERVER_NO_MESSAGE" ] || printf_purple "Launching: $RUN_SERVER_OPEN_BROWSER_CMD"
-  [ -n "$SCREEN_SESSION" ] || $RUN_SERVER_OPEN_BROWSER_CMD 2>/dev/null
-  #printf_red "control-c to exit"
+  [ -n "$SCREEN_SESSION" ] || $RUN_SERVER_OPEN_BROWSER_CMD 2>/dev/null &
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __return_error() {
@@ -553,15 +619,15 @@ __return_error() {
 __fmt_date() { date +"$1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __lsof() {
-  lsof -i -nP | grep "${1:-$RUN_SERVER_PORT}" | grep -v 'grep' | grep -i "${prog:-python3}" | grep -q '^' && return 0 || return 1
+  lsof -i -nP | grep -- "${1:-$RUN_SERVER_PORT}" | grep -v -- 'grep' | grep -i -- "${prog:-python3}" | grep -q -- '^' && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __port_used() {
-  ss -tlnH 2>/dev/null | grep -q ":${1:-$RUN_SERVER_PORT}" && return 0 || return 1
+  ss -tlnH 2>/dev/null | grep -q -- ":${1:-$RUN_SERVER_PORT}" && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __port_free() {
-  ss -tlnH 2>/dev/null | grep -q ":${1:-$RUN_SERVER_PORT}" && return 1 || return 0
+  ss -tlnH 2>/dev/null | grep -q -- ":${1:-$RUN_SERVER_PORT}" && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __proxy() {
@@ -570,7 +636,7 @@ __proxy() {
   cd "$RUN_SERVER_CWD" || return 1
   [[ "$1" == *:[0-9]* ]] && host="$1" || host="${CURRENT_IP_4:-127.0.0.1}:${1:-3000}"
   caddy reverse-proxy --change-host-header --insecure --to $host --from :${2:-${RUN_SERVER_PORT:-20000}} &>>"$RUN_SERVER_LOG" || return 1 &&
-    echo caddy started &>>"$RUN_SERVER_LOG" && other_port="$RUN_SERVER_LOG" || return 1
+    echo caddy started &>>"$RUN_SERVER_LOG" || return 1
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -659,7 +725,7 @@ __rails_serv() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists rails || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  server -p "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
+  rails server -p "$RUN_SERVER_PORT" -b 0.0.0.0 &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __python3_serv() {
@@ -673,7 +739,7 @@ __python2_serv() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists python2 || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  python2 -m http.server --cgi --bind "$RUN_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
+  python2 -m SimpleHTTPServer "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __py_simple() {
@@ -685,7 +751,7 @@ __py_simple() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __default_srv() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
-  cmd_exists python2 || return 1
+  __cmd_exists python2 || return 1
   cd "$RUN_SERVER_CWD" || return 1
   python2 -c $'import SimpleHTTPServer;\nmap = SimpleHTTPServer.SimpleHTTPRequestHandler.extensions_map;\nmap[""] = "text/plain";\nfor key, value in map.items():\n\tmap[key] = value + ";charset=UTF-8";\nSimpleHTTPServer.test();' "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
 }
@@ -705,7 +771,7 @@ __prog_check() {
   else
     printf '\033[2J\033[H'
     echo "$ERROR_MESSAGE" >>"$RUN_SERVER_LOG"
-    print_exit "$ERROR_MESSAGE"
+    printf_exit "$ERROR_MESSAGE"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -720,7 +786,7 @@ __set_vars() {
   local ORIG_PORT="$set_port"
   local port="$set_port"
   local i=0
-  [ "$RUN_SERVER_AS_ROOT" = "true" ] || [ $port -ge 10000 ] || printf_exit "Ports below 10000 is not supported"
+  [ "$RUN_SERVER_AS_ROOT" = "true" ] || { [ -n "$port" ] && [ "$port" -ge 10000 ]; } || printf_exit "Ports below 10000 are not supported"
   if __port_used $port; then
     printf_red "Something appears to be running on port ${port}"
     while :; do
@@ -741,7 +807,7 @@ __set_vars() {
   RUN_SERVER_CWD="$(realpath "${RUN_SERVER_CWD:-$PWD}" || dirname "${RUN_SERVER_CWD:-$PWD}/.")"
   RUN_SERVER_LOG="${RUN_SERVER_LOG:-$RUN_SERVER_LOG_DIR/run_server_$RUN_SERVER_PORT.log}"
   RUN_SERVER_URL="${RUN_SERVER_URL:-http://$RUN_SERVER_ADDR:$RUN_SERVER_PORT}"
-  SERVER_NAME="$(basename -- "$RUN_SERVER_CWD" 2>/dev/null)"
+  SERVER_NAME="${RUN_SERVER_CWD##*/}"
   [ -d "$RUN_SERVER_CWD" ] || mkdir -p "$RUN_SERVER_CWD" || exit 101
   if [ -n "$RUN_SERVER_EXPORT" ]; then
     cat <<EOF | tee -p "${RUN_SERVER_ENV_FILE:-/dev/null}" &>/dev/null
@@ -912,7 +978,7 @@ __initialize_app() {
       { __cmd_exists links && RUN_SERVER_OPEN_BROWSER_CMD="links"; } ||
       { __cmd_exists lynx && RUN_SERVER_OPEN_BROWSER_CMD="lynx -accept_all_cookies"; } ||
       { __cmd_exists elinks && RUN_SERVER_OPEN_BROWSER_CMD="elinks"; } ||
-      { __cmd_exists w3m && RUN_SERVER_OPEN_BROWSER_CMD="w3m"; } || return 1
+      { __cmd_exists w3m && RUN_SERVER_OPEN_BROWSER_CMD="w3m"; }
   elif __cmd_exists mybrowser; then
     RUN_SERVER_OPEN_BROWSER_CMD="mybrowser"
   elif [ -n "$BROWSER" ]; then
@@ -1091,7 +1157,7 @@ while :; do
     ICON_WARN="[ warn ]"
     ICON_ERROR="[ error ]"
     ICON_QUESTION="[ ? ]"
-    printf_column() { tee | grep '^'; }
+    printf_column() { tee | grep -- '^'; }
     printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
@@ -1190,7 +1256,7 @@ while :; do
   --browser)
     shift 1
     RUN_SERVER_ENABLE_WEB_BROWSER="yes"
-    [ -n "$RUN_SERVER_URL" ] || RUN_SERVER_URL="http://$RUN_SERVER_ADDR:${SERVER_PORT:-$RUN_SERVER_DEFAULT_PORT}"
+    [ -n "$RUN_SERVER_URL" ] || RUN_SERVER_URL="http://$RUN_SERVER_ADDR:${RUN_SERVER_PORT:-$RUN_SERVER_DEFAULT_PORT}"
     if [ -n "$RUN_SERVER_OPEN_BROWSER_CMD" ]; then
       $RUN_SERVER_OPEN_BROWSER_CMD
       wait -f "$!"
@@ -1200,7 +1266,7 @@ while :; do
     exit
     ;;
   --console)
-    shift 2
+    shift 1
     if [ -n "$RUN_SERVER_CONSOLE_CMD" ]; then
       $RUN_SERVER_CONSOLE_CMD
       wait -f "$!"
@@ -1223,6 +1289,9 @@ while :; do
     ;;
   --)
     shift 1
+    break
+    ;;
+  "" | *)
     break
     ;;
   esac
@@ -1462,6 +1531,7 @@ default)
 
 *)
   [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME [port]"
+  prog="__try_default"
   export -f __try_default
   __initialize_app
   __prog_check "$prog"

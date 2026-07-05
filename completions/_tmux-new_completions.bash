@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606131200-git
+##@Version           :  202607051004-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -13,7 +13,7 @@
 # @Other             :
 # @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - -'
-_tmux-new() {
+_tmux_new() {
   ___findcmd() { find -L "${1:-$SEARCHDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
   local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
   local cur prev words cword opts split
@@ -155,4 +155,4 @@ _tmux-new() {
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions
-  complete -F _tmux-new tmux-new
+  complete -F _tmux_new tmux-new

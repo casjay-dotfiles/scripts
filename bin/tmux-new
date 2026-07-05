@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607051004-git
+##@Version           :  202607051015-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607051004-git"
+VERSION="202607051015-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -408,7 +408,7 @@ __current_socket() {
 # Width >= 180: full "City, ST icon +XXF"   Width >= 120: "icon +XXF"   else: "+XXF"
 __exec_weather() {
   local width="${1:-0}"
-  local cache_dir="${TMUX_CACHE_DIR:-$HOME/.cache/tmux}"
+  local cache_dir="${TMUX_NEW_CACHE_DIR:-$HOME/.cache/tmux-new}"
   local socket="$(__current_socket)"
   local cache_file="$cache_dir/weather-$socket"
   local cache_ttl="${TMUX_WEATHER_INTERVAL:-3600}"
@@ -437,7 +437,7 @@ __exec_weather() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Uptime function with caching — reads /proc/uptime for reliable cross-platform output.
 __exec_uptime() {
-  local cache_dir="${TMUX_CACHE_DIR:-$HOME/.cache/tmux}"
+  local cache_dir="${TMUX_NEW_CACHE_DIR:-$HOME/.cache/tmux-new}"
   local socket="$(__current_socket)"
   local cache_file="$cache_dir/uptime-$socket"
   local cache_ttl="${TMUX_UPTIME_INTERVAL:-60}"
@@ -457,7 +457,7 @@ __exec_uptime() {
 __exec_git() {
   local search_dir="${1:-$PWD}"
   local topdir
-  local cache_dir="${TMUX_CACHE_DIR:-$HOME/.cache/tmux}"
+  local cache_dir="${TMUX_NEW_CACHE_DIR:-$HOME/.cache/tmux-new}"
   [ -d "$cache_dir" ] || mkdir -p "$cache_dir" 2>/dev/null
   topdir="$(git -C "$search_dir" rev-parse --show-toplevel 2>/dev/null)" || return 0
   local cache_key cache_file cache_ttl=5
@@ -640,13 +640,14 @@ __tmux_kill_all() {
       if [ -n "$session_path" ] && [ -d "$session_path" ]; then
         local lock_file="$TMUX_NEW_TEMP_DIR/recreate.${session_type}.lock"
         # Skip if a recreator for this session is already running
-        if [ -f "$lock_file" ] && kill -0 "$(cat "$lock_file" 2>/dev/null)" 2>/dev/null; then
+        if [ -f "$lock_file" ] && kill -0 "$(<"$lock_file" 2>/dev/null)" 2>/dev/null; then
           printf_yellow "Session $session_type is already being recreated — skipping"
           continue
         fi
         printf_blue "Recreating $session_type session in: $session_path"
         (
-          echo $$ >"$lock_file"
+          # Use BASHPID — $$ inside a subshell is the parent's PID, not this subshell's PID.
+          printf '%s\n' "$BASHPID" >"$lock_file"
           cd "$session_path" && "$0" --dir "$session_path" --silent "$session_type" &>/dev/null
           rm -f "$lock_file"
         ) &
@@ -913,6 +914,7 @@ __tmux_apply_state_cmds() {
   local sess win_idx win_name pane_idx pane_path cmd base_cmd current_cmd
   while IFS=$'\t' read -r sess win_idx win_name pane_idx pane_path cmd; do
     [ -n "$sess" ] || continue
+    [ -n "$win_idx" ] || continue
     __tmux has-session -t "=$sess" 2>/dev/null || continue
     current_cmd=$(__tmux display-message -p -t "=${sess}:${win_idx}.${pane_idx}" "#{pane_current_command}" 2>/dev/null)
     base_cmd="${cmd%% *}"
@@ -1211,9 +1213,9 @@ __tmux_rename() {
   }
 
   if __tmux has-session -t "$old_name" 2>/dev/null; then
-    __tmux rename-session -t "$old_name" "$new_name"
+    __tmux rename-session -t "$old_name" "$new_name" || return 1
     printf_green "Session '$old_name' renamed to '$new_name'"
-    return $?
+    return 0
   else
     printf_red "Session '$old_name' does not exist"
     return 1

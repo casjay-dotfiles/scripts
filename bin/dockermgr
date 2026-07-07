@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606231700-git
+##@Version           :  202607071200-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -18,7 +18,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606231700-git"
+VERSION="202607071200-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -2243,7 +2243,7 @@ installer_delete() {
     local DOCKER_REGISTRY_USER_NAME="${DOCKER_REGISTRY_USER_NAME:-casjaysdevdocker}"
     local APPDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
     local INSTDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
-    local DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_REGISTRY_IMAGE_TAG"
+    local DATADIR="/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_REGISTRY_IMAGE_TAG"
     local SHAREDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
     local MESSAGE="${MESSAGE:-Removing $APPNAME from ${msg:-your system}}"
     __get_uninstall_info
@@ -2372,8 +2372,8 @@ __install_script() {
     local DOCKER_REGISTRY_IMAGE_TAG="${DOCKER_REGISTRY_IMAGE_TAG:-latest}"
     local DOCKER_REGISTRY_REPO_NAME="$(echo "$REPO" | awk -F '/' '{print $NF}')"
     local DOCKER_REGISTRY_USER_NAME="$(echo "$REPO" | awk -F '/' '{print $(NF-1)}')"
-    local APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_REGISTRY_IMAGE_TAG"
-    local DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_REGISTRY_IMAGE_TAG"
+    local APPDIR="/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_REGISTRY_IMAGE_TAG"
+    local DATADIR="/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_REGISTRY_IMAGE_TAG"
     export APPNAME APPDIR INSTDIR DATADIR
     if ! curl -q -LSsfI "$REPO" &>/dev/null; then
       rm -Rf "$APPDIR" "$DATADIR" "$INSTDIR" 2>/dev/null
@@ -2926,6 +2926,44 @@ DOCKERMGER_MANIFEST_DELETE_TMP_TAGS=""
 DOCKERMGR_MANIFEST_TEMPLATE="${DOCKERMGR_MANIFEST_TEMPLATE:-https://gist.githubusercontent.com/casjay/d7a33dda283183c0187ce67bf8dbd9d3/raw/docker-migrate.txt}"
 DOCKERMGR_SHOW_USAGE="${DOCKERMGR_SHOW_USAGE:-yes}"
 DOCKERMGR_DEFAULT_MANIFEST_FILE="${DOCKERMGR_DEFAULT_MANIFEST_FILE:-$HOME/Documents/docker-migrate.txt}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Migrate data from legacy /var/lib/srv base to /srv
+__migrate_srv_base() {
+  local old_dir="/var/lib/srv/$USER/docker"
+  local new_dir="/srv/$USER/docker"
+  [ -d "$old_dir" ] || return 0
+  if [ -d "$new_dir" ]; then
+    printf_yellow "Skipping migration: $new_dir already exists"
+    return 0
+  fi
+  printf_yellow "Migrating $old_dir → $new_dir"
+  if command -v docker >/dev/null 2>&1; then
+    docker ps --format '{{.Names}}' | while read -r container; do
+      if docker inspect "$container" --format '{{range .Mounts}}{{.Source}} {{end}}' 2>/dev/null | grep -q -- "$old_dir"; then
+        printf_yellow "  Stopping: $container"
+        docker stop "$container" >/dev/null 2>&1
+      fi
+    done
+  fi
+  mkdir -p "/srv/$USER"
+  if mv "$old_dir" "$new_dir"; then
+    if command -v docker >/dev/null 2>&1; then
+      docker ps -a --format '{{.Names}} {{.Status}}' | while read -r name status; do
+        if docker inspect "$name" --format '{{range .Mounts}}{{.Source}} {{end}}' 2>/dev/null | grep -q -- "$new_dir"; then
+          if echo "$status" | grep -qi -- 'exited'; then
+            printf_yellow "  Starting: $name"
+            docker start "$name" >/dev/null 2>&1
+          fi
+        fi
+      done
+    fi
+    printf_green "Migrated: $new_dir"
+    rmdir "/var/lib/srv/$USER" 2>/dev/null || true
+  else
+    printf_red "Migration failed: could not move $old_dir to $new_dir"
+  fi
+}
+__migrate_srv_base
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -3747,7 +3785,7 @@ rm)
     shift 1
     printf_red "Deleting all docker containers"
     printf_yellow "However, your data files will remain in"
-    printf_blue "/var/lib/srv/$USER/docker"
+    printf_blue "/srv/$USER/docker"
     __docker_rm &>/dev/null
     exit $?
   else
@@ -3785,7 +3823,7 @@ rmi)
   if [ "$1" = "force" ]; then
     printf_red "Deleting all docker images"
     printf_yellow "However, your data files will remain in"
-    printf_blue "/var/lib/srv/$USER/docker"
+    printf_blue "/srv/$USER/docker"
     __docker_rmi
     exit $?
   elif [ "$1" = "all" ] || [ "$INSTALL_ALL" = "true" ]; then
@@ -3958,7 +3996,7 @@ remove)
   shift 1
   unset APPNAME
   if [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY="$(ls -A "/var/lib/srv/$USER/docker" 2>/dev/null)"
+    LISTARRAY="$(ls -A "/srv/$USER/docker" 2>/dev/null)"
   else
     LISTARRAY="${*}"
   fi

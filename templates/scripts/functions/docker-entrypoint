@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607082023-git
+##@Version           :  202607082200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -797,26 +797,24 @@ __proc_check() {
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_user_group_id() {
-  local exitStatus=0
   local set_user="${1:-$SERVICE_USER}"
   local set_uid="${2:-${SERVICE_UID:-1000}}"
   local set_gid="${3:-${SERVICE_GID:-1000}}"
-  local random_id="$(__generate_random_uids)"
-  set_uid="$(__get_uid "$set_user" || echo "$set_uid")"
-  set_gid="$(__get_gid "$set_user" || echo "$set_gid")"
-  if ! grep -shq "^$set_user:" "/etc/passwd" "/etc/group"; then
-    return 0
-  fi
+  # Nothing to do for root or unset
   if [ -z "$set_user" ] || [ "$set_user" = "root" ]; then
     return 0
   fi
-  if grep -shq "^$set_user:" "/etc/passwd" "/etc/group"; then
-    if __check_for_guid "$set_gid"; then
-      groupmod -g "${set_gid}" $set_user 2>/dev/stderr | tee -p -a "/data/logs/init.txt" >/dev/null
-    fi
-    if __check_for_uid "$set_uid"; then
-      usermod -u "${set_uid}" -g "${set_gid}" $set_user 2>/dev/stderr | tee -p -a "/data/logs/init.txt" >/dev/null
-    fi
+  # Nothing to do if the user does not exist yet
+  if ! grep -shq "^$set_user:" "/etc/passwd" "/etc/group"; then
+    return 0
+  fi
+  set_uid="$(__get_uid "$set_user" || echo "$set_uid")"
+  set_gid="$(__get_gid "$set_user" || echo "$set_gid")"
+  if __check_for_guid "$set_gid"; then
+    groupmod -g "${set_gid}" "$set_user" 2>/dev/stderr | tee -a "/data/logs/init.txt" >/dev/null
+  fi
+  if __check_for_uid "$set_uid"; then
+    usermod -u "${set_uid}" -g "${set_gid}" "$set_user" 2>/dev/stderr | tee -a "/data/logs/init.txt" >/dev/null
   fi
   export SERVICE_UID="$set_uid"
   export SERVICE_GID="$set_gid"
@@ -832,15 +830,14 @@ __create_service_user() {
   local create_uid="${4:-${SERVICE_UID:-$USER_UID}}"
   local create_gid="${5:-${SERVICE_GID:-$USER_GID}}"
   local random_id="$(__generate_random_uids)"
-  local create_home_dir="${create_home_dir:-/home/$create_user}"
   local log_file="/data/logs/init.txt"
-  # Ensure log directory exists
-  [ -d "$(dirname "$log_file")" ] || mkdir -p "$(dirname "$log_file")" 2>/dev/null
-  # Validate that we have at least a user or group to create
-  if [ -z "$create_user" ] && [ -z "$create_group" ]; then
-    echo "No user or group specified to create" >&2
+  # Nothing to do for unset or root user — return silently
+  create_home_dir="${create_home_dir:-/home/$create_user}"
+  if [ -z "$create_user" ] || [ "$create_user" = "root" ]; then
     return 0
   fi
+  # Ensure log directory exists
+  [ -d "$(dirname "$log_file")" ] || mkdir -p "$(dirname "$log_file")" 2>/dev/null
   # Validate user/group name format (alphanumeric, underscore, hyphen; must start with letter or underscore)
   if [ -n "$create_user" ] && [[ ! "$create_user" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
     echo "Error: Invalid username format '$create_user' - must start with letter/underscore, contain only lowercase alphanumeric, underscore, or hyphen" >&2
@@ -852,10 +849,6 @@ __create_service_user() {
   fi
   # Check if user and group already exist
   if grep -shq "^$create_user:" "/etc/passwd" && grep -shq "^$create_group:" "/etc/group"; then
-    return 0
-  fi
-  # Root user/group - nothing to create
-  if [ "$create_user" = "root" ] && [ "$create_group" = "root" ]; then
     return 0
   fi
   # Override with RUNAS_USER if specified and not root

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607082300-git
+##@Version           :  202607082330-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -93,7 +93,11 @@ __is_in_file() { [ -e "$2" ] && grep -Rsq "$1" "$2" 2>/dev/null; }
 __curl() { curl -q -sfI --max-time 3 -k -o /dev/null "$@" 2>/dev/null || return 10; }
 __find() {
   local result
-  result=$(find "$1" -mindepth 1 -type "${2:-f,d}" 2>/dev/null)
+  if [ -n "$2" ]; then
+    result=$(find "$1" -mindepth 1 -type "$2" 2>/dev/null)
+  else
+    result=$(find "$1" -mindepth 1 \( -type f -o -type d \) 2>/dev/null)
+  fi
   [ -n "$result" ] || return 10
   printf '%s\n' "$result"
 }
@@ -1069,7 +1073,7 @@ __start_init_scripts() {
                   __service_banner "✅" "Service $service started successfully -" "PID: ${retPID} ($found_process)"
                 elif [ -f "$expected_pid_file" ]; then
                   # No running process but PID file exists - verify PID is valid
-                  file_pid=$(<"$expected_pid_file") 2>/dev/null
+                  file_pid=$(cat "$expected_pid_file" 2>/dev/null)
                   if [ -n "$file_pid" ] && kill -0 "$file_pid" 2>/dev/null; then
                     initStatus="0"
                     __service_banner "✅" "Service $service started successfully -" "PID: $file_pid (from file)"
@@ -1122,12 +1126,19 @@ __setup_mta() {
   # /etc/postfix ships in some base images (casjaysdev/alpine) even without postfix.
   command -v ssmtp &>/dev/null || command -v postfix &>/dev/null || return 0
   local exitCode=0
-  local relay_port="${EMAIL_RELAY//*:/}"
-  local relay_server="${EMAIL_RELAY//:*/}"
+  # Extract server and port only when EMAIL_RELAY contains a colon
+  local relay_server="" relay_port=""
+  if [[ "$EMAIL_RELAY" == *:* ]]; then
+    relay_server="${EMAIL_RELAY%%:*}"
+    relay_port="${EMAIL_RELAY##*:}"
+  else
+    relay_server="$EMAIL_RELAY"
+  fi
   local local_hostname="${FULL_DOMAIN_NAME:-}"
   local account_user="${SERVER_ADMIN//@*/}"
   local account_domain="${EMAIL_DOMAIN//*@/}"
-  [[ $EMAIL_RELAY == *[0-9][0-9]* ]] || relay_port="465"
+  # Default to port 25 — plain SMTP, no cert validation required
+  relay_port="${relay_port:-25}"
   # Autodetect Docker host gateway as SMTP relay when EMAIL_RELAY is unset
   if [ -z "$EMAIL_RELAY" ] && timeout 2 bash -c 'echo >/dev/tcp/172.17.0.1/25' 2>/dev/null; then
     relay_server="172.17.0.1"
@@ -1493,7 +1504,7 @@ __switch_to_user() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # usage backup "days" "hours"
 __backup() {
-  local dirs="" backup_dir backup_name backup_exclude runTime cronTime maxDays
+  local dirs=() backup_dir backup_name backup_exclude runTime cronTime maxDays
   if test -n "$1" && test -z "${1//[0-9]/}"; then
     maxDays="$1"
     shift 1
@@ -1515,11 +1526,11 @@ __backup() {
   backup_dir="$BACKUP_DIR/$(date +'%y/%m')"
   backup_name="$(date +'%d_%H-%M').tar.gz"
   backup_exclude="/data/logs $BACKUP_DIR $BACK_EXCLUDE_DIR"
-  [ -d "/data" ] && dirs+="/data "
-  [ -d "/config" ] && dirs+="/config "
+  [ -d "/data" ] && dirs+=("/data")
+  [ -d "/config" ] && dirs+=("/config")
   [ -d "$logDir" ] || mkdir -p "$logDir"
   [ -d "$backup_dir" ] || mkdir -p "$backup_dir"
-  [ -z "$dirs" ] && echo "BACKUP_DIR is unset" >&2 && return 1
+  [ "${#dirs[@]}" -eq 0 ] && echo "BACKUP_DIR is unset" >&2 && return 1
   [ -f "$pidFile" ] && echo "A backup job is already running" >&2 && return 1
   echo "$$" >"$pidFile"
   trap "rm -f '$pidFile'" EXIT INT TERM
@@ -1528,7 +1539,7 @@ __backup() {
   for excl in $backup_exclude; do
     tar_excludes+=("--exclude=$excl")
   done
-  tar "${tar_excludes[@]}" -cfvz "$backup_dir/$backup_name" $dirs 2>/dev/stderr >>"$logDir/$CONTAINER_NAME" || exitCodeP=1
+  tar "${tar_excludes[@]}" -cfvz "$backup_dir/$backup_name" "${dirs[@]}" 2>/dev/stderr >>"$logDir/$CONTAINER_NAME" || exitCodeP=1
   if [ $exitCodeP -eq 0 ]; then
     echo "Backup has completed and saved to: $backup_dir/$backup_name"
     printf '%s\n\n' "Backup has completed on $(date)" >>"$logDir/$CONTAINER_NAME"

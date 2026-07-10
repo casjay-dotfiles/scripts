@@ -168,8 +168,8 @@ run_postinst() {
   if [ -x "$CASJAYSDEVDIR/bin/fontmgr" ]; then
     [ "$fontdir" = "0" ] && sudo "$CASJAYSDEVDIR/bin/fontmgr" install Hack all-the-icons fontawesome LigatureSymbols
   fi
-  [ -d "/var/lib/srv/$USER/public" ] || { mkdir -p "/var/lib/srv/$USER/public" && chmod 777 "/var/lib/srv/$USER/public"; }
-  [ -d "/var/lib/srv/$USER/docker" ] || { mkdir -p "/var/lib/srv/$USER/docker" && chmod 777 "/var/lib/srv/$USER/docker"; }
+  [ -d "/srv/$USER/public" ] || { mkdir -p "/srv/$USER/public" && chmod 777 "/srv/$USER/public"; }
+  [ -d "/srv/$USER/docker" ] || { mkdir -p "/srv/$USER/docker" && chmod 777 "/srv/$USER/docker"; }
   for app in $(ls "$CASJAYSDEVDIR/applications"); do
     ln_sf "$CASJAYSDEVDIR/applications/$app" "$SYSSHARE/applications/$app"
   done
@@ -192,16 +192,16 @@ run_postinst() {
   for user in root apache nginx www-user daemon nobody $USER; do
     if grep -qs "^$user:" /etc/passwd; then
       for d in composemgr docker public; do
-        mkdir -p "/var/lib/srv/$USER/$d"
-        chmod -f 777 "/var/lib/srv/$USER/$d"
-        chown -f $user "/var/lib/srv/$USER/$d"
-        grep -qs "^$user" /etc/group && chgrp -f $user "/var/lib/srv/$USER/$d"
+        mkdir -p "/srv/$USER/$d"
+        chmod -f 777 "/srv/$USER/$d"
+        chown -f $user "/srv/$USER/$d"
+        grep -qs "^$user" /etc/group && chgrp -f $user "/srv/$USER/$d"
       done
-      if [ ! -d "/var/lib/srv/$USER" ]; then
-        mkdir -p "/var/lib/srv/$USER"
-        chmod -f 777 "/var/lib/srv/$USER"
-        chown -f $user "/var/lib/srv/$USER"
-        grep -qs "^$user" /etc/group && chgrp -f $user "/var/lib/srv/$USER"
+      if [ ! -d "/srv/$USER" ]; then
+        mkdir -p "/srv/$USER"
+        chmod -f 777 "/srv/$USER"
+        chown -f $user "/srv/$USER"
+        grep -qs "^$user" /etc/group && chgrp -f $user "/srv/$USER"
       fi
     fi
   done

@@ -100,13 +100,13 @@ DOCKERMGR_CONFIG_DIR="$HOME/.config/myscripts/$SCRIPTS_PREFIX"
 SET_INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set default docker home for containers - $SET_APPDIR/$CONTAINER_NAME [APPDIR]
-SET_APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_REPO_NAME"
+SET_APPDIR="/srv/$USER/docker/$DOCKER_REGISTRY_REPO_NAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the base data directory - mounted files live in $SET_DATADIR/$CONTAINER_NAME/volumes [DATADIR]
-SET_DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_REPO_NAME"
+SET_DATADIR="/srv/$USER/docker/$DOCKER_REGISTRY_REPO_NAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the base database directory for the host
-SET_DATABASE_DIR="/var/lib/srv/$USER/databases"
+SET_DATABASE_DIR="/srv/$USER/databases"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install

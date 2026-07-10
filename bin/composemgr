@@ -1142,6 +1142,8 @@ RFC2136_TSIG_SECRET="${RFC2136_TSIG_SECRET:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Migrate data from legacy /var/lib/srv base to /srv
 __migrate_srv_base() {
+  [ "${COMPOSEMGR_MIGRATING:-}" = "1" ] && return 0
+  __cmd_exists rsync || return 0
   local old_base="/var/lib/srv/$USER"
   local new_base="/srv/$USER"
   local migrated=0
@@ -1154,35 +1156,32 @@ __migrate_srv_base() {
       continue
     fi
     printf_yellow "Migrating $old_dir → $new_dir"
-    if [ "$type_dir" = "composemgr" ] && command -v docker >/dev/null 2>&1; then
+    if [ "$type_dir" = "composemgr" ]; then
       for stack_dir in "$old_dir"/*/; do
+        [ -d "$stack_dir" ] || continue
         [ -f "${stack_dir}compose.yaml" ] || [ -f "${stack_dir}docker-compose.yaml" ] || continue
-        local compose_file="${stack_dir}compose.yaml"
-        [ -f "$compose_file" ] || compose_file="${stack_dir}docker-compose.yaml"
-        if docker compose -f "$compose_file" ps --quiet 2>/dev/null | grep -q .; then
-          printf_yellow "  Stopping: ${stack_dir##*/}"
-          docker compose -f "$compose_file" down >/dev/null 2>&1
-        fi
+        printf_yellow "  Stopping: ${stack_dir##*/}"
+        COMPOSEMGR_MIGRATING=1 composemgr --dir "${stack_dir%/}" down >/dev/null 2>&1
       done
     fi
-    mkdir -p "$new_base"
-    if mv "$old_dir" "$new_dir"; then
+    mkdir -p "$new_dir"
+    if rsync -a "$old_dir/" "$new_dir/"; then
       find "$new_dir" \( -name "compose.yaml" -o -name "docker-compose.yaml" -o -name "*.env" \) | while read -r f; do
         grep -ql -- "$old_base" "$f" 2>/dev/null && sed -i "s|$old_base|$new_base|g" "$f"
       done
-      if [ "$type_dir" = "composemgr" ] && command -v docker >/dev/null 2>&1; then
+      rm -rf "$old_dir"
+      if [ "$type_dir" = "composemgr" ]; then
         for stack_dir in "$new_dir"/*/; do
+          [ -d "$stack_dir" ] || continue
           [ -f "${stack_dir}compose.yaml" ] || [ -f "${stack_dir}docker-compose.yaml" ] || continue
-          local compose_file="${stack_dir}compose.yaml"
-          [ -f "$compose_file" ] || compose_file="${stack_dir}docker-compose.yaml"
           printf_yellow "  Starting: ${stack_dir##*/}"
-          docker compose -f "$compose_file" up -d --remove-orphans >/dev/null 2>&1
+          COMPOSEMGR_MIGRATING=1 composemgr --dir "${stack_dir%/}" up >/dev/null 2>&1
         done
       fi
       printf_green "Migrated: $new_dir"
       migrated=$((migrated + 1))
     else
-      printf_red "Migration failed: could not move $old_dir to $new_dir"
+      printf_red "Migration failed: rsync error for $old_dir"
     fi
   done
   [ "$migrated" -gt 0 ] && rmdir "$old_base" 2>/dev/null || true

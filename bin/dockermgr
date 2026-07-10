@@ -2929,6 +2929,8 @@ DOCKERMGR_DEFAULT_MANIFEST_FILE="${DOCKERMGR_DEFAULT_MANIFEST_FILE:-$HOME/Docume
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Migrate data from legacy /var/lib/srv base to /srv
 __migrate_srv_base() {
+  [ "${DOCKERMGR_MIGRATING:-}" = "1" ] && return 0
+  __cmd_exists rsync || return 0
   local old_dir="/var/lib/srv/$USER/docker"
   local new_dir="/srv/$USER/docker"
   [ -d "$old_dir" ] || return 0
@@ -2937,18 +2939,25 @@ __migrate_srv_base() {
     return 0
   fi
   printf_yellow "Migrating $old_dir → $new_dir"
+  # Stop containers whose mounts reference the old path
   if command -v docker >/dev/null 2>&1; then
-    docker ps --format '{{.Names}}' | while read -r container; do
+    docker ps --format '{{.Names}}' 2>/dev/null | while read -r container; do
       if docker inspect "$container" --format '{{range .Mounts}}{{.Source}} {{end}}' 2>/dev/null | grep -q -- "$old_dir"; then
         printf_yellow "  Stopping: $container"
-        docker stop "$container" >/dev/null 2>&1
+        DOCKERMGR_MIGRATING=1 docker stop "$container" >/dev/null 2>&1
       fi
     done
   fi
   mkdir -p "/srv/$USER"
-  if mv "$old_dir" "$new_dir"; then
+  if rsync -a "$old_dir/" "$new_dir/"; then
+    # Rewrite old path in any config/env files under the new tree
+    find "$new_dir" \( -name "*.env" -o -name "*.conf" -o -name "*.yaml" -o -name "*.yml" \) | while read -r f; do
+      grep -ql -- "$old_dir" "$f" 2>/dev/null && sed -i "s|$old_dir|$new_dir|g" "$f"
+    done
+    rm -rf "$old_dir"
+    # Restart containers that were stopped and now have mounts in the new path
     if command -v docker >/dev/null 2>&1; then
-      docker ps -a --format '{{.Names}} {{.Status}}' | while read -r name status; do
+      docker ps -a --format '{{.Names}} {{.Status}}' 2>/dev/null | while read -r name status; do
         if docker inspect "$name" --format '{{range .Mounts}}{{.Source}} {{end}}' 2>/dev/null | grep -q -- "$new_dir"; then
           if echo "$status" | grep -qi -- 'exited'; then
             printf_yellow "  Starting: $name"
@@ -2960,7 +2969,7 @@ __migrate_srv_base() {
     printf_green "Migrated: $new_dir"
     rmdir "/var/lib/srv/$USER" 2>/dev/null || true
   else
-    printf_red "Migration failed: could not move $old_dir to $new_dir"
+    printf_red "Migration failed: rsync error for $old_dir"
   fi
 }
 __migrate_srv_base

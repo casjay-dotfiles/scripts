@@ -1124,7 +1124,7 @@ __start_init_scripts() {
 __setup_mta() {
   # Check for an installed MTA binary — directories alone cannot be trusted because
   # /etc/postfix ships in some base images (casjaysdev/alpine) even without postfix.
-  command -v ssmtp &>/dev/null || command -v postfix &>/dev/null || return 0
+  command -v msmtp &>/dev/null || command -v ssmtp &>/dev/null || command -v postfix &>/dev/null || return 0
   local exitCode=0
   # Extract server and port only when EMAIL_RELAY contains a colon
   local relay_server="" relay_port=""
@@ -1148,8 +1148,41 @@ __setup_mta() {
   local relay_use_tls="Yes"
   local relay_smtp_tls="yes"
   [ "$relay_port" = "25" ] && relay_use_tls="No" && relay_smtp_tls="no"
+  ################# msmtp relay setup
+  if command -v msmtp &>/dev/null; then
+    [ -d "/config/msmtp" ] || mkdir -p "/config/msmtp"
+    [ -f "/etc/msmtprc" ] && __rm "/etc/msmtprc"
+    if [ ! -f "/config/msmtp/msmtprc" ]; then
+      cat >"/config/msmtp/msmtprc" <<EOF
+# msmtp configuration.
+defaults
+auth           on
+tls            ${relay_use_tls,,}
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+logfile        /var/log/msmtp.log
+
+account        default
+host           ${relay_server:-172.17.0.1}
+port           $relay_port
+from           ${account_user:-root}@${account_domain:-$HOSTNAME}
+#user          username
+#password      password
+
+EOF
+    fi
+    if [ -f "/config/msmtp/msmtprc" ]; then
+      __symlink "/config/msmtp/msmtprc" "/etc/msmtprc"
+      __initialize_replace_variables "/etc/msmtprc"
+      chmod 600 "/etc/msmtprc" 2>/dev/null || true
+      # sendmail compat symlink
+      if [ ! -e "/usr/sbin/sendmail" ] && command -v msmtp &>/dev/null; then
+        __symlink "$(command -v msmtp)" "/usr/sbin/sendmail"
+      fi
+      [ "$DEBUGGER" = "on" ] && echo "Done setting up msmtp"
+    fi
+
   ################# sSMTP relay setup
-  if command -v ssmtp &>/dev/null; then
+  elif command -v ssmtp &>/dev/null; then
     [ -d "/config/ssmtp" ] || mkdir -p "/config/ssmtp"
     [ -f "/etc/ssmtp/ssmtp.conf" ] && __rm "/etc/ssmtp/ssmtp.conf"
     symlink_files="$(__find_file_relative "/config/ssmtp")"

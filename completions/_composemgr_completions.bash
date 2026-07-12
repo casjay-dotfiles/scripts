@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607071200-git
+##@Version           :  202607112300-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -51,9 +51,9 @@ _composemgr_completion() {
   SHORTOPTS+=""
   #####################################################################
   LONGOPTS="--completions --config --reset-config --debug --dir --help --options --no-color --version --silent --force --no- --yes- "
-  LONGOPTS+="--project --env"
+  LONGOPTS+="--project --name --env --prod --devel"
   #####################################################################
-  ARRAY="init install remove up down ps logs new edit show env get generate backup network cat nginx repo"
+  ARRAY="init install remove up down ps logs new edit show env get generate backup network cat nginx repo restart"
   ARRAY+=""
   #####################################################################
   LIST="acme affine aria2 authentik blinko bluesky borg budibase bytestash caprover clipcascade code-server coder couchbase couchdb "

@@ -785,10 +785,33 @@ __update_dockerfile_in_place() {
   __replace_line_in_file "$dockerfile" '^ARG IMAGE_NAME=' "ARG IMAGE_NAME=\"$image_name\"" || return 1
   __replace_line_in_file "$dockerfile" '^ARG PHP_SERVER=' "ARG PHP_SERVER=\"$image_name\"" || true
   __replace_line_in_file "$dockerfile" '^ARG IMAGE_REPO=' "ARG IMAGE_REPO=\"$GEN_DOCKERFILE_PUSH_URL\"" || return 1
+  __replace_line_in_file "$dockerfile" '^ARG PACK_LIST=' "ARG PACK_LIST=\"$packages \"" || true
   __replace_line_in_file "$dockerfile" '^LABEL org[.]opencontainers[.]image[.]url=' "LABEL org.opencontainers.image.url=\"$GEN_DOCKERFILE_HUB_REPO\"" || true
   __replace_line_in_file "$dockerfile" '^LABEL org[.]opencontainers[.]image[.]source=' "LABEL org.opencontainers.image.source=\"$GEN_DOCKERFILE_HUB_REPO\"" 1 || true
   __replace_line_in_file "$dockerfile" '^LABEL org[.]opencontainers[.]image[.]source=' "LABEL org.opencontainers.image.source=\"$GEN_DOCKERFILE_GIT_REPO\"" 2 || true
   __replace_line_in_file "$dockerfile" '^LABEL org[.]opencontainers[.]image[.]documentation=' "LABEL org.opencontainers.image.documentation=\"$GEN_DOCKERFILE_GIT_REPO\"" || true
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__package_substitutions() {
+  local pkg_list="$1"
+  # Replace deprecated/renamed packages
+  pkg_list="${pkg_list//ssmtp/msmtp}"
+  echo "$pkg_list"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__merge_packages() {
+  local base_list="$1" old_list="$2" pkg merged=""
+  # Apply substitutions to old list before merging
+  old_list="$(__package_substitutions "$old_list")"
+  merged="$base_list"
+  # Append project-specific extras not already in the base list
+  for pkg in $old_list; do
+    case " $base_list " in
+      *" $pkg "*) ;;
+      *) merged="$merged $pkg" ;;
+    esac
+  done
+  echo "$(__trim "$merged")"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __migrate_env_script() {
@@ -858,6 +881,14 @@ __update_generated_files() {
     [ -n "$env_git_repo_url" ] && GEN_DOCKERFILE_SET_GIT_REPO_URL="$env_git_repo_url"
     __sync_repo_setting_aliases
     __set_make_file_variables "$GEN_DOCKERFILE_CWD/$env_dockerfile" "${GEN_DOCKERFILE_SET_REGISTRY_REPO:-${env_registry_repo:-$(basename -- "$GEN_DOCKERFILE_CWD")}}" "$env_git_repo_url"
+    # Save project-specific packages, then reload fresh template defaults
+    local old_env_packages="$ENV_PACKAGES"
+    ENV_PACKAGES=""
+    name="${env_use_template:-${GEN_DOCKERFILE_TEMPLATE:-$(basename -- "$GEN_DOCKERFILE_CWD")}}"
+    [ -f "$GEN_DOCKERFILE_TEMPLATE_DIR/template_options.source" ] && . "$GEN_DOCKERFILE_TEMPLATE_DIR/template_options.source"
+    # Merge fresh template base with project extras and apply substitutions
+    packages="$(__merge_packages "$packages" "$old_env_packages")"
+    ENV_PACKAGES="$packages"
     __set_variables
     printf_blue "Updating ${env_dockerfile} using $(basename -- "$env_file")"
     __update_env_file_in_place "$env_file" || return 1

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607051640-git
+##@Version           :  202607122255-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Fix __git_remote_push: drop URL-scheme filter that silently dropped SCP-style SSH remotes (git@github.com).
+# @@Changelog        :  Fix __git_push: auto-set upstream via new __git_push_do helper when the current branch has no tracking branch yet, instead of failing outright.
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607051640-git"
+VERSION="202607122255-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -2183,6 +2183,24 @@ __gitcommit_setup_remote() {
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run `git push` for __git_push(), auto-recovering once when the
+# current branch has no upstream tracking branch set yet (fresh repo,
+# first push). Extra args (e.g. -f) are passed through to both the
+# initial attempt and the --set-upstream retry. Errors still go to
+# $GITCOMMIT_ERROR_LOG exactly as before - this only adds a retry.
+__git_push_do() {
+  local git_dir="$1" branch=""
+  shift 1
+  git -C "$git_dir" push "$@" -q 2>"$GITCOMMIT_ERROR_LOG" >/dev/null && return 0
+  if __grep -qi -- "no upstream branch\|has no upstream branch" "$GITCOMMIT_ERROR_LOG"; then
+    branch="$(git -C "$git_dir" branch --show-current 2>/dev/null)"
+    [ -n "$branch" ] || return 1
+    printf_yellow "🔄 No upstream branch - setting upstream to origin/$branch..."
+    git -C "$git_dir" push "$@" --set-upstream origin "$branch" -q 2>"$GITCOMMIT_ERROR_LOG" >/dev/null && return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_push() {
   local GITCOMMIT_EXITCODE=0 git_dir="" git_repo="" git_remote=""
   local git_failed="" git_succes="" git_push="" git_repo_clean=""
@@ -2217,11 +2235,11 @@ __git_push() {
       fi
       if [ -n "$FORCE_PUSH" ]; then
         printf_green "🔼 Pushing the changes to $git_repo_clean 🔼"
-        git -C "$git_dir" push -f -q 2>"$GITCOMMIT_ERROR_LOG" >/dev/null && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
+        __git_push_do "$git_dir" -f && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
         __getexitcode $GITCOMMIT_EXITCODE "$git_icon_succes $git_succes $(__git_commitid "$git_dir")$git_icon_succes" "$git_icon_failed$git_failed $(<"$errorlog") $git_icon_failed"
       elif [[ "$*" =~ --automated ]] || [[ "$*" =~ --force ]]; then
         printf_green "🔼 Pushing the changes to $git_repo_clean 🔼"
-        git -C "$git_dir" push -q 2>"$GITCOMMIT_ERROR_LOG" >/dev/null && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
+        __git_push_do "$git_dir" && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
         __getexitcode $GITCOMMIT_EXITCODE "$git_icon_succes $git_succes $(__git_commitid "$git_dir")$git_icon_succes" "$git_icon_failed$git_failed $(<"$errorlog") $git_icon_failed"
       else
         if [ "$GITCOMMIT_NO_CONFIRM" != "true" ]; then
@@ -2231,7 +2249,7 @@ __git_push() {
         fi
         if printf_answer_yes "$git_push"; then
           printf_green "📍 Pushing the changes to $git_repo_clean 📍"
-          git -C "$git_dir" push -q 2>"$GITCOMMIT_ERROR_LOG" >/dev/null && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
+          __git_push_do "$git_dir" && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
           __getexitcode $GITCOMMIT_EXITCODE "$git_icon_succes$git_succes $(__git_commitid "$git_dir") $git_icon_succes" "$git_icon_failed $git_failed $git_icon_failed"
         fi
       fi

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607051004-git
+##@Version           :  202607182045-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -29,18 +29,18 @@ _tmux_new() {
   local SHORTOPTS=""
   local ARRAY="kill clean list attach switch rename status show clone nested single shell server web docker dev go rust python devops monitoring database rpm node bun deno build ssh productivity test default edit create update save restore apply-state-cmds boot cleanup"
   local LAUNCH="nested single shell server web docker dev go rust python devops monitoring database rpm node bun deno build ssh productivity test default"
-  local tmux_ls="$(tmux ls 2>/dev/null | awk -F':' '{print $1}' | grep -vE '^$|no session|no server running on' | grep '^')"
+  local tmux_ls="$(tmux ls 2>/dev/null | awk -F':' '{print $1}' | grep -vE -- '^$|no session|no server running on' | grep '^')"
   local socket_dir="$HOME/.config/tmux/sessions"
   local sockets="$(ls "$socket_dir" 2>/dev/null || echo '')"
   local socket_sessions=""
   # Get sessions from all socket files
   if [ -n "$sockets" ]; then
     for socket in $sockets; do 
-      socket_sessions+=" $(tmux -S "$socket_dir/$socket" ls 2>/dev/null | awk -F':' '{print $1}' | grep -vE '^$|no session|no server running on' || echo '')"
+      socket_sessions+=" $(tmux -S "$socket_dir/$socket" ls 2>/dev/null | awk -F':' '{print $1}' | grep -vE -- '^$|no session|no server running on' || echo '')"
     done
   fi
   local all_sessions="$tmux_ls $socket_sessions"
-  _init_completion || return
+  _init_completion || return 1
 
   if [[ "$SHOW_COMP_OPTS" != "" ]]; then
     local SHOW_COMP_OPTS_SEP="${SHOW_COMP_OPTS//,/ }"
@@ -49,7 +49,7 @@ _tmux_new() {
 
   if [[ ${cur} == -* ]]; then
     COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
-    return
+    return 0
   else
     case "${COMP_WORDS[1]:-$prev}" in
     --options)
@@ -86,7 +86,7 @@ _tmux_new() {
       shift 1
       local prev="dir"
       _filedir
-      return
+      return 0
       ;;
     --socket)
       local prev="--socket"
@@ -151,7 +151,7 @@ _tmux_new() {
       ;;
     esac
   fi
-  $split && return
+  $split && return 0
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions

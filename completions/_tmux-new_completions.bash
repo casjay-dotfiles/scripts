@@ -27,7 +27,7 @@ _tmux_new() {
   local OPTS=""
   local LONGOPTS="--completions --config --debug --dir --help --options --no-color --version --silent --kill --name --socket"
   local SHORTOPTS=""
-  local ARRAY="kill clean list attach switch rename status show clone nested single shell server web docker dev go rust python devops monitoring database rpm node bun deno build ssh productivity test default edit create update save restore boot cleanup"
+  local ARRAY="kill clean list attach switch rename status show clone nested single shell server web docker dev go rust python devops monitoring database rpm node bun deno build ssh productivity test default edit create update save restore apply-state-cmds boot cleanup"
   local LAUNCH="nested single shell server web docker dev go rust python devops monitoring database rpm node bun deno build ssh productivity test default"
   local tmux_ls="$(tmux ls 2>/dev/null | awk -F':' '{print $1}' | grep -vE '^$|no session|no server running on' | grep '^')"
   local socket_dir="$HOME/.config/tmux/sessions"

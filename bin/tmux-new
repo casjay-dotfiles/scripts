@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607181530-git
+##@Version           :  202607182010-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  point TMUX_TMPDIR at a persistent dir so sockets aren't swept from /tmp, fixing "a" falsely triggering a state.txt restore on an already-live server
+# @@Changelog        :  restore now splits missing panes, reapplies window_layout, always cds before saved commands, wires apply-state-cmds into resurrect's post-restore hook
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607181530-git"
+VERSION="202607182010-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -226,6 +226,7 @@ __help() {
   __printf_line "tmux-new nested [name]                 - nested tmux with single status bar"
   __printf_line "tmux-new save                          - manual snapshot (tmux-resurrect)"
   __printf_line "tmux-new restore                       - restore last snapshot"
+  __printf_line "tmux-new apply-state-cmds              - patch panes after resurrect restore (hook target)"
   __printf_line "tmux-new boot                          - restore if server is down (login/systemd hook)"
   __printf_line "tmux-new cleanup                       - prune old snapshots (keeps newest TMUX_NEW_SNAPSHOT_KEEP)"
   __printf_line "tmux-new kill [type] [name]            - kill sessions/windows/panes"
@@ -853,8 +854,10 @@ __tmux_apply_resurrect_dir() {
   __tmux set-option -g @resurrect-dir "$TMUX_NEW_RESURRECT_DIR" &>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Save per-pane state (session, window, path, full running command) to state.txt.
-# Uses /proc/$PID/cmdline to capture the exact command with all arguments.
+# Save per-pane state (session, window, path, full running command, window layout) to
+# state.txt. Uses /proc/$PID/cmdline to capture the exact command with all arguments.
+# window_layout is appended as a trailing field so older 6-field state.txt files (saved
+# before this field existed) still parse — the missing 7th field just reads as empty.
 __tmux_save_state() {
   local state_file="$TMUX_NEW_RESURRECT_DIR/state.txt"
   [ -d "$TMUX_NEW_RESURRECT_DIR" ] || mkdir -p "$TMUX_NEW_RESURRECT_DIR" 2>/dev/null || return 0
@@ -862,8 +865,10 @@ __tmux_save_state() {
   # Use a real tab variable so tmux receives an actual tab character in the -F format string.
   # In bash double-quotes, \t is literal backslash-t; tmux 3.2a does not expand \t in format strings.
   local _tab=$'\t'
-  __tmux list-panes -a -F "#{session_name}${_tab}#{window_index}${_tab}#{window_name}${_tab}#{pane_index}${_tab}#{pane_current_path}${_tab}#{pane_pid}" 2>/dev/null |
-    while IFS=$'\t' read -r sess win_idx win_name pane_idx pane_path pane_pid; do
+  local _fmt="#{session_name}${_tab}#{window_index}${_tab}#{window_name}${_tab}#{pane_index}"
+  _fmt+="${_tab}#{pane_current_path}${_tab}#{pane_pid}${_tab}#{window_layout}"
+  __tmux list-panes -a -F "$_fmt" 2>/dev/null |
+    while IFS=$'\t' read -r sess win_idx win_name pane_idx pane_path pane_pid win_layout; do
       local cmd child_pid
       [ -n "$pane_pid" ] || continue
       child_pid=$(pgrep -P "$pane_pid" 2>/dev/null | tail -1)
@@ -872,34 +877,43 @@ __tmux_save_state() {
       fi
       [ -n "$cmd" ] || cmd=$(tr '\0' ' ' </proc/"$pane_pid"/cmdline 2>/dev/null | sed 's/ *$//')
       [ -n "$cmd" ] || cmd="bash"
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$sess" "$win_idx" "$win_name" "$pane_idx" "$pane_path" "$cmd"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sess" "$win_idx" "$win_name" "$pane_idx" "$pane_path" "$cmd" "$win_layout"
     done >"$tmp_file" 2>/dev/null && mv -f "$tmp_file" "$state_file" 2>/dev/null || rm -f "$tmp_file" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Crash fallback: recreate sessions/windows from state.txt and replay commands.
-# Only used when tmux-resurrect has no saved snapshot.
+# Crash fallback: recreate sessions/windows/panes from state.txt and replay commands.
+# Only used when tmux-resurrect has no saved snapshot. Splits in missing panes (a window
+# only ever gets pane 0 for free from new-session/new-window) and reapplies the captured
+# window_layout once all of a window's panes exist, so multi-pane windows come back with
+# the right pane count/geometry instead of collapsing to a single pane.
 __tmux_restore_from_state() {
   local state_file="$TMUX_NEW_RESURRECT_DIR/state.txt"
   [ -f "$state_file" ] || return 1
-  local sess win_idx win_name pane_idx pane_path cmd base_cmd
-  while IFS=$'\t' read -r sess win_idx win_name pane_idx pane_path cmd; do
+  local sess win_idx win_name pane_idx pane_path cmd win_layout base_cmd target
+  while IFS=$'\t' read -r sess win_idx win_name pane_idx pane_path cmd win_layout; do
     [ -n "$sess" ] || continue
     # Skip rows where win_idx is empty — indicates a malformed/corrupted state file line.
     [ -n "$win_idx" ] || continue
+    [ -d "$pane_path" ] || pane_path="$HOME"
     if ! __tmux has-session -t "=$sess" 2>/dev/null; then
-      [ -d "$pane_path" ] || pane_path="$HOME"
       __tmux new-session -d -s "$sess" -n "$win_name" -c "$pane_path" 2>/dev/null || continue
     fi
     if ! __tmux list-windows -t "=$sess" -F "#{window_index}" 2>/dev/null | grep -qx -- "$win_idx"; then
       __tmux new-window -t "=$sess" -n "$win_name" -c "$pane_path" 2>/dev/null
     fi
+    if ! __tmux list-panes -t "=${sess}:${win_idx}" -F "#{pane_index}" 2>/dev/null | grep -qx -- "$pane_idx"; then
+      __tmux split-window -t "=${sess}:${win_idx}" -c "$pane_path" 2>/dev/null
+    fi
+    [ -n "$win_layout" ] && __tmux select-layout -t "=${sess}:${win_idx}" "$win_layout" 2>/dev/null
+    target="=${sess}:${win_idx}.${pane_idx}"
+    # Always cd first regardless of command type, so every pane lands in its saved path -
+    # not just the one pane that happened to be created via -c at window/session creation.
+    __tmux send-keys -t "$target" "cd $(printf '%q' "$pane_path")" Enter 2>/dev/null
     base_cmd="${cmd%% *}"
     base_cmd="${base_cmd##*/}"
     case "$base_cmd" in
-      bash|sh|zsh|fish|dash|csh|tcsh|ksh|mksh)
-        __tmux send-keys -t "=${sess}:${win_idx}.${pane_idx}" "cd $(printf '%q' "$pane_path")" Enter 2>/dev/null ;;
-      *)
-        __tmux send-keys -t "=${sess}:${win_idx}.${pane_idx}" "$cmd" Enter 2>/dev/null ;;
+      bash|sh|zsh|fish|dash|csh|tcsh|ksh|mksh|"") ;;
+      *) __tmux send-keys -t "$target" "$cmd" Enter 2>/dev/null ;;
     esac
   done <"$state_file"
   __tmux list-sessions &>/dev/null
@@ -907,25 +921,29 @@ __tmux_restore_from_state() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # After a resurrect restore, replay commands into panes that landed at a shell prompt
 # but had a non-shell process running at save time. Skips panes that already have a
-# running process (resurrect got them right via @resurrect-processes).
+# running process (resurrect got them right via @resurrect-processes). Panes/windows
+# from resurrect's own snapshot already have the right layout/cwd, so this only needs
+# to fix the command, not recreate panes - but still cd defensively before non-shell
+# commands in case the saved cwd and the pane's resurrect-restored cwd have drifted.
 __tmux_apply_state_cmds() {
   local state_file="$TMUX_NEW_RESURRECT_DIR/state.txt"
   [ -f "$state_file" ] || return 0
-  local sess win_idx win_name pane_idx pane_path cmd base_cmd current_cmd
-  while IFS=$'\t' read -r sess win_idx win_name pane_idx pane_path cmd; do
+  local sess win_idx win_name pane_idx pane_path cmd win_layout base_cmd current_cmd target
+  while IFS=$'\t' read -r sess win_idx win_name pane_idx pane_path cmd win_layout; do
     [ -n "$sess" ] || continue
     [ -n "$win_idx" ] || continue
     __tmux has-session -t "=$sess" 2>/dev/null || continue
-    current_cmd=$(__tmux display-message -p -t "=${sess}:${win_idx}.${pane_idx}" "#{pane_current_command}" 2>/dev/null)
+    target="=${sess}:${win_idx}.${pane_idx}"
+    current_cmd=$(__tmux display-message -p -t "$target" "#{pane_current_command}" 2>/dev/null)
     base_cmd="${cmd%% *}"
     base_cmd="${base_cmd##*/}"
     case "$current_cmd" in
       bash|sh|zsh|fish|dash|csh|tcsh|ksh|mksh|"")
         case "$base_cmd" in
-          bash|sh|zsh|fish|dash|csh|tcsh|ksh|mksh)
-            __tmux send-keys -t "=${sess}:${win_idx}.${pane_idx}" "cd $(printf '%q' "$pane_path")" Enter 2>/dev/null ;;
+          bash|sh|zsh|fish|dash|csh|tcsh|ksh|mksh|"") ;;
           *)
-            __tmux send-keys -t "=${sess}:${win_idx}.${pane_idx}" "$cmd" Enter 2>/dev/null ;;
+            [ -d "$pane_path" ] && __tmux send-keys -t "$target" "cd $(printf '%q' "$pane_path")" Enter 2>/dev/null
+            __tmux send-keys -t "$target" "$cmd" Enter 2>/dev/null ;;
         esac ;;
     esac
   done <"$state_file"
@@ -949,6 +967,22 @@ __tmux_cleanup_snapshots() {
   if [ "$removed" -gt 0 ] && [ "$quiet" != "quiet" ]; then
     printf_cyan "Cleaned up $removed old snapshot(s) in $dir (kept newest $keep)"
   fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Refresh the current socket's mtime so age-based cleanup (e.g. systemd-tmpfiles-clean)
+# never sweeps it out from under a long-lived server. Defense-in-depth: TMUX_TMPDIR
+# already keeps our own sockets out of /tmp, but this also covers a user override back
+# to /tmp, or a custom -S socket living under $TMUX_NEW_SOCKET_DIR.
+__tmux_touch_socket() {
+  local _sock="${TMUX_NEW_SOCKET_FILE:-default}" sockpath
+  if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
+    sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$_sock"
+    [ -S "$sockpath" ] || sockpath="$TMUX_NEW_SOCKET_DIR/$_sock"
+  else
+    sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default"
+  fi
+  [ -S "$sockpath" ] && touch "$sockpath" 2>/dev/null
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -977,9 +1011,11 @@ __tmux_new_bg_tasks() {
   (
     printf '%s\n' "$BASHPID" >"$lock_file" 2>/dev/null
     trap 'rm -rf "$lock_dir" "$lock_file"' EXIT
+    __tmux_touch_socket
     __tmux_save_state
     while __sleep "$interval"; do
       __tmux list-sessions &>/dev/null || break
+      __tmux_touch_socket
       __tmux_apply_resurrect_dir
       __tmux_save_state
       __tmux_cleanup_snapshots quiet
@@ -1569,7 +1605,7 @@ LONGOPTS+=",kill,name:,socket:,exec:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="clean,list,attach,single,shell,server,web,docker,dev,go,rust,python,devops,monitoring"
 ARRAY+=",database,ai,rpm,node,bun,deno,build,ssh,productivity,test,default,edit,create"
-ARRAY+=",save,restore,boot,cleanup,show,status,switch,rename,clone,nested,kill,update"
+ARRAY+=",save,restore,apply-state-cmds,boot,cleanup,show,status,switch,rename,clone,nested,kill,update"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""
@@ -1816,6 +1852,11 @@ save)
 restore)
   shift 1
   __tmux_restore
+  exit $?
+  ;;
+apply-state-cmds)
+  shift 1
+  __tmux_apply_state_cmds
   exit $?
   ;;
 boot)

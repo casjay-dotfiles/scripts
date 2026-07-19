@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607182045-git
+##@Version           :  202607182130-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  fix line-length violation in __exec_uptime's awk one-liner
+# @@Changelog        :  fix restore index mismatch, kill_all lock race, unquoted sed, dead WHOAMI check, default weather server to wttr.in
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607182045-git"
+VERSION="202607182130-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -283,12 +283,12 @@ __is_an_option() { if [[ "$ARRAY" == *"${1:-^}"* ]]; then return 1; else return 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
-  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ]; } && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user not root
 __user_is_not_root() {
-  if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
+  if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ]; }; then return 1; else return 0; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if user is a member of sudo
@@ -413,7 +413,7 @@ __exec_weather() {
   local socket="$(__current_socket)"
   local cache_file="$cache_dir/weather-$socket"
   local cache_ttl="${TMUX_WEATHER_INTERVAL:-3600}"
-  local weather_server="${TMUX_WEATHER_SERVER:-https://wthr.top}"
+  local weather_server="${TMUX_WEATHER_SERVER:-https://wttr.in}"
   local weather_location="${MYLOCATION_NAME:-${TMUX_WEATHER_LOCATION:-New York, NY}}"
   local weather_url weather
   weather_url="${weather_location// /%20}"
@@ -649,9 +649,20 @@ __tmux_kill_all() {
     printf_cyan "Recreating sessions in background..."
     printf '%b\n' "$session_info" | while IFS=: read -r session_type session_path; do
       if [ -n "$session_path" ] && [ -d "$session_path" ]; then
-        local lock_file="$TMUX_NEW_TEMP_DIR/recreate.${session_type}.lock"
-        # Skip if a recreator for this session is already running
-        if [ -f "$lock_file" ] && kill -0 "$(<"$lock_file" 2>/dev/null)" 2>/dev/null; then
+        local lock_dir="$TMUX_NEW_TEMP_DIR/recreate.${session_type}.lock"
+        local lock_file="$TMUX_NEW_TEMP_DIR/recreate.${session_type}.pid"
+        # Stale-lock reclaim: lock dir exists but the owning process is gone.
+        if [ -d "$lock_dir" ]; then
+          local _pid
+          _pid="$(<"$lock_file" 2>/dev/null)"
+          if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
+            printf_yellow "Session $session_type is already being recreated — skipping"
+            continue
+          fi
+          rm -rf "$lock_dir" "$lock_file" 2>/dev/null
+        fi
+        # mkdir is POSIX-atomic: exactly one concurrent caller wins; all others skip.
+        if ! mkdir "$lock_dir" 2>/dev/null; then
           printf_yellow "Session $session_type is already being recreated — skipping"
           continue
         fi
@@ -659,8 +670,8 @@ __tmux_kill_all() {
         (
           # Use BASHPID — $$ inside a subshell is the parent's PID, not this subshell's PID.
           printf '%s\n' "$BASHPID" >"$lock_file"
+          trap 'rm -rf "$lock_dir" "$lock_file"' EXIT
           cd "$session_path" && "$0" --dir "$session_path" --silent "$session_type" &>/dev/null
-          rm -f "$lock_file"
         ) &
         disown $!
       fi
@@ -909,13 +920,22 @@ __tmux_restore_from_state() {
       __tmux new-session -d -s "$sess" -n "$win_name" -c "$pane_path" 2>/dev/null || continue
     fi
     if ! __tmux list-windows -t "=$sess" -F "#{window_index}" 2>/dev/null | grep -qx -- "$win_idx"; then
-      __tmux new-window -t "=$sess" -n "$win_name" -c "$pane_path" 2>/dev/null
+      # Target the saved index directly - tmux creates the window at that exact
+      # index when it's not already taken, so windows with gapped indices (e.g. 0,2)
+      # come back at the right index instead of the next sequential one.
+      __tmux new-window -t "=${sess}:${win_idx}" -n "$win_name" -c "$pane_path" 2>/dev/null
     fi
-    if ! __tmux list-panes -t "=${sess}:${win_idx}" -F "#{pane_index}" 2>/dev/null | grep -qx -- "$pane_idx"; then
-      __tmux split-window -t "=${sess}:${win_idx}" -c "$pane_path" 2>/dev/null
+    if __tmux list-panes -t "=${sess}:${win_idx}" -F "#{pane_index}" 2>/dev/null | grep -qx -- "$pane_idx"; then
+      target="=${sess}:${win_idx}.${pane_idx}"
+    else
+      # split-window can't target a specific new pane index - tmux always assigns
+      # the next sequential slot. Capture the index it actually created and target
+      # that, instead of assuming it matches the (possibly gapped) saved pane_idx.
+      local created_idx
+      created_idx="$(__tmux split-window -t "=${sess}:${win_idx}" -c "$pane_path" -P -F "#{pane_index}" 2>/dev/null)"
+      target="=${sess}:${win_idx}.${created_idx:-$pane_idx}"
     fi
     [ -n "$win_layout" ] && __tmux select-layout -t "=${sess}:${win_idx}" "$win_layout" 2>/dev/null
-    target="=${sess}:${win_idx}.${pane_idx}"
     # Always cd first regardless of command type, so every pane lands in its saved path -
     # not just the one pane that happened to be created via -c at window/session creation.
     __tmux send-keys -t "$target" "cd $(printf '%q' "$pane_path")" Enter 2>/dev/null
@@ -1098,7 +1118,9 @@ __tmux_conf() {
     if [ -f "$TMUX_NEW_CONFIG_DIR/template" ]; then
       printf_cyan "Creating $TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME"
       cp -Rf "$TMUX_NEW_CONFIG_DIR/template" "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME"
-      { [ -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" ] && sed -i 's|TMUX_NEW_CONF_FILE_MAIN|'${TMUX_NEW_FILE_CONF}/${TMUX_NEW_NAME}'|g' "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" || true; }
+      { [ -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" ] && \
+        sed -i 's|TMUX_NEW_CONF_FILE_MAIN|'"${TMUX_NEW_FILE_CONF}/${TMUX_NEW_NAME}"'|g' \
+          "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" || true; }
       { [ -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" ] && \
         sed -i 's|TMUX_NEW_CONF_FILE_LOCAL|'"${TMUX_NEW_FILE_CONF_LOCAL}/${TMUX_NEW_NAME}"'|g' \
           "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" || true; }

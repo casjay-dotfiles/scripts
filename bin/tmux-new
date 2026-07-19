@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607182130-git
+##@Version           :  202607182230-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  fix restore index mismatch, kill_all lock race, unquoted sed, dead WHOAMI check, default weather server to wttr.in
+# @@Changelog        :  fix exit-hangs-after-detach (fully detach bg subshells stdin), symlink custom sockets into tmux's default socket dir with unlink on teardown
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607182130-git"
+VERSION="202607182230-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -644,6 +644,17 @@ __tmux_kill_all() {
 
   printf_green "All sessions killed and cleaned"
 
+  # The server for our socket exits once its last session is gone — drop the
+  # now-dangling default-dir discovery symlink along with it.
+  local _sock="${TMUX_NEW_SOCKET_FILE:-default}" _sockpath
+  if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
+    _sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$_sock"
+    [ -S "$_sockpath" ] || _sockpath="$TMUX_NEW_SOCKET_DIR/$_sock"
+  else
+    _sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default"
+  fi
+  __tmux_socket_unlink "$_sockpath"
+
   # Recreate sessions
   if [ -n "$session_info" ]; then
     printf_cyan "Recreating sessions in background..."
@@ -672,7 +683,7 @@ __tmux_kill_all() {
           printf '%s\n' "$BASHPID" >"$lock_file"
           trap 'rm -rf "$lock_dir" "$lock_file"' EXIT
           cd "$session_path" && "$0" --dir "$session_path" --silent "$session_type" &>/dev/null
-        ) &
+        ) </dev/null &>/dev/null &
         disown $!
       fi
     done
@@ -708,11 +719,18 @@ __tmux_kill() {
     shift
     [ $# -ne 0 ] || printf_cyan "Usage: $APPNAME kill server [name]"
     for arg in "$@"; do
-      local retval=0
+      local retval=0 sockpath
       printf_cyan "Killing server $arg"
       __tmux kill-server "$arg" &>/dev/null
       retval=$?
       exitCode=$((exitCode + retval))
+      if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
+        sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/${TMUX_NEW_SOCKET_FILE}"
+        [ -S "$sockpath" ] || sockpath="$TMUX_NEW_SOCKET_DIR/${TMUX_NEW_SOCKET_FILE}"
+      else
+        sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default"
+      fi
+      __tmux_socket_unlink "$sockpath"
     done
     return $exitCode
     ;;
@@ -1012,7 +1030,35 @@ __tmux_touch_socket() {
   else
     sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default"
   fi
-  [ -S "$sockpath" ] && touch "$sockpath" 2>/dev/null
+  if [ -S "$sockpath" ]; then
+    touch "$sockpath" 2>/dev/null
+    __tmux_socket_symlink "$sockpath"
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Point tmux's conventional socket dir (/tmp/tmux-$UID) at our real socket
+# via a symlink, so plain `tmux ls`/`tmux attach` (no TMUX_TMPDIR override)
+# still finds our sessions. Disposable: a tmpfiles sweep of /tmp only removes
+# the pointer — the real socket lives elsewhere and is never touched.
+__tmux_socket_symlink() {
+  local sockpath="$1" default_dir="/tmp/tmux-$(id -u)" linkpath
+  [ -S "$sockpath" ] || return 1
+  [ "$default_dir" = "${sockpath%/*}" ] && return 0
+  mkdir -p "$default_dir" 2>/dev/null
+  linkpath="$default_dir/${sockpath##*/}"
+  [ -L "$linkpath" ] && [ "$(readlink -- "$linkpath")" = "$sockpath" ] && return 0
+  rm -f "$linkpath" 2>/dev/null
+  ln -s -- "$sockpath" "$linkpath" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Remove the default-dir discovery symlink once the real socket is gone
+# (server exited or was killed) so nothing dangles in tmux's default dir.
+__tmux_socket_unlink() {
+  local sockpath="$1" default_dir="/tmp/tmux-$(id -u)" linkpath
+  linkpath="$default_dir/${sockpath##*/}"
+  [ -L "$linkpath" ] || return 0
+  [ "$(readlink -- "$linkpath")" = "$sockpath" ] && rm -f "$linkpath" 2>/dev/null
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1024,6 +1070,13 @@ __tmux_new_bg_tasks() {
   local _sock="${TMUX_NEW_SOCKET_FILE:-default}"
   local lock_dir="$TMUX_NEW_TEMP_DIR/autosave.${_sock}.lock"
   local lock_file="$TMUX_NEW_TEMP_DIR/autosave.${_sock}.pid"
+  local sockpath
+  if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
+    sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$_sock"
+    [ -S "$sockpath" ] || sockpath="$TMUX_NEW_SOCKET_DIR/$_sock"
+  else
+    sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default"
+  fi
   # Stale-lock reclaim: lock dir exists but the owning process is gone.
   # Handles both normal crashes (PID file present, PID dead) and the rare
   # mid-init window (lock dir present, no PID file yet → treat as stale).
@@ -1045,13 +1098,13 @@ __tmux_new_bg_tasks() {
     __tmux_touch_socket
     __tmux_save_state
     while __sleep "$interval"; do
-      __tmux list-sessions &>/dev/null || break
+      __tmux list-sessions &>/dev/null || { __tmux_socket_unlink "$sockpath"; break; }
       __tmux_touch_socket
       __tmux_apply_resurrect_dir
       __tmux_save_state
       __tmux_cleanup_snapshots quiet
     done
-  ) 2>/dev/null &
+  ) </dev/null &>/dev/null &
   disown 2>/dev/null || true
   return 0
 }
@@ -1621,7 +1674,8 @@ __notifications() {
     export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$TMUX_NEW_NOTIFY_CLIENT_NAME}"
     export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$TMUX_NEW_NOTIFY_CLIENT_URGENCY}"
     notifications "$@"
-  ) |& __devnull &
+  ) </dev/null |& __devnull &
+  disown $! 2>/dev/null || true
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom actions

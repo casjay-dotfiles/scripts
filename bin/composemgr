@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607122340-git
+##@Version           :  202607201200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Nov 01, 2024 16:56 EDT
 # @@File             :  composemgr
 # @@Description      :
-# @@Changelog        :  Fix __migrate_srv_base: old_dir was mistakenly set to the same path as new_dir, causing the migration check to always print "already exists" on every invocation instead of running once and going silent
+# @@Changelog        :  install now accepts git repo URLs and direct compose file URLs (not just bare project names); fixed __migrate_srv_base stripping stack names to empty strings and made migration failures non-fatal to the script exit code
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329,SC2063
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607122340-git"
+VERSION="202607201200-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -292,7 +292,7 @@ __help() {
   __printf_opts "Commands"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "init                                   - Initialize configuration"
-  __printf_line "install [project]                      - Install docker-compose project"
+  __printf_line "install [project|git-url|compose-url]  - Install docker-compose project (name, repo URL, or direct compose file URL)"
   __printf_line "remove [project]                       - Remove docker-compose project"
   __printf_line "up [project]                           - Start containers"
   __printf_line "down [project]                         - Stop containers"
@@ -481,6 +481,51 @@ trap '__trap_exit' EXIT
 # User defined functions
 __curl() { \curl "$@" 2>/dev/null || return 1; }
 __retrieve_compose() { __curl -q -LSsf "$1" -o './docker-compose.yaml' 2>/dev/null || return 1; }
+__file_hash() {
+  local s="$1"
+  if __cmd_exists sha256sum; then
+    printf '%s' "$s" | sha256sum | awk '{print $1}'
+  elif __cmd_exists shasum; then
+    printf '%s' "$s" | shasum -a 256 | awk '{print $1}'
+  elif __cmd_exists md5sum; then
+    printf '%s' "$s" | md5sum | awk '{print $1}'
+  else
+    printf '%s' "$s" | cksum | awk '{print $1}'
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Determine if an install arg is a bare name, a git repo URL, or a direct
+# compose file URL; sets INSTALL_KIND (name|git|file), INSTALL_URL, INSTALL_NAME
+__resolve_install_source() {
+  local arg="$1" path="" host="" base="" org="" hash=""
+  INSTALL_KIND="name"
+  INSTALL_URL=""
+  INSTALL_NAME="$arg"
+  if [[ "$arg" =~ ^https?:// ]] || [[ "$arg" =~ ^git@ ]]; then
+    path="${arg#*://}"
+    path="${path#*:}"
+    host="${path%%/*}"
+    path="${path#*/}"
+    base="${path##*/}"
+    if [[ "$base" =~ \.ya?ml$ ]]; then
+      INSTALL_KIND="file"
+      INSTALL_URL="$arg"
+      hash="$(__file_hash "$arg")"
+      INSTALL_NAME="${host}_${hash:0:6}"
+    else
+      INSTALL_KIND="git"
+      INSTALL_URL="$arg"
+      base="${base%.git}"
+      org="${path%/*}"
+      org="${org##*/}"
+      INSTALL_NAME="$base"
+      if [ -d "$COMPOSEMGR_DEFAULT_PROJECT_DIR/$base/.git" ]; then
+        local origin="$(git -C "$COMPOSEMGR_DEFAULT_PROJECT_DIR/$base" remote get-url origin 2>/dev/null)"
+        { [ -n "$origin" ] && [ "$origin" != "$arg" ] && [ "$origin" != "$arg.git" ]; } && INSTALL_NAME="${org}_${base}"
+      fi
+    fi
+  fi
+}
 __get_image_name() { grep -sR 'image: ' "$COMPOSEMGR_CWD" | sed "s|.*image: ||g;s|\"||g;s|'||g;s|:.*||g"; }
 __private_key() { openssl ecparam --name secp256k1 --genkey --noout --outform DER | tail --bytes=+8 | head --bytes=32 | xxd --plain --cols 32; }
 __get_project_dir() { grep -R -- '-.*/' "$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME" | sed "s|.*- ||g;s|'||g;s|\"||g;s|:.*||g" | grep -v '=' | grep -- "^/srv/$USER" | grep -v '^$' | tr '\n' ','; }
@@ -719,25 +764,61 @@ __get_docker_compose() {
 __init_dir() {
   local exitCode=0
   local repo_name="${COMPOSEMGR_PROJECT_NAME:-$1}"
+  local clone_url="${2:-$COMPOSEMGR_GIT_ORG_URL/$repo_name}"
+  local kind="${3:-name}"
   local tmpdir="${TMPDIR:-/tmp}/$APPNAME/$$"
   local workDir="${working_dir:-$COMPOSEMGR_DEFAULT_PROJECT_DIR/$repo_name}"
-  local domainName="$(hostname -d | grep '\..*' || echo "$HOSTNAME")"
+  local domainName="$(hostname -d | grep -- '\..*' || echo "$HOSTNAME")"
   [ -n "$COMPOSEMGR_DEFAULT_PROJECT_NAME" ] && working_dir="$COMPOSEMGR_DEFAULT_PROJECT_DIR/$COMPOSEMGR_DEFAULT_PROJECT_NAME"
   export COMPOSEMGR_CWD="$workDir"
   edit_compose_file=no
-  is_docker_app_running="${is_docker_app_running:-$([ -d "$workDir" ] && composemgr --dir "$workDir" ps 2>/dev/null | grep -v '^NAME  ' | grep '^' || false)}"
+  is_docker_app_running="${is_docker_app_running:-$([ -d "$workDir" ] && composemgr --dir "$workDir" ps 2>/dev/null | grep -v -- '^NAME  ' | grep -- '^' || false)}"
   [ -n "$is_docker_app_running" ] && printf_yellow "Stopping the containers for app: $repo_name" && composemgr --dir "$workDir" down >/dev/null 2>&1
+  if [ "$kind" = "file" ]; then
+    mkdir -p "$workDir"
+    if __cd "$workDir" && __retrieve_compose "$clone_url"; then
+      edit_compose_file="yes"
+      __get_docker_compose "$workDir"
+      COMPOSEMGR_HOSTNAME="${repo_name##*/}.$BASE_DOMAIN_NAME"
+      if [ ! -f "$workDir/app.env" ] || [ -s "$workDir/app.env" ]; then
+        cat <<EOF >"$workDir/app.env"
+# Docker Compose Global env
+TZ="${TZ:-}"
+BASE_DOMAIN_NAME="$domainName"
+BASE_HOST_NAME="$repo_name.$domainName"
+
+# Let the container know the hosts ip
+HOST_IP_4="${CURRENT_IP_4:-}"
+HOST_IP_6="${CURRENT_IP_6:-}"
+CURRENT_IP_4="${CURRENT_IP_4:-}"
+CURRENT_IP_6="${CURRENT_IP_6:-}"
+#
+BASE_DIR_STORAGE="${BASE_DIR_STORAGE:-}"
+BASE_DIR_DATABASES="${BASE_DIR_DATABASES:-}"
+
+EOF
+      fi
+      [ -f "$workDir/$COMPOSEMGR_DEFAULT_ENV_FILE" ] && . "$workDir/$COMPOSEMGR_DEFAULT_ENV_FILE"
+      [ -f "$workDir/app.env" ] && . "$workDir/app.env"
+      exitCode=0
+    else
+      printf_red "Failed to download the compose file from: $clone_url"
+      exitCode=1
+    fi
+    [ -d "$tmpdir" ] && rm -Rf "$tmpdir"
+    return $exitCode
+  fi
   if [ -d "$workDir/.git" ]; then
     printf_cyan "Updating the repo in $workDir"
     git -C "$workDir" pull -q >/dev/null 2>&1
     exitCode=$?
   else
-    printf_green "Testing repo: $COMPOSEMGR_GIT_ORG_URL/$repo_name"
-    if __curl -q -LSsfI "$COMPOSEMGR_GIT_ORG_URL/$repo_name" -o /dev/null >/dev/null 2>&1; then
+    printf_green "Testing repo: $clone_url"
+    if __curl -q -LSsfI "$clone_url" -o /dev/null >/dev/null 2>&1; then
       [ -d "$workDir" ] && mkdir -p "$tmpdir" && cp -Rfa "$workDir/." "$tmpdir/" && rm -Rf "$workDir"
       [ -f "$tmpdir/docker-compose.yaml" ] && rm -Rf "$tmpdir/docker-compose.yaml"
-      printf_cyan "Cloning $COMPOSEMGR_GIT_ORG_URL/$repo_name to $workDir"
-      git clone "$COMPOSEMGR_GIT_ORG_URL/$repo_name" "$workDir" -q >/dev/null 2>&1
+      printf_cyan "Cloning $clone_url to $workDir"
+      git clone "$clone_url" "$workDir" -q >/dev/null 2>&1
       exitCode=$?
     else
       printf_red "Testing of the repo has failed: Make sure it exists and is public"
@@ -826,14 +907,15 @@ EOF
 __install_files() {
   local exitCode=0
   local docker_network=""
-  local repo_name="${COMPOSEMGR_PROJECT_NAME:-$1}"
+  __resolve_install_source "$1"
+  local repo_name="${COMPOSEMGR_PROJECT_NAME:-$INSTALL_NAME}"
   local dockerNetworks="$(__get_docker_networks)"
   dotenvFile="no"
   working_dir="$COMPOSEMGR_DEFAULT_PROJECT_DIR/$repo_name"
   [ -n "$COMPOSEMGR_DEFAULT_PROJECT_NAME" ] && working_dir="$COMPOSEMGR_DEFAULT_PROJECT_DIR/$COMPOSEMGR_DEFAULT_PROJECT_NAME"
-  is_docker_app_running="${is_docker_app_running:-$([ -d "$workDir" ] && composemgr --dir "$workDir" ps 2>/dev/null | grep -v '^NAME  ' | grep '^' || false)}"
+  is_docker_app_running="${is_docker_app_running:-$([ -d "$workDir" ] && composemgr --dir "$workDir" ps 2>/dev/null | grep -v -- '^NAME  ' | grep -- '^' || false)}"
   if ! __is_docker_compose; then edit_compose_file="${edit_compose_file:-yes}" && COMPOSEMGR_FIRST_RUN="yes"; fi
-  if __init_dir "$repo_name"; then
+  if __init_dir "$repo_name" "$INSTALL_URL" "$INSTALL_KIND"; then
     __cd "$working_dir" || return 1
     if __get_docker_compose "$working_dir"; then
       for docker_network in proxy cloudflare databases; do
@@ -1194,10 +1276,13 @@ __migrate_srv_base() {
     return 0
   fi
   printf_yellow "Migrating $old_dir → $new_dir"
+  local stack_name=""
   for stack_dir in "$old_dir"/*/; do
     [ -d "$stack_dir" ] || continue
     [ -f "${stack_dir}compose.yaml" ] || [ -f "${stack_dir}docker-compose.yaml" ] || continue
-    printf_yellow "  Stopping: ${stack_dir##*/}"
+    stack_name="${stack_dir%/}"
+    stack_name="${stack_name##*/}"
+    printf_yellow "  Stopping: $stack_name"
     COMPOSEMGR_MIGRATING=1 composemgr --dir "${stack_dir%/}" down >/dev/null 2>&1
   done
   mkdir -p "$new_dir"
@@ -1209,15 +1294,19 @@ __migrate_srv_base() {
     for stack_dir in "$new_dir"/*/; do
       [ -d "$stack_dir" ] || continue
       [ -f "${stack_dir}compose.yaml" ] || [ -f "${stack_dir}docker-compose.yaml" ] || continue
-      printf_yellow "  Starting: ${stack_dir##*/}"
+      stack_name="${stack_dir%/}"
+      stack_name="${stack_name##*/}"
+      printf_yellow "  Starting: $stack_name"
       COMPOSEMGR_MIGRATING=1 composemgr --dir "${stack_dir%/}" up >/dev/null 2>&1
     done
     printf_green "Migrated: $new_dir"
   else
     printf_red "Migration failed: rsync error for $old_dir"
+    return 1
   fi
+  return 0
 }
-__migrate_srv_base
+__migrate_srv_base || true
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$COMPOSEMGR_RUN_DIR" ] || mkdir -p "$COMPOSEMGR_RUN_DIR" |& __devnull

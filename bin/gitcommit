@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607122255-git
+##@Version           :  202607220600-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Fix __git_push: auto-set upstream via new __git_push_do helper when the current branch has no tracking branch yet, instead of failing outright.
+# @@Changelog        :  Fix E2BIG on many-file commits (gen-changelog --files argv), plus full lint cleanup: grep --, GITCOMMIT_ prefixed globals, line-length splits.
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607122255-git"
+VERSION="202607220600-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -82,7 +82,7 @@ __grep() {
 # Check for a valid internet connection
 __am_i_online() {
   local exitCode=0
-  if ! curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | __grep -qi 'server:.*cloudflare'; then
+  if ! curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | __grep -qi -- 'server:.*cloudflare'; then
     exitCode=4
   fi
   return ${exitCode:-0}
@@ -109,7 +109,7 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
   ICON_WARN="[ warn ]"
   ICON_ERROR="[ error ]"
   ICON_QUESTION="[ ? ]"
-  printf_column() { tee | __grep '^'; }
+  printf_column() { tee | __grep -- '^'; }
   printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
@@ -362,7 +362,7 @@ GITCOMMIT_GPG_PASSPHRASE_STDIN="${GITCOMMIT_GPG_PASSPHRASE_STDIN:-}"
 GITCOMMIT_GPG_KEYGRIP="${GITCOMMIT_GPG_KEYGRIP:-}"
 
 EOF
-  if builtin type -t __gen_config_local | __grep -q 'function'; then __gen_config_local; fi
+  if builtin type -t __gen_config_local | __grep -q -- 'function'; then __gen_config_local; fi
   if [ -f "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE" ]; then
     [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
     . "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE"
@@ -522,16 +522,16 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
-__is_an_option() { if echo "$ARRAY" | __grep -q "${1:-^}"; then return 1; else return 0; fi; }
+__is_an_option() { if echo "$GITCOMMIT_ARRAY" | __grep -q -- "${1:-^}"; then return 1; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$GITCOMMIT_TEMP_FILE" ] && rm -Rf "$GITCOMMIT_TEMP_FILE" &>/dev/null
-  if builtin type -t __gitcommit_cleanup_loopback | __grep -q 'function'; then
+  if builtin type -t __gitcommit_cleanup_loopback | __grep -q -- 'function'; then
     __gitcommit_cleanup_loopback
   fi
   #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
-  if builtin type -t __trap_exit_local | __grep -q 'function'; then __trap_exit_local; fi
+  if builtin type -t __trap_exit_local | __grep -q -- 'function'; then __trap_exit_local; fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -558,8 +558,8 @@ __parse_commit_mess_file() {
   if [ -f "$commit_mess_file" ] && [ -s "$commit_mess_file" ]; then
     local first_line=""
     local remaining_lines=""
-    first_line="$(head -n 1 "$commit_mess_file" | __grep -v '^$' | __grep '^' || true)"
-    remaining_lines="$(tail -n +2 "$commit_mess_file" | __grep -v '^$' | __grep '^' || true)"
+    first_line="$(head -n 1 "$commit_mess_file" | __grep -v -- '^$' | __grep -- '^' || true)"
+    remaining_lines="$(tail -n +2 "$commit_mess_file" | __grep -v -- '^$' | __grep -- '^' || true)"
     if [ -n "$first_line" ]; then
       GITCOMMIT_MESSAGE_SHORT="$first_line"
       GITCOMMIT_MESSAGE_LONG="$remaining_lines"
@@ -571,11 +571,18 @@ __parse_commit_mess_file() {
   return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__git_s_added() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | __grep -Ew ^'\?\?|^A|^AA|^ A' | awk '{print $2}' | sort -u | __grep -v '^$' | __grep '^' || return 1; }
-__git_s_renamed() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | __grep -Ew ^'R|^RM|^ R' | awk '{print $2}' | sort -u | __grep -v '^$' | __grep '^' || return 1; }
-__git_s_modified() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | __grep -Ew ^'M|^MM|^ M' | awk '{print $2}' | sort -u | __grep -v '^$' | __grep '^' || return 1; }
-__git_s_updated() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | __grep -Ew ^'U|^UU|^ U' | awk '{print $2}' | sort -u | __grep -v '^$' | __grep '^' || return 1; }
-__git_s_deleted() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | __grep -E '^D[D ]|^[M ]D' | awk '{print $2}' | sort -u | __grep -v '^$' | __grep '^' || return 1; }
+__git_s_added() {
+  git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null \
+    | __grep -Ew -- '^\?\?|^A|^AA|^ A' \
+    | awk '{print $2}' \
+    | sort -u \
+    | __grep -v -- '^$' \
+    | __grep -- '^' || return 1
+}
+__git_s_renamed() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | __grep -Ew -- '^R|^RM|^ R' | awk '{print $2}' | sort -u | __grep -v -- '^$' | __grep -- '^' || return 1; }
+__git_s_modified() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | __grep -Ew -- '^M|^MM|^ M' | awk '{print $2}' | sort -u | __grep -v -- '^$' | __grep -- '^' || return 1; }
+__git_s_updated() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | __grep -Ew -- '^U|^UU|^ U' | awk '{print $2}' | sort -u | __grep -v -- '^$' | __grep -- '^' || return 1; }
+__git_s_deleted() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | __grep -E -- '^D[D ]|^[M ]D' | awk '{print $2}' | sort -u | __grep -v -- '^$' | __grep -- '^' || return 1; }
 __git_s_message() { __git_s_added || __git_s_renamed || __git_s_modified || __git_s_deleted || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __changelog_commit() { gen-changelog --amend --dir "$GITCOMMIT_ROOT_DIR" || return; }
@@ -1004,7 +1011,7 @@ __git_release_version() {
     version="v$version"
   fi
   # Delete local and remote tag if they exist
-  if __git_repo "$GITCOMMIT_ROOT_DIR" tag -l "$version" | __grep -q "^$version$"; then
+  if __git_repo "$GITCOMMIT_ROOT_DIR" tag -l "$version" | __grep -q -- "^$version$"; then
     printf_yellow "Deleting existing release $version"
     __git_repo "$GITCOMMIT_ROOT_DIR" tag -d "$version" >/dev/null 2>&1
     __git_repo "$GITCOMMIT_ROOT_DIR" push origin ":refs/tags/$version" >/dev/null 2>&1
@@ -1039,18 +1046,16 @@ __tar_release() {
 # TODO: Turn this into a seperate script
 __changelog_create() {
   __cmd_exists gen-changelog || return 0
-  local get_changed_files="$1"
   local git_commit_mess="${2:-$GITCOMMIT_MESSAGE_SHORT}"
   local custom_action="$3"
   local changed_icon="${icon:-$GITCOMMIT_CHANGELOG_ICON}"
-  local changed_files="${get_changed_files:-$(__changed_files "all")}"
   local changelog_file="$GITCOMMIT_ROOT_DIR/${GITCOMMIT_CHANGELOG_FILE_NAME:-CHANGELOG.md}"
   [ -f "$changelog_file" ] || return 0
   if [ -n "$custom_action" ]; then
-    gen-changelog --silent --message "$git_commit_mess" --files "$changed_files" --icon "$changed_icon"
+    gen-changelog --silent --message "$git_commit_mess" --icon "$changed_icon"
     GITCOMMIT_AMEND=""
   else
-    gen-changelog --silent --message "$git_commit_mess" --files "$changed_files" --icon "$changed_icon"
+    gen-changelog --silent --message "$git_commit_mess" --icon "$changed_icon"
     GITCOMMIT_AMEND=""
   fi
   gen-changelog --silent --amend
@@ -1061,8 +1066,8 @@ __gitmessage() {
   GITCOMMIT_MESSAGE_FULL=""
   GITCOMMIT_MESSAGE_SHORT="${1:-$GITCOMMIT_MESSAGE_SHORT}"
   GITCOMMIT_MESSAGE_LONG="${2:-$GITCOMMIT_MESSAGE_LONG}"
-  test_long_message="$(echo "$GITCOMMIT_MESSAGE_LONG" | __grep -v '^$' | head -n1 | __grep '^' || false)"
-  test_short_message="$(echo "$GITCOMMIT_MESSAGE_SHORT" | __grep -v '^$' | head -n1 | __grep '^' || false)"
+  test_long_message="$(echo "$GITCOMMIT_MESSAGE_LONG" | __grep -v -- '^$' | head -n1 | __grep -- '^' || false)"
+  test_short_message="$(echo "$GITCOMMIT_MESSAGE_SHORT" | __grep -v -- '^$' | head -n1 | __grep -- '^' || false)"
   nomessage="true"
   printf '%s  \n' "$GITCOMMIT_MESSAGE_SHORT" | sed 's|[ ] *| |g;s|^ ||g' >"$GITCOMMIT_MESSAGE_FILE"
   if [ -n "$test_long_message" ]; then
@@ -1081,7 +1086,7 @@ __gitmessage() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitcommit_cmd() {
-  export GITCOMMIT_RAN="" GITADMIN_NO_ERROR_MESSAGE=""
+  export GITCOMMIT_RAN="" GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE=""
 
   if __git_merge_status "$GITCOMMIT_ROOT_DIR"; then
     printf_cyan "🔍 Checking for conflict markers before commit..."
@@ -1122,12 +1127,13 @@ __gitcommit_cmd() {
   local _commit_attempt=0 _commit_max=3 _commit_ok=0
   while [ $_commit_attempt -lt $_commit_max ]; do
     if [ -s "$GITCOMMIT_MESSAGE_FILE" ]; then
-      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$(<"$GITCOMMIT_MESSAGE_FILE")" "${pathspec_flag[@]}" &>"$GITCOMMIT_TEMP_FILE" && { _commit_ok=1; break; }
+      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$(<"$GITCOMMIT_MESSAGE_FILE")" \
+        "${pathspec_flag[@]}" &>"$GITCOMMIT_TEMP_FILE" && { _commit_ok=1; break; }
     else
       __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$GITCOMMIT_MESSAGE_FULL" "${pathspec_flag[@]}" &>"$GITCOMMIT_TEMP_FILE" && { _commit_ok=1; break; }
     fi
     _commit_attempt=$((_commit_attempt + 1))
-    if [ $_commit_attempt -lt $_commit_max ] && __grep -qi 'lock\|Unable to create.*\.lock\|cannot lock' "$GITCOMMIT_TEMP_FILE" 2>/dev/null; then
+    if [ $_commit_attempt -lt $_commit_max ] && __grep -qi -- 'lock\|Unable to create.*\.lock\|cannot lock' "$GITCOMMIT_TEMP_FILE" 2>/dev/null; then
       printf_yellow "⚠️  Git lock contention — retrying in 2s (attempt $_commit_attempt/$_commit_max)..."
       sleep 2
       __git_check_lock "$GITCOMMIT_ROOT_DIR" 2>/dev/null || true
@@ -1136,7 +1142,7 @@ __gitcommit_cmd() {
     fi
   done
   [ $_commit_ok -eq 1 ] || return 1
-  export GITCOMMIT_RAN="true" GITADMIN_NO_ERROR_MESSAGE="true"
+  export GITCOMMIT_RAN="true" GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE="true"
   # Always delete .git/COMMIT_MSG and .git/COMMIT_MESS after a successful commit
   if [ -f "$GITCOMMIT_ROOT_DIR/.git/COMMIT_MSG" ]; then
     rm -f "$GITCOMMIT_ROOT_DIR/.git/COMMIT_MSG" 2>/dev/null
@@ -1159,7 +1165,7 @@ __gitcommit() {
   GITCOMMIT_EXITCODE="${GITCOMMIT_EXITCODE:-0}"
   [ -n "$message_set" ] || __gitmessage "$mess"
   [ -n "$message_set" ] || [ -s "$GITCOMMIT_MESSAGE_FILE" ] || printf_exit "The commit message is empty"
-  [ -n "$nomessage" ] || show_message="$(__grep -shvE "$removemess" "$GITCOMMIT_MESSAGE_FILE" | __grep -v '^$' | tr '\n' ' ' | __grep '^')"
+  [ -n "$nomessage" ] || show_message="$(__grep -shvE -- "$removemess" "$GITCOMMIT_MESSAGE_FILE" | __grep -v -- '^$' | tr '\n' ' ' | __grep -- '^')"
   printf_cyan "👊 Committing Changes with the following message: 👊"
   printf_yellow "$mess"
   [ -n "$show_message" ] && [ "$show_message" != "$mess" ] && printf_blue "${show_message:0:$column_length}"
@@ -1173,7 +1179,7 @@ __gitcommit() {
     printf_readline "5" <"$GITCOMMIT_TEMP_FILE"
     printf_exit "Failed to commit the changes to $GITCOMMIT_ROOT_DIR"
   fi
-  export GITCOMMIT_RAN="true" GITADMIN_NO_ERROR_MESSAGE="true"
+  export GITCOMMIT_RAN="true" GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE="true"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1207,15 +1213,15 @@ __changed_files() {
       ;;
     added)
       shift
-      __git_s_added | __grep -v '^CHANGELOG.md' || return 1
+      __git_s_added | __grep -v -- '^CHANGELOG.md' || return 1
       ;;
     renamed)
       shift
-      __git_s_renamed | __grep -v '^CHANGELOG.md' || return 1
+      __git_s_renamed | __grep -v -- '^CHANGELOG.md' || return 1
       ;;
     modified)
       shift
-      (__git_s_updated || __git_s_modified) | __grep -v '^CHANGELOG.md' || return 1
+      (__git_s_updated || __git_s_modified) | __grep -v -- '^CHANGELOG.md' || return 1
       ;;
     deleted)
       shift
@@ -1223,20 +1229,20 @@ __changed_files() {
       ;;
     changelog)
       shift
-      files+="$(__git_s_added | __grep '^CHANGELOG.md') "
-      files+="$(__git_s_deleted | __grep '^CHANGELOG.md') "
-      files+="$(__git_s_renamed | __grep '^CHANGELOG.md') "
-      files+="$(__git_s_modified | __grep '^CHANGELOG.md') "
-      results="$(printf '%b\n' "$files" | tr ' ' '\n' | sort -u | __grep -v '^$' | __grep '^')"
+      files+="$(__git_s_added | __grep -- '^CHANGELOG.md') "
+      files+="$(__git_s_deleted | __grep -- '^CHANGELOG.md') "
+      files+="$(__git_s_renamed | __grep -- '^CHANGELOG.md') "
+      files+="$(__git_s_modified | __grep -- '^CHANGELOG.md') "
+      results="$(printf '%b\n' "$files" | tr ' ' '\n' | sort -u | __grep -v -- '^$' | __grep -- '^')"
       [ -n "$results" ] && echo "$results"
       ;;
     spec)
       shift
-      files+="$(__git_s_added | __grep '\.md$') "
-      files+="$(__git_s_deleted | __grep '\.md$') "
-      files+="$(__git_s_renamed | __grep '\.md$') "
-      files+="$(__git_s_modified | __grep '\.md$') "
-      results="$(printf '%b\n' "$files" | tr ' ' '\n' | sort -u | __grep -v '^$' | __grep '^')"
+      files+="$(__git_s_added | __grep -- '\.md$') "
+      files+="$(__git_s_deleted | __grep -- '\.md$') "
+      files+="$(__git_s_renamed | __grep -- '\.md$') "
+      files+="$(__git_s_modified | __grep -- '\.md$') "
+      results="$(printf '%b\n' "$files" | tr ' ' '\n' | sort -u | __grep -v -- '^$' | __grep -- '^')"
       [ -n "$results" ] && echo "$results"
       ;;
     all)
@@ -1245,7 +1251,7 @@ __changed_files() {
       files+="$(__changed_files modified) "
       files+="$(__changed_files deleted) "
       files+="$(__changed_files renamed) "
-      printf '%b\n' "$files" | tr ' ' '\n' | sort -u | __grep -v '^$' | __grep '^'
+      printf '%b\n' "$files" | tr ' ' '\n' | sort -u | __grep -v -- '^$' | __grep -- '^'
       ;;
     *)
       break
@@ -1286,7 +1292,7 @@ __git_updated() {
   __git_add "$(printf '%b\n' "$message")" || exitCode=$((exitCode + 1))
   __git_mod "$(printf '%b\n' "$message")" || exitCode=$((exitCode + 1))
   unset prepend
-  export GITADMIN_NO_ERROR="${GITADMIN_NO_ERROR:-true}"
+  export GITCOMMIT_GITADMIN_NO_ERROR="${GITCOMMIT_GITADMIN_NO_ERROR:-true}"
   [ $exitCode -eq 0 ] && export PUSH_ENABLE="${PUSH_ENABLE:-true}" || export PUSH_ENABLE=""
   return $?
 }
@@ -1301,9 +1307,9 @@ __git_all() {
   local prepend="${prepend_name:-}"
   local local_set_mess="$(printf '%b\n' "$message")"
   changed_files="$(__changed_files all)"
-  if [ -z "$changed_files" ] || [ "$GITADMIN_NO_ERROR" != "true" ]; then
-    [ "$GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have changed in $GITCOMMIT_ROOT_DIR 🙁"
-    export GITADMIN_NO_ERROR_MESSAGE="true"
+  if [ -z "$changed_files" ] || [ "$GITCOMMIT_GITADMIN_NO_ERROR" != "true" ]; then
+    [ "$GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have changed in $GITCOMMIT_ROOT_DIR 🙁"
+    export GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE="true"
     return 1
   fi
   [ -n "$local_set_mess" ] || local_set_mess="$prepend"
@@ -1332,9 +1338,9 @@ __git_mod() {
   local action="${action_emoji}$(__fix_emoji_spacing "$action_emoji")"
   local prepend="${prepend_name:-Modified}:"
   changed_files="$(__changed_files all)"
-  if [ -z "$changed_files" ] || [ "$GITADMIN_NO_ERROR" != "true" ]; then
-    [ "$GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have changed in $GITCOMMIT_ROOT_DIR 🙁"
-    export GITADMIN_NO_ERROR_MESSAGE="true"
+  if [ -z "$changed_files" ] || [ "$GITCOMMIT_GITADMIN_NO_ERROR" != "true" ]; then
+    [ "$GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have changed in $GITCOMMIT_ROOT_DIR 🙁"
+    export GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE="true"
     return 1
   fi
   if [ -n "$GITCOMMIT_MESSAGE_FROM_FILE" ]; then
@@ -1381,7 +1387,7 @@ __basename() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_top_dir() {
   git -C "${1:-.}" rev-parse --show-toplevel 2>/dev/null |
-    __grep -v fatal && return 0 || echo "${1:-$PWD}"
+    __grep -v -- fatal && return 0 || echo "${1:-$PWD}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for git lock file
@@ -1409,7 +1415,7 @@ __git_check_lock() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_remote_pull() {
   local remote_url=""
-  remote_url="$(git -C "${1:-.}" remote -v 2>/dev/null | __grep push | head -n 1 | awk '{print $2}' 2>/dev/null | __grep '^')"
+  remote_url="$(git -C "${1:-.}" remote -v 2>/dev/null | __grep -- push | head -n 1 | awk '{print $2}' 2>/dev/null | __grep -- '^')"
   if [ -n "$remote_url" ]; then
     echo "$remote_url"
     return 0
@@ -1420,7 +1426,7 @@ __git_remote_pull() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_remote_fetch() {
   local remote_url=""
-  remote_url="$(git -C "${1:-.}" remote -v 2>/dev/null | __grep fetch | head -n 1 | awk '{print $2}' 2>/dev/null | __grep '^')"
+  remote_url="$(git -C "${1:-.}" remote -v 2>/dev/null | __grep -- fetch | head -n 1 | awk '{print $2}' 2>/dev/null | __grep -- '^')"
   if [ -n "$remote_url" ]; then
     echo "$remote_url"
     return 0
@@ -1434,11 +1440,11 @@ __git_remote_origin() {
   local origin_url="" push_url="" fetch_url=""
 
   # Try push URL first (important for forks)
-  push_url="$(git -C "$dir" remote -v 2>/dev/null | __grep 'push' | head -n 1 | awk '{print $2}' 2>/dev/null | __grep '^')"
+  push_url="$(git -C "$dir" remote -v 2>/dev/null | __grep -- 'push' | head -n 1 | awk '{print $2}' 2>/dev/null | __grep -- '^')"
 
   # Fallback to fetch URL
   if [ -z "$push_url" ]; then
-    fetch_url="$(git -C "$dir" remote -v 2>/dev/null | __grep 'fetch' | head -n 1 | awk '{print $2}' 2>/dev/null | __grep '^')"
+    fetch_url="$(git -C "$dir" remote -v 2>/dev/null | __grep -- 'fetch' | head -n 1 | awk '{print $2}' 2>/dev/null | __grep -- '^')"
   fi
 
   origin_url="${push_url:-$fetch_url}"
@@ -1476,9 +1482,9 @@ __git_add() {
   local action="${action_emoji}$(__fix_emoji_spacing "$action_emoji")"
   local prepend="${prepend_name:-Added}:"
   changed_files="$(__changed_files all)"
-  if [ -z "$changed_files" ] || [ "$GITADMIN_NO_ERROR" != "true" ]; then
-    [ "$GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have been added in $GITCOMMIT_ROOT_DIR 🙁"
-    export GITADMIN_NO_ERROR_MESSAGE="true"
+  if [ -z "$changed_files" ] || [ "$GITCOMMIT_GITADMIN_NO_ERROR" != "true" ]; then
+    [ "$GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have been added in $GITCOMMIT_ROOT_DIR 🙁"
+    export GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE="true"
     return 1
   fi
   if [ -n "$GITCOMMIT_MESSAGE_FROM_FILE" ]; then
@@ -1524,9 +1530,9 @@ __git_del() {
   local action="${action_emoji}$(__fix_emoji_spacing "$action_emoji")"
   local prepend="${prepend_name:-Deleted}:"
   changed_files="$(__changed_files deleted)"
-  if [ -z "$changed_files" ] || [ "$GITADMIN_NO_ERROR" != "true" ]; then
-    [ "$GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have been deleted in $GITCOMMIT_ROOT_DIR 🙁"
-    export GITADMIN_NO_ERROR_MESSAGE="true"
+  if [ -z "$changed_files" ] || [ "$GITCOMMIT_GITADMIN_NO_ERROR" != "true" ]; then
+    [ "$GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have been deleted in $GITCOMMIT_ROOT_DIR 🙁"
+    export GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE="true"
     return 1
   fi
   if [ -n "$GITCOMMIT_MESSAGE_FROM_FILE" ]; then
@@ -1605,7 +1611,7 @@ __files() {
   local local_set_mess="$(printf '%b\n' "$message")"
   local added_files="$(__changed_files added)"
   local deleted_files="$(__changed_files deleted)"
-  local all_files="$(printf '%s\n%s\n' "$added_files" "$deleted_files" | __grep -v '^$' | __grep '^')"
+  local all_files="$(printf '%s\n%s\n' "$added_files" "$deleted_files" | __grep -v -- '^$' | __grep -- '^')"
   setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
   GITCOMMIT_MESSAGE_LONG="$(printf '%b\n' "$all_files")"
   if [ -n "$added_files" ]; then
@@ -1643,11 +1649,13 @@ __gitignore_init() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __test_gitignore() {
-  if ! __grep -sh -A1 '# ignore commit message' "${1:-$GITCOMMIT_ROOT_DIR}/.gitignore" | __grep -q ^'**/.gitcommit'; then
+  if ! __grep -sh -A1 -- '# ignore commit message' "${1:-$GITCOMMIT_ROOT_DIR}/.gitignore" | __grep -q -- ^'**/.gitcommit'; then
     printf '%s\n%s\n' '# ignore commit message' '**/.gitcommit' >>"$GITCOMMIT_ROOT_DIR/.gitignore"
   fi
   if [ -d "${1:-$GITCOMMIT_ROOT_DIR}/.git" ]; then
-    git -C "${1:-$GITCOMMIT_ROOT_DIR}" add .gitignore &>/dev/null && git -C "${1:-$GITCOMMIT_ROOT_DIR}" commit -q $(__gitcommit_sign_flag "${1:-$GITCOMMIT_ROOT_DIR}") -m "🤖 Added .gitignore 🤖" ".gitignore" || return 1
+    git -C "${1:-$GITCOMMIT_ROOT_DIR}" add .gitignore &>/dev/null \
+      && git -C "${1:-$GITCOMMIT_ROOT_DIR}" commit -q $(__gitcommit_sign_flag "${1:-$GITCOMMIT_ROOT_DIR}") \
+        -m "🤖 Added .gitignore 🤖" ".gitignore" || return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1683,7 +1691,7 @@ __git_commitid() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_check_cherry() {
-  if __git_repo "$GITCOMMIT_ROOT_DIR" cherry -v 2>&1 | wc -l | __grep -q '0'; then
+  if __git_repo "$GITCOMMIT_ROOT_DIR" cherry -v 2>&1 | wc -l | __grep -q -- '0'; then
     return 1
   else
     return 0
@@ -1691,7 +1699,7 @@ __git_check_cherry() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_check_ahead() {
-  if __git_repo "$GITCOMMIT_ROOT_DIR" log --oneline origin..HEAD 2>&1 | wc -l | __grep -q '0'; then
+  if __git_repo "$GITCOMMIT_ROOT_DIR" log --oneline origin..HEAD 2>&1 | wc -l | __grep -q -- '0'; then
     return 1
   else
     return 0
@@ -1699,7 +1707,7 @@ __git_check_ahead() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_check_branch() {
-  if __git_repo "$GITCOMMIT_ROOT_DIR" branch -avvv 2>&1 | __grep -q ': ahead '; then
+  if __git_repo "$GITCOMMIT_ROOT_DIR" branch -avvv 2>&1 | __grep -q -- ': ahead '; then
     return 0
   else
     return 1
@@ -1729,13 +1737,13 @@ __git_push_check() {
     return 0
   elif __git_check_branch; then
     return 0
-  elif git s | __grep -v '## ' | __grep -q '^'; then
+  elif git s | __grep -v -- '## ' | __grep -q -- '^'; then
     return 0
   elif [ -n "$GITCOMMIT_RAN" ]; then
     return 0
   elif [ "$PUSH_ENABLE" = "true" ]; then
     return 0
-  elif [ -n "$FORCE_PUSH" ]; then
+  elif [ -n "$GITCOMMIT_FORCE_PUSH" ]; then
     return 0
   else
     return 1
@@ -1826,7 +1834,7 @@ __git_smart_merge() {
   esac
 
   if [ $exitCode -ne 0 ]; then
-    if __git_repo "$git_dir" status | __grep_lang_c -q "Unmerged paths\|both modified\|both added"; then
+    if __git_repo "$git_dir" status | __grep_lang_c -q -- "Unmerged paths\|both modified\|both added"; then
       printf_red "😿 MERGE CONFLICT DETECTED 😿"
       printf_yellow ""
       printf_yellow "Conflicted files:"
@@ -1877,7 +1885,7 @@ __git_check_conflict_markers() {
   local git_dir="${2:-$GITCOMMIT_ROOT_DIR}"
   local has_markers=0
 
-  if __grep_lang_c -q '^<<<<<<<\|^=======\|^>>>>>>>' "$file" 2>/dev/null; then
+  if __grep_lang_c -q -- '^<<<<<<<\|^=======\|^>>>>>>>' "$file" 2>/dev/null; then
     has_markers=1
   fi
 
@@ -1987,17 +1995,17 @@ __git_merge_resolve() {
     while IFS= read -r line; do
       ((line_num++))
 
-      if echo "$line" | __grep_lang_c -q '^<<<<<<<'; then
+      if echo "$line" | __grep_lang_c -q -- '^<<<<<<<'; then
         ((conflict_num++))
         in_conflict=1
         printf_yellow "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         printf_custom "6" "Conflict #$conflict_num (line $line_num):"
         printf_custom "2" "▼ CURRENT BRANCH (ours) ▼"
-      elif echo "$line" | __grep_lang_c -q '^======='; then
+      elif echo "$line" | __grep_lang_c -q -- '^======='; then
         printf_custom "1" "▲ CURRENT BRANCH ▲"
         printf_yellow "────────────────────────────────────────────"
         printf_custom "3" "▼ INCOMING BRANCH (theirs) ▼"
-      elif echo "$line" | __grep_lang_c -q '^>>>>>>>'; then
+      elif echo "$line" | __grep_lang_c -q -- '^>>>>>>>'; then
         printf_custom "1" "▲ INCOMING BRANCH ▲"
         printf_yellow "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         in_conflict=0
@@ -2105,7 +2113,15 @@ __git_merge_resolve() {
     ;;
 
   *)
-    printf_exit "Usage: $APPNAME merge-resolve [status|show|edit|ours|theirs|abort] <file>\n\nCommands:\n  status          - Check merge status and find leftover markers\n  show <file>     - Display conflicts in file with context\n  edit <file>     - Edit file in editor and validate markers removed\n  ours <file>     - Keep current branch version\n  theirs <file>   - Keep incoming branch version\n  abort           - Abort the merge"
+    local usage_msg="Usage: $APPNAME merge-resolve [status|show|edit|ours|theirs|abort] <file>\n\n"
+    usage_msg+="Commands:\n"
+    usage_msg+="  status          - Check merge status and find leftover markers\n"
+    usage_msg+="  show <file>     - Display conflicts in file with context\n"
+    usage_msg+="  edit <file>     - Edit file in editor and validate markers removed\n"
+    usage_msg+="  ours <file>     - Keep current branch version\n"
+    usage_msg+="  theirs <file>   - Keep incoming branch version\n"
+    usage_msg+="  abort           - Abort the merge"
+    printf_exit "$usage_msg"
     ;;
   esac
 
@@ -2223,17 +2239,17 @@ __git_push() {
     git_repo_clean="$(echo "$git_repo" | __sanitize_url)"
     git_failed="Failed to push the changes to $git_repo:"
     git_succes="Successfully pushed the changes for commit ID:"
-    remote_formatted="$(echo "$git_remote" | sed 's|\.git$||g' | __grep '^' || echo "")"
+    remote_formatted="$(echo "$git_remote" | sed 's|\.git$||g' | __grep -- '^' || echo "")"
     { [ -f "$git_dir/.no_push" ] || [ -f "$git_dir/.nopush" ]; } && return
     am_i_online --error -m "🚫 No internet connection. Skipping push 🚫" || exit 1
     if [ "$git_repo" != "localdir" ]; then
-      if echo "$git_remote" | __grep -F 'github\.com'; then
+      if echo "$git_remote" | __grep -F -- 'github\.com'; then
         if ! __github_create_repo "${git_repo_clean}"; then
           printf_red "😿 Remote repo $git_repo_clean does not exist and could not be created — skipping push 😿"
           return 1
         fi
       fi
-      if [ -n "$FORCE_PUSH" ]; then
+      if [ -n "$GITCOMMIT_FORCE_PUSH" ]; then
         printf_green "🔼 Pushing the changes to $git_repo_clean 🔼"
         __git_push_do "$git_dir" -f && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
         __getexitcode $GITCOMMIT_EXITCODE "$git_icon_succes $git_succes $(__git_commitid "$git_dir")$git_icon_succes" "$git_icon_failed$git_failed $(<"$errorlog") $git_icon_failed"
@@ -2300,10 +2316,10 @@ __git_auto_pull() {
   exitCode=$?
 
   if [ $exitCode -ne 0 ]; then
-    if echo "$error_msg" | __grep -qi "no such ref was fetched\|couldn't find remote ref"; then
+    if echo "$error_msg" | __grep -qi -- "no such ref was fetched\|couldn't find remote ref"; then
       printf_yellow "⚠️  Remote repository is empty - nothing to pull"
       return 0
-    elif echo "$error_msg" | __grep -qi "divergent\|diverged"; then
+    elif echo "$error_msg" | __grep -qi -- "divergent\|diverged"; then
       printf_yellow "🔄 Branches diverged - trying rebase strategy..."
       git -C "$git_dir" pull --rebase $args --no-edit 2>/dev/null
       exitCode=$?
@@ -2314,17 +2330,17 @@ __git_auto_pull() {
         git -C "$git_dir" pull --no-rebase -X theirs $args --no-edit 2>/dev/null
         exitCode=$?
       fi
-    elif echo "$error_msg" | __grep -qi "conflict"; then
+    elif echo "$error_msg" | __grep -qi -- "conflict"; then
       printf_yellow "⚠️  Merge conflicts detected - auto-resolving with theirs strategy..."
       git -C "$git_dir" pull -X theirs $args --no-edit 2>/dev/null
       exitCode=$?
-    elif echo "$error_msg" | __grep -qi "authentication\|permission\|403\|401"; then
+    elif echo "$error_msg" | __grep -qi -- "authentication\|permission\|403\|401"; then
       printf_red "😿 Authentication failed for $(basename "$git_dir") 😿"
       return 1
     else
       printf_yellow "⚠️  Pull failed - trying force update..."
       printf_yellow "⚠️  Force update will discard local changes"
-      if git -C "$git_dir" stash list 2>/dev/null | __grep -q "Auto-stash before pull"; then
+      if git -C "$git_dir" stash list 2>/dev/null | __grep -q -- "Auto-stash before pull"; then
         git -C "$git_dir" stash drop -q 2>/dev/null
         printf_yellow "⚠️  Dropped auto-stash due to force update"
       fi
@@ -2347,7 +2363,7 @@ __git_auto_pull() {
     fi
   fi
 
-  if git -C "$git_dir" stash list 2>/dev/null | __grep -q "Auto-stash before pull"; then
+  if git -C "$git_dir" stash list 2>/dev/null | __grep -q -- "Auto-stash before pull"; then
     printf_cyan "🔄 Restoring stashed changes..."
     if ! git -C "$git_dir" stash pop -q 2>/dev/null; then
       printf_yellow "⚠️  Could not auto-restore stash - conflicts may exist"
@@ -2401,11 +2417,11 @@ __git_auto_push() {
   exitCode=$?
 
   if [ $exitCode -ne 0 ]; then
-    if echo "$error_msg" | __grep -qi "no upstream branch\|has no upstream branch"; then
+    if echo "$error_msg" | __grep -qi -- "no upstream branch\|has no upstream branch"; then
       printf_yellow "🔄 No upstream branch - setting upstream to origin/$current_branch..."
       git -C "$git_dir" push --set-upstream origin "$current_branch" $args 2>/dev/null
       exitCode=$?
-    elif echo "$error_msg" | __grep -qi "rejected.*non-fast-forward\|rejected.*fetch first"; then
+    elif echo "$error_msg" | __grep -qi -- "rejected.*non-fast-forward\|rejected.*fetch first"; then
       printf_yellow "🔄 Remote has changes - pulling with auto-resolution first..."
       if __git_auto_pull "$git_dir"; then
         printf_cyan "🔄 Retrying push after pull..."
@@ -2415,7 +2431,7 @@ __git_auto_push() {
         printf_red "😿 Pull failed - cannot push 😿"
         return 1
       fi
-    elif echo "$error_msg" | __grep -qi "diverged"; then
+    elif echo "$error_msg" | __grep -qi -- "diverged"; then
       printf_yellow "🔄 Branches diverged - pulling with auto-resolution first..."
       if __git_auto_pull "$git_dir"; then
         printf_cyan "🔄 Retrying push after pull..."
@@ -2425,18 +2441,18 @@ __git_auto_push() {
         printf_red "😿 Pull failed - cannot push 😿"
         return 1
       fi
-    elif echo "$error_msg" | __grep -qi "authentication\|permission\|403\|401"; then
+    elif echo "$error_msg" | __grep -qi -- "authentication\|permission\|403\|401"; then
       printf_red "😿 Authentication failed for $(basename "$git_dir") 😿"
       return 1
-    elif echo "$error_msg" | __grep -qi "protected branch\|required status check"; then
+    elif echo "$error_msg" | __grep -qi -- "protected branch\|required status check"; then
       printf_red "😿 Protected branch - cannot force push to $(basename "$git_dir") 😿"
       printf_yellow "⚠️  This branch has protection rules that prevent direct push"
       return 1
-    elif echo "$error_msg" | __grep -qi "pre-receive hook declined\|pre-push hook"; then
+    elif echo "$error_msg" | __grep -qi -- "pre-receive hook declined\|pre-push hook"; then
       printf_red "😿 Push rejected by remote hook 😿"
       printf_yellow "⚠️  Remote repository has validation rules that failed"
       return 1
-    elif echo "$error_msg" | __grep -qi "large file\|file size"; then
+    elif echo "$error_msg" | __grep -qi -- "large file\|file size"; then
       printf_red "😿 Large file detected - consider using git-lfs 😿"
       printf_yellow "⚠️  Files exceed size limits for standard git push"
       return 1
@@ -2543,13 +2559,17 @@ __normalize_message_spacing() {
   # Try perl first (most reliable for Unicode)
   if command -v perl >/dev/null 2>&1; then
     # Remove leading emojis using perl Unicode regex
-    message="$(echo "$message" | perl -CS -pe 's/^[\x{1F300}-\x{1F9FF}\x{2600}-\x{27BF}\x{1F000}-\x{1F02F}\x{1F0A0}-\x{1F0FF}\x{1F100}-\x{1F64F}\x{1F680}-\x{1F6FF}\x{1F900}-\x{1F9FF}\x{1FA00}-\x{1FAFF}\x{2700}-\x{27BF}\x{24C2}-\x{1F251}\x{FE0F}\x{200D}]+\s*//')"
+    local perl_emoji_class='[\x{1F300}-\x{1F9FF}\x{2600}-\x{27BF}\x{1F000}-\x{1F02F}\x{1F0A0}-\x{1F0FF}\x{1F100}-\x{1F64F}\x{1F680}-\x{1F6FF}'
+    perl_emoji_class+='\x{1F900}-\x{1F9FF}\x{1FA00}-\x{1FAFF}\x{2700}-\x{27BF}\x{24C2}-\x{1F251}\x{FE0F}\x{200D}]'
+    message="$(echo "$message" | perl -CS -pe "s/^${perl_emoji_class}+\s*//")"
     # Remove trailing emojis
-    message="$(echo "$message" | perl -CS -pe 's/\s*[\x{1F300}-\x{1F9FF}\x{2600}-\x{27BF}\x{1F000}-\x{1F02F}\x{1F0A0}-\x{1F0FF}\x{1F100}-\x{1F64F}\x{1F680}-\x{1F6FF}\x{1F900}-\x{1F9FF}\x{1FA00}-\x{1FAFF}\x{2700}-\x{27BF}\x{24C2}-\x{1F251}\x{FE0F}\x{200D}]+$//')"
+    message="$(echo "$message" | perl -CS -pe "s/\s*${perl_emoji_class}+\$//")"
   elif command -v python3 >/dev/null 2>&1; then
     # Fallback to python if perl not available
-    message="$(echo "$message" | python3 -c "import sys, re; print(re.sub(r'^[\U0001F300-\U0001F9FF\U00002600-\U000027BF\U0001F000-\U0001F02F\U0001F0A0-\U0001F0FF\U0001F100-\U0001F64F\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FAFF\U00002700-\U000027BF\U000024C2-\U0001F251\uFE0F\u200D]+\s*', '', sys.stdin.read().strip()))")"
-    message="$(echo "$message" | python3 -c "import sys, re; print(re.sub(r'\s*[\U0001F300-\U0001F9FF\U00002600-\U000027BF\U0001F000-\U0001F02F\U0001F0A0-\U0001F0FF\U0001F100-\U0001F64F\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FAFF\U00002700-\U000027BF\U000024C2-\U0001F251\uFE0F\u200D]+$', '', sys.stdin.read().strip()))")"
+    local py_emoji_class='[\U0001F300-\U0001F9FF\U00002600-\U000027BF\U0001F000-\U0001F02F\U0001F0A0-\U0001F0FF\U0001F100-\U0001F64F\U0001F680-\U0001F6FF'
+    py_emoji_class+='\U0001F900-\U0001F9FF\U0001FA00-\U0001FAFF\U00002700-\U000027BF\U000024C2-\U0001F251\uFE0F\u200D]'
+    message="$(echo "$message" | python3 -c "import sys, re; print(re.sub(r'^${py_emoji_class}+\s*', '', sys.stdin.read().strip()))")"
+    message="$(echo "$message" | python3 -c "import sys, re; print(re.sub(r'\s*${py_emoji_class}+\$', '', sys.stdin.read().strip()))")"
   else
     # Last resort: simple character stripping (may not work perfectly with all emojis)
     # Strip leading non-ASCII, non-printable characters
@@ -2587,15 +2607,15 @@ __normalize_message_spacing() {
 __auto_detect_emoji() {
   local changed_files="$1"
   local emoji="🗃️"
-  local total_files=$(echo "$changed_files" | __grep -v '^$' | wc -l)
+  local total_files=$(echo "$changed_files" | __grep -v -- '^$' | wc -l)
 
   # Count file types
-  local docker_files=$(echo "$changed_files" | __grep -cE "Dockerfile|docker-compose|\.dockerignore" || true)
-  local md_files=$(echo "$changed_files" | __grep -cE "\.md$" || true)
-  local bin_files=$(echo "$changed_files" | __grep -cE "^bin/" || true)
-  local test_files=$(echo "$changed_files" | __grep -cE "test|spec|\.t$" || true)
-  local config_files=$(echo "$changed_files" | __grep -cE "\.conf$|\.config|\.yml$|\.yaml$|\.json$" || true)
-  local function_files=$(echo "$changed_files" | __grep -cE "^functions/" || true)
+  local docker_files=$(echo "$changed_files" | __grep -cE -- "Dockerfile|docker-compose|\.dockerignore" || true)
+  local md_files=$(echo "$changed_files" | __grep -cE -- "\.md$" || true)
+  local bin_files=$(echo "$changed_files" | __grep -cE -- "^bin/" || true)
+  local test_files=$(echo "$changed_files" | __grep -cE -- "test|spec|\.t$" || true)
+  local config_files=$(echo "$changed_files" | __grep -cE -- "\.conf$|\.config|\.yml$|\.yaml$|\.json$" || true)
+  local function_files=$(echo "$changed_files" | __grep -cE -- "^functions/" || true)
 
   # Auto-select emoji based on dominant file type (80% threshold)
   if [ "$docker_files" -gt 0 ] && [ $((docker_files * 100 / total_files)) -ge 80 ]; then
@@ -2623,19 +2643,19 @@ __auto_generate_message() {
 
   # Get diff statistics
   local diff_stats=$(__git_repo "$GITCOMMIT_ROOT_DIR" diff --cached --shortstat 2>/dev/null || __git_repo "$GITCOMMIT_ROOT_DIR" diff --shortstat 2>/dev/null)
-  local insertions=$(echo "$diff_stats" | __grep -oE "[0-9]+ insertion" | __grep -oE "[0-9]+" || echo "0")
-  local deletions=$(echo "$diff_stats" | __grep -oE "[0-9]+ deletion" | __grep -oE "[0-9]+" || echo "0")
+  local insertions=$(echo "$diff_stats" | __grep -oE -- "[0-9]+ insertion" | __grep -oE -- "[0-9]+" || echo "0")
+  local deletions=$(echo "$diff_stats" | __grep -oE -- "[0-9]+ deletion" | __grep -oE -- "[0-9]+" || echo "0")
 
   # Analyze diff content for keywords
   local diff_content=$(__git_repo "$GITCOMMIT_ROOT_DIR" diff --cached 2>/dev/null || __git_repo "$GITCOMMIT_ROOT_DIR" diff 2>/dev/null)
 
   # Smart message generation based on content and stats (message only, no emojis)
-  if echo "$diff_content" | __grep -qE "^\+.*(fix|bug|error|Fixed|Bug|Error)"; then
+  if echo "$diff_content" | __grep -qE -- "^\+.*(fix|bug|error|Fixed|Bug|Error)"; then
     message="Fix issues in codebase"
     override_emoji="🐛"
-  elif echo "$diff_content" | __grep -qE "^\+.*(TODO|FIXME|XXX)"; then
+  elif echo "$diff_content" | __grep -qE -- "^\+.*(TODO|FIXME|XXX)"; then
     message="Update task list and TODOs"
-  elif echo "$changed_files" | __grep -qE "VERSION|version\.txt"; then
+  elif echo "$changed_files" | __grep -qE -- "VERSION|version\.txt"; then
     message="Version bump"
     override_emoji="🚀"
   elif [ "$deletions" -gt "$insertions" ] && [ "$deletions" -gt 50 ]; then
@@ -2644,7 +2664,7 @@ __auto_generate_message() {
   elif [ "$insertions" -gt "$((deletions * 3))" ]; then
     message="Add new features and functionality"
     override_emoji="✨"
-  elif echo "$changed_files" | __grep -qE "^\."; then
+  elif echo "$changed_files" | __grep -qE -- "^\."; then
     message="Update configuration files"
     override_emoji="🔧"
   else
@@ -2665,7 +2685,7 @@ __learn_from_history() {
 
   if [ -n "$file" ] && [ -f "$file" ]; then
     learned_emoji=$(__git_repo "$GITCOMMIT_ROOT_DIR" log --oneline --follow "$file" -10 2>/dev/null |
-      __grep -oE "(🐛|✨|📝|🚀|♻️|🗃️|🐳|🛠️|⚙️|🔧|✅)" |
+      __grep -oE -- "(🐛|✨|📝|🚀|♻️|🗃️|🐳|🛠️|⚙️|🔧|✅)" |
       sort | uniq -c | sort -rn | head -1 |
       awk '{print $2}' || echo "")
   fi
@@ -2687,9 +2707,9 @@ __commit_custom() {
   local message="${GITCOMMIT_MESSAGE_SHORT:-Committing everything that changed}"
   local local_set_mess="$(printf '%b\n' "$message")"
   changed_files="$(__changed_files all)"
-  if [ -z "$changed_files" ] || [ "$GITADMIN_NO_ERROR" != "true" ]; then
-    [ "$GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have changed in $GITCOMMIT_ROOT_DIR 🙁"
-    export GITADMIN_NO_ERROR_MESSAGE="true"
+  if [ -z "$changed_files" ] || [ "$GITCOMMIT_GITADMIN_NO_ERROR" != "true" ]; then
+    [ "$GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have changed in $GITCOMMIT_ROOT_DIR 🙁"
+    export GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE="true"
     return 1
   fi
 
@@ -2730,7 +2750,7 @@ __commit_custom() {
   local smart_spaces="$(__fix_emoji_spacing "$emoji_for_spacing")"
   action="${emoji_for_spacing}${smart_spaces}"
 
-  [ "$FORCE_PUSH" ] && ARGS="-f"
+  [ "$GITCOMMIT_FORCE_PUSH" ] && ARGS="-f"
   [ -n "$local_set_mess" ] || local_set_mess="$prepend"
   changelog_message="$prepend"
   if [ -n "$GITCOMMIT_MESSAGE_FROM_FILE" ]; then
@@ -2738,13 +2758,13 @@ __commit_custom() {
     local start_emoji="" end_emoji=""
 
     # Detect start emoji (first non-ASCII character sequence at beginning)
-    # Use __grep_lang_c to detect bytes outside printable ASCII range
-    if echo "$local_set_mess" | __grep_lang_c -q '^[[:space:]]*[^ -~]'; then
+    # Use __grep_lang_c -- to detect bytes outside printable ASCII range
+    if echo "$local_set_mess" | __grep_lang_c -q -- '^[[:space:]]*[^ -~]'; then
       start_emoji="$(echo "$local_set_mess" | sed -E 's/^[[:space:]]*//; s/^([^ -~]+).*/\1/' | head -c 10)"
     fi
 
     # Detect end emoji (last non-ASCII character sequence at end)
-    if echo "$local_set_mess" | __grep_lang_c -q '[^ -~][[:space:]]*$'; then
+    if echo "$local_set_mess" | __grep_lang_c -q -- '[^ -~][[:space:]]*$'; then
       end_emoji="$(echo "$local_set_mess" | sed -E 's/[[:space:]]*$//; s/.*[[:space:]]([^ -~]+)$/\1/' | tail -c 10)"
     fi
 
@@ -2784,7 +2804,7 @@ __commit_custom() {
         git_failed="Failed to push the changes to $git_repo"
         git_succes="Successfully pushed the changes for commit ID:"
         git_repo_clean="$(echo "$git_repo" | __sanitize_url)"
-        if echo "$git_repo_clean" | __grep -qF 'github.com'; then
+        if echo "$git_repo_clean" | __grep -qF -- 'github.com'; then
           __github_create_repo "${git_repo_clean}"
         fi
         printf_green "📍 Pushing the changes to $git_repo_clean 📍"
@@ -2844,21 +2864,21 @@ __rename_branch() {
   local fromBranch="" toBranch="" USER="" REPO=""
   fromBranch="$1" && shift 1
   toBranch="$1" && shift 1
-  if [ $# -eq 1 ] && echo "$1" | __grep -q '/'; then
+  if [ $# -eq 1 ] && echo "$1" | __grep -q -- '/'; then
     USER_REPO="$1"
-  elif echo "$*" | __grep -q ' '; then
+  elif echo "$*" | __grep -q -- ' '; then
     USER_REPO="$2/$3"
   else
     USER_REPO="$(basename -- "$(dirname "$GITCOMMIT_ROOT_DIR")")/$(basename -- "$GITCOMMIT_ROOT_DIR")"
   fi
-  echo $USER_REPO | awk -F'/' '{print $2}' | __grep -q '^' || printf_exit "Usage:"
+  echo $USER_REPO | awk -F'/' '{print $2}' | __grep -q -- '^' || printf_exit "Usage:"
   # changelog_message="Renamed branch from $fromBranch to $toBranch"
   printf_blue "Changing git $fromBranch to $toBranch on $USER_REPO"
   __git_repo "$GITCOMMIT_ROOT_DIR" branch -m $fromBranch "$toBranch" &>/dev/null
   __git_repo "$GITCOMMIT_ROOT_DIR" push -u origin "$toBranch" -fq &>/dev/null
   if curl -q -LSs -X PATCH -H "Accept: application/vnd.github.v3+json" \
     -H "Authorization: token $GITCOMMIT_GITHUB_TOKEN" "https://api.github.com/repos/$USER_$REPO" \
-    -d '{"default_branch":"'$toBranch'"}' | __grep -q '"default_branch": "'$fromBranch'"' &>/dev/null; then
+    -d '{"default_branch":"'$toBranch'"}' | __grep -q -- '"default_branch": "'$fromBranch'"' &>/dev/null; then
     __git_repo "$GITCOMMIT_ROOT_DIR" push --delete origin $fromBranch -fq &>/dev/null
     printf_green "Changed the default branch on github.com/$USER_$REPO"
   fi &&
@@ -2871,14 +2891,14 @@ __rename_branch() {
 __curl_branch() {
   local branch="" USER="" REPO="" GITCOMMIT_EXITCODE=""
   branch="$1"
-  if [ $# -eq 1 ] && echo "$1" | __grep -q '/'; then
+  if [ $# -eq 1 ] && echo "$1" | __grep -q -- '/'; then
     USER_REPO="$1"
-  elif echo "$*" | __grep -q ' '; then
+  elif echo "$*" | __grep -q -- ' '; then
     USER_REPO="$2/$3"
   else
     USER_REPO="$(basename -- "$(dirname "$GITCOMMIT_ROOT_DIR")")/$(basename -- "$GITCOMMIT_ROOT_DIR")"
   fi
-  echo $USER_REPO | awk -F'/' '{print $2}' | __grep -q '^' || printf_exit "Usage:"
+  echo $USER_REPO | awk -F'/' '{print $2}' | __grep -q -- '^' || printf_exit "Usage:"
   GITCOMMIT_EXITCODE=0
   printf_exit "$USER"/"$REPO"
   curl -q -LSs -X PATCH -H "Accept: application/vnd.github.v3+json" \
@@ -2895,37 +2915,44 @@ __check_ai_error() {
     return 0
   fi
   # Rate limit patterns (various providers)
-  if echo "$error_output" | __grep -qiE 'rate.?limit|limit.?reached|too many requests|quota.?exceeded|usage.?limit|spending.?limit|billing|credits?.?(exhausted|exceeded|limit)|usage.?cap|overloaded|server.?busy|capacity|429|rate_limit_error|overloaded_error|resource.?exhausted|throttl'; then
+  local rate_limit_pat='rate.?limit|limit.?reached|too many requests|quota.?exceeded|usage.?limit|spending.?limit|billing'
+  rate_limit_pat+='|credits?.?(exhausted|exceeded|limit)|usage.?cap|overloaded|server.?busy|capacity|429|rate_limit_error'
+  rate_limit_pat+='|overloaded_error|resource.?exhausted|throttl'
+  # Authentication/authorization patterns (including CLI "not logged in" messages)
+  local auth_err_pat='unauthorized|authentication|invalid.?(token|key|api)|api.?key|credentials|403|401|permission.?denied'
+  auth_err_pat+='|access.?denied|not.?authorized|not logged in|please run.*login|please.*sign in|login required|please.*authenticate'
+  # Network/connectivity patterns
+  local net_err_pat='timeout|timed.?out|connection.?(refused|reset|failed)|network.?error|unable to connect|unreachable|dns'
+  net_err_pat+='|resolve|ECONNREFUSED|ETIMEDOUT|ENOTFOUND'
+  if echo "$error_output" | __grep -qiE -- "$rate_limit_pat"; then
     printf_red "❌ $display_name: Rate limit or quota exceeded. Please try again later."
     GITCOMMIT_AI_RATE_LIMITED="true"
     export GITCOMMIT_AI_RATE_LIMITED
     return 1
-  # Authentication/authorization patterns (including CLI "not logged in" messages)
-  elif echo "$error_output" | __grep -qiE 'unauthorized|authentication|invalid.?(token|key|api)|api.?key|credentials|403|401|permission.?denied|access.?denied|not.?authorized|not logged in|please run.*login|please.*sign in|login required|please.*authenticate'; then
+  elif echo "$error_output" | __grep -qiE -- "$auth_err_pat"; then
     printf_red "❌ $display_name: Authentication failed. Check your API credentials."
     return 1
-  # Network/connectivity patterns
-  elif echo "$error_output" | __grep -qiE 'timeout|timed.?out|connection.?(refused|reset|failed)|network.?error|unable to connect|unreachable|dns|resolve|ECONNREFUSED|ETIMEDOUT|ENOTFOUND'; then
+  elif echo "$error_output" | __grep -qiE -- "$net_err_pat"; then
     printf_yellow "⚠️  $display_name: Network error or timeout."
     return 1
   # Command/installation patterns
-  elif echo "$error_output" | __grep -qiE 'not found|command not found|no such file|cannot find|not.?installed'; then
+  elif echo "$error_output" | __grep -qiE -- 'not found|command not found|no such file|cannot find|not.?installed'; then
     printf_yellow "⚠️  $display_name: Command not found or not properly installed."
     return 1
   # Model availability patterns
-  elif echo "$error_output" | __grep -qiE 'model.?(not.?found|unavailable|does.?not.?exist)|no.?model|invalid.?model|unknown.?model'; then
+  elif echo "$error_output" | __grep -qiE -- 'model.?(not.?found|unavailable|does.?not.?exist)|no.?model|invalid.?model|unknown.?model'; then
     printf_yellow "⚠️  $display_name: Model not found or unavailable."
     return 1
   # Service unavailable patterns
-  elif echo "$error_output" | __grep -qiE '500|502|503|504|service.?unavailable|internal.?error|server.?error|maintenance|temporarily.?unavailable'; then
+  elif echo "$error_output" | __grep -qiE -- '500|502|503|504|service.?unavailable|internal.?error|server.?error|maintenance|temporarily.?unavailable'; then
     printf_yellow "⚠️  $display_name: Service temporarily unavailable."
     return 1
   # Content policy / safety patterns
-  elif echo "$error_output" | __grep -qiE 'content.?policy|safety|blocked|filtered|inappropriate|violation'; then
+  elif echo "$error_output" | __grep -qiE -- 'content.?policy|safety|blocked|filtered|inappropriate|violation'; then
     printf_yellow "⚠️  $display_name: Request blocked by content policy."
     return 1
   # Generic error patterns
-  elif echo "$error_output" | __grep -qiE '^error|failed|exception|fatal'; then
+  elif echo "$error_output" | __grep -qiE -- '^error|failed|exception|fatal'; then
     printf_yellow "⚠️  $display_name: $(echo "$error_output" | head -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
     return 1
   fi
@@ -2940,51 +2967,60 @@ __check_ai_result_for_errors() {
     return 1
   fi
   # Rate limit / quota
-  if echo "$result" | __grep -qiE 'rate.?limit|quota.?exceeded|too many requests|limit.?reached|try again later|overloaded|capacity|throttl|rate_limit_error|overloaded_error|resource.?exhausted'; then
+  local result_rate_pat='rate.?limit|quota.?exceeded|too many requests|limit.?reached|try again later|overloaded|capacity'
+  result_rate_pat+='|throttl|rate_limit_error|overloaded_error|resource.?exhausted'
+  if echo "$result" | __grep -qiE -- "$result_rate_pat"; then
     printf_red "❌ $display_name: Rate limit detected in response."
     GITCOMMIT_AI_RATE_LIMITED="true"
     export GITCOMMIT_AI_RATE_LIMITED
     return 1
   fi
   # Authentication errors surfaced in the body (including CLI stdout "not logged in" messages)
-  if echo "$result" | __grep -qiE 'invalid.?(api.?key|token|credentials)|authentication.?error|invalid_api_key|authentication_error|insufficient_quota|permission.?denied|access.?denied|not logged in|please run.*login|login required|please.*sign in|please.*authenticate'; then
+  local result_auth_pat='invalid.?(api.?key|token|credentials)|authentication.?error|invalid_api_key|authentication_error'
+  result_auth_pat+='|insufficient_quota|permission.?denied|access.?denied|not logged in|please run.*login|login required'
+  result_auth_pat+='|please.*sign in|please.*authenticate'
+  if echo "$result" | __grep -qiE -- "$result_auth_pat"; then
     printf_red "❌ $display_name: Authentication or quota error in response."
     return 1
   fi
   # Empty-diff / no-changes responses that are not valid commit messages
-  if echo "$result" | __grep -qiE '^(empty diff|no (diff|changes?)|nothing to commit|working (tree|directory) clean|no changes to commit|no files? (changed|modified))'; then
+  local empty_diff_pat='^(empty diff|no (diff|changes?)|nothing to commit|working (tree|directory) clean'
+  empty_diff_pat+='|no changes to commit|no files? (changed|modified))'
+  if echo "$result" | __grep -qiE -- "$empty_diff_pat"; then
     printf_yellow "⚠️  $display_name: Response indicates empty diff or no changes."
     return 1
   fi
   # Provider-specific error type fields (JSON, single or multi-line)
-  if echo "$result" | __grep -qiE '"type"\s*:\s*"error"|"status"\s*:\s*"error"|invalid_request_error|authentication_error|insufficient_quota|model_not_found|overloaded_error|rate_limit_error|server_error|api_error'; then
+  local provider_err_pat='"type"\s*:\s*"error"|"status"\s*:\s*"error"|invalid_request_error|authentication_error'
+  provider_err_pat+='|insufficient_quota|model_not_found|overloaded_error|rate_limit_error|server_error|api_error'
+  if echo "$result" | __grep -qiE -- "$provider_err_pat"; then
     printf_yellow "⚠️  $display_name: API error type detected in response."
     return 1
   fi
   # JSON error object — "error": { or "error": "message"
-  if echo "$result" | __grep -qE '"error"\s*:\s*[\{"]'; then
+  if echo "$result" | __grep -qE -- '"error"\s*:\s*[\{"]'; then
     printf_yellow "⚠️  $display_name: JSON error object detected in response."
     return 1
   fi
   # First non-blank line is start of a JSON object/array — almost certainly an error payload
   local first_nonblank
-  first_nonblank="$(echo "$result" | __grep -v '^[[:space:]]*$' | head -n1 | sed 's/^[[:space:]]*//')"
+  first_nonblank="$(echo "$result" | __grep -v -- '^[[:space:]]*$' | head -n1 | sed 's/^[[:space:]]*//')"
   if [[ "$first_nonblank" == "{"* ]] || [[ "$first_nonblank" == "["* ]]; then
     printf_yellow "⚠️  $display_name: Response is a JSON structure, not a commit message."
     return 1
   fi
   # HTTP error status at start of line (API gateway errors surfaced in stdout)
-  if echo "$result" | __grep -qE '^[45][0-9]{2}[[:space:]]|^HTTP/[0-9.]+ [45][0-9]{2}'; then
+  if echo "$result" | __grep -qE -- '^[45][0-9]{2}[[:space:]]|^HTTP/[0-9.]+ [45][0-9]{2}'; then
     printf_yellow "⚠️  $display_name: HTTP error status code in response."
     return 1
   fi
   # curl / wget errors piped through to stdout
-  if echo "$result" | __grep -qiE '^curl:[[:space:]]*\([0-9]+\)|^wget:[[:space:]]|^Failed to connect|^Connection refused'; then
+  if echo "$result" | __grep -qiE -- '^curl:[[:space:]]*\([0-9]+\)|^wget:[[:space:]]|^Failed to connect|^Connection refused'; then
     printf_yellow "⚠️  $display_name: Network error output in response."
     return 1
   fi
   # HTML error page
-  if echo "$result" | __grep -qiE '^<!DOCTYPE|^<html|<title>[^<]*error[^<]*</title>|<h1>[^<]*error[^<]*</h1>'; then
+  if echo "$result" | __grep -qiE -- '^<!DOCTYPE|^<html|<title>[^<]*error[^<]*</title>|<h1>[^<]*error[^<]*</h1>'; then
     printf_yellow "⚠️  $display_name: Received HTML error page instead of response."
     return 1
   fi
@@ -3051,14 +3087,14 @@ Output only the commit message, nothing else."
   __starts_with_emoji() {
     local str="$1"
     # Match common emoji patterns at start using literal emojis
-    echo "$str" | __grep -q "^[🐛✨📝🚀♻️🔧🗃️😿⚠️❌🤖💡🎨🔥🐞🩹📦🔒🔓🧪🏗️📌🎉💥🚨📄🔍💬🏷️➕➖🔀⬆️⬇️🧹🌐💾📊🆕👌✔️➖❗〰️🚤⚒️🏠❇🦈🐜📓🍕⬅️📃📖🤖📁🔼🔀]"
+    echo "$str" | __grep -q -- "^[🐛✨📝🚀♻️🔧🗃️😿⚠️❌🤖💡🎨🔥🐞🩹📦🔒🔓🧪🏗️📌🎉💥🚨📄🔍💬🏷️➕➖🔀⬆️⬇️🧹🌐💾📊🆕👌✔️➖❗〰️🚤⚒️🏠❇🦈🐜📓🍕⬅️📃📖🤖📁🔼🔀]"
   }
 
   # Helper function to extract emoji from string
   __extract_first_emoji() {
     local str="$1"
     # Extract first emoji character (use -o to get only matching part)
-    echo "$str" | __grep -o "^[🐛✨📝🚀♻️🔧🗃️😿⚠️❌🤖💡🎨🔥🐞🩹📦🔒🔓🧪🏗️📌🎉💥🚨📄🔍💬🏷️➕➖🔀⬆️⬇️🧹🌐💾📊🆕👌✔️➖❗〰️🚤⚒️🏠❇🦈🐜📓🍕⬅️📃📖🤖📁🔼🔀]" | head -1
+    echo "$str" | __grep -o -- "^[🐛✨📝🚀♻️🔧🗃️😿⚠️❌🤖💡🎨🔥🐞🩹📦🔒🔓🧪🏗️📌🎉💥🚨📄🔍💬🏷️➕➖🔀⬆️⬇️🧹🌐💾📊🆕👌✔️➖❗〰️🚤⚒️🏠❇🦈🐜📓🍕⬅️📃📖🤖📁🔼🔀]" | head -1
   }
 
   # Helper function to fix commit message format
@@ -3076,7 +3112,7 @@ Output only the commit message, nothing else."
       _e="$(__extract_first_emoji "$msg")"
       _t="$(echo "$msg" | sed 's/^[^[:alnum:]]*[[:space:]]*//')"
       _t="$(echo "$_t" | sed 's/[[:space:]]*[^[:alnum:]]*$//')"
-      if echo "$msg" | __grep -qE "${_e}[[:space:]]*$"; then
+      if echo "$msg" | __grep -qE -- "${_e}[[:space:]]*$"; then
         echo "$msg"
       else
         echo "${_e} ${_t} ${_e}"
@@ -3104,17 +3140,17 @@ Output only the commit message, nothing else."
     else
       # No conventional prefix — infer emoji from the leading verb/noun
       text="$msg"
-      if echo "$msg" | __grep -qiE "^(fix|bug|patch|correct|repair)"; then
+      if echo "$msg" | __grep -qiE -- "^(fix|bug|patch|correct|repair)"; then
         emoji="🐛"
-      elif echo "$msg" | __grep -qiE "^(add|new|feat|feature|implement|create)"; then
+      elif echo "$msg" | __grep -qiE -- "^(add|new|feat|feature|implement|create)"; then
         emoji="✨"
-      elif echo "$msg" | __grep -qiE "^(update|change|modify|enhance|improve)"; then
+      elif echo "$msg" | __grep -qiE -- "^(update|change|modify|enhance|improve)"; then
         emoji="🔧"
-      elif echo "$msg" | __grep -qiE "^(refactor|clean|reorganize|restructure)"; then
+      elif echo "$msg" | __grep -qiE -- "^(refactor|clean|reorganize|restructure)"; then
         emoji="♻️"
-      elif echo "$msg" | __grep -qiE "^(doc|readme|comment)"; then
+      elif echo "$msg" | __grep -qiE -- "^(doc|readme|comment)"; then
         emoji="📝"
-      elif echo "$msg" | __grep -qiE "^(release|version|bump)"; then
+      elif echo "$msg" | __grep -qiE -- "^(release|version|bump)"; then
         emoji="🚀"
       else
         emoji="🗃️"
@@ -3133,34 +3169,38 @@ Output only the commit message, nothing else."
     # Sanity cap on raw input length (strict 54-char limit enforced post-format)
     [ ${#msg} -gt 100 ] && return 1
     # Reject trailing ellipsis or truncation indicators
-    echo "$msg" | __grep -qE '\.\.\.$|…$' && return 1
+    echo "$msg" | __grep -qE -- '\.\.\.$|…$' && return 1
     # check for API-like responses
-    echo "$msg" | __grep -qiE "^(Error|API|Response|Code|Message|Status|Result|Data|{|\[)" && return 1
+    echo "$msg" | __grep -qiE -- "^(Error|API|Response|Code|Message|Status|Result|Data|{|\[)" && return 1
     # Check for common AI preamble/error patterns
-    echo "$msg" | __grep -qiE "^(I |Here|Sure|Okay|Let me|I'll|I can|I would|Sorry|I apologize|As an AI|Based on|Looking at|After reviewing|The commit|This commit|For this|Given the)" && return 1
+    local ai_preamble_pat="^(I |Here|Sure|Okay|Let me|I'll|I can|I would|Sorry|I apologize|As an AI|Based on"
+    ai_preamble_pat+="|Looking at|After reviewing|The commit|This commit|For this|Given the)"
+    echo "$msg" | __grep -qiE -- "$ai_preamble_pat" && return 1
     # Reject CLI authentication / session error messages that leak into stdout
-    echo "$msg" | __grep -qiE "^(not logged in|please run|please sign in|login required|please authenticate|empty diff|no diff|no changes to commit|nothing to commit|working tree clean)" && return 1
+    local cli_auth_err_pat="^(not logged in|please run|please sign in|login required|please authenticate"
+    cli_auth_err_pat+="|empty diff|no diff|no changes to commit|nothing to commit|working tree clean)"
+    echo "$msg" | __grep -qiE -- "$cli_auth_err_pat" && return 1
     # Also reject empty-diff language hidden inside a conventional commit body
     local _msg_body
     _msg_body="$(echo "$msg" | sed 's/^[a-zA-Z][a-zA-Z0-9_-]*[^:]*:[[:space:]]*//' | tr '[:upper:]' '[:lower:]')"
-    echo "$_msg_body" | __grep -qiE "^(empty diff|no diff|no changes|nothing to commit|working tree clean|no files? (changed|modified))" && return 1
+    echo "$_msg_body" | __grep -qiE -- "^(empty diff|no diff|no changes|nothing to commit|working tree clean|no files? (changed|modified))" && return 1
     # Check for AI meta-language about the message itself (narrow list — avoid false
     # positives on words that legitimately appear in conventional commit descriptions)
-    echo "$msg" | __grep -qiE "commit message|here's|here is" && return 1
+    echo "$msg" | __grep -qiE -- "commit message|here's|here is" && return 1
     # Check for markdown artifacts
-    echo "$msg" | __grep -qE "^\`\`\`|^#+\s|^\*\*" && return 1
+    echo "$msg" | __grep -qE -- "^\`\`\`|^#+\s|^\*\*" && return 1
     # Check it's not just the prompt echoed back
-    echo "$msg" | __grep -qiE "^Generate a git commit|^First line:|^- First line:|^TITLE LINE|^Rules for|^Output ONLY" && return 1
+    echo "$msg" | __grep -qiE -- "^Generate a git commit|^First line:|^- First line:|^TITLE LINE|^Rules for|^Output ONLY" && return 1
     # Reject if it ends with a colon (incomplete response)
-    echo "$msg" | __grep -qE ':$' && return 1
+    echo "$msg" | __grep -qE -- ':$' && return 1
     # Reject git subcommands echoed back from the prompt context
-    echo "$msg" | __grep -qiE '^git (diff|log|show|status|add|commit|push|pull|fetch|clone|branch|checkout|merge|rebase|stash|tag|remote|reset|revert)\b' && return 1
+    echo "$msg" | __grep -qiE -- '^git (diff|log|show|status|add|commit|push|pull|fetch|clone|branch|checkout|merge|rebase|stash|tag|remote|reset|revert)\b' && return 1
     # Reject diff output fragments that leaked through
-    echo "$msg" | __grep -qE '^diff --git |^\+\+\+ |^--- |^@@ |^index [0-9a-f]{7}' && return 1
+    echo "$msg" | __grep -qE -- '^diff --git |^\+\+\+ |^--- |^@@ |^index [0-9a-f]{7}' && return 1
     # Reject bare filenames/paths with no spaces (not a sentence)
-    echo "$msg" | __grep -qE '^\S+\.[a-zA-Z0-9]{1,6}$' && return 1
+    echo "$msg" | __grep -qE -- '^\S+\.[a-zA-Z0-9]{1,6}$' && return 1
     # Reject common shell command invocations echoed from prompt
-    echo "$msg" | __grep -qiE '^(cat|ls|cd|rm|mv|cp|mkdir|chmod|chown|find|grep|sed|awk|curl|wget|echo|printf|export|source)\s' && return 1
+    echo "$msg" | __grep -qiE -- '^(cat|ls|cd|rm|mv|cp|mkdir|chmod|chown|find|grep|sed|awk|curl|wget|echo|printf|export|source)\s' && return 1
     return 0
   }
 
@@ -3176,7 +3216,7 @@ Output only the commit message, nothing else."
       return 1
     fi
     # Check for obvious error responses in the result itself
-    if echo "$res" | head -n1 | __grep -qiE "^(error|failed|exception|cannot|unable|invalid|unauthorized)"; then
+    if echo "$res" | head -n1 | __grep -qiE -- "^(error|failed|exception|cannot|unable|invalid|unauthorized)"; then
       return 1
     fi
     # Strip common AI preamble patterns from the response
@@ -3199,15 +3239,17 @@ Output only the commit message, nothing else."
         __validate_commit_message "$line" || continue
         # Conventional commit lines are structured — accept without error-word filtering
         # since words like "timeout", "fail", "invalid" are valid in commit descriptions
-        if echo "$line" | __grep -qiE '^(fix|feat|docs?|refactor|chore|test|build|ci|perf|style|revert|security)(\([^)]+\))?!?:'; then
+        if echo "$line" | __grep -qiE -- '^(fix|feat|docs?|refactor|chore|test|build|ci|perf|style|revert|security)(\([^)]+\))?!?:'; then
           short_msg="$line"
           found_valid="true"
           break
         fi
         # Non-conventional — guard against error body sentences and prompt echoes
-        echo "$line" | __grep -qiE '(error|fail|exception|invalid|unable|cannot|quota|limit|unauthorized|denied|refused|timeout|blocked|unavailable|forbidden|bad.?request|not.?found)' && continue
-        echo "$line" | __grep -qiE '^git (diff|log|show|status|add|commit|push|pull|fetch|clone|branch|checkout|merge|rebase|stash|tag|remote|reset|revert)\b' && continue
-        echo "$line" | __grep -qE '^diff --git |^\+\+\+ |^--- |^@@ |^index [0-9a-f]{7}' && continue
+        local line_err_pat='(error|fail|exception|invalid|unable|cannot|quota|limit|unauthorized|denied|refused'
+        line_err_pat+='|timeout|blocked|unavailable|forbidden|bad.?request|not.?found)'
+        echo "$line" | __grep -qiE -- "$line_err_pat" && continue
+        echo "$line" | __grep -qiE -- '^git (diff|log|show|status|add|commit|push|pull|fetch|clone|branch|checkout|merge|rebase|stash|tag|remote|reset|revert)\b' && continue
+        echo "$line" | __grep -qE -- '^diff --git |^\+\+\+ |^--- |^@@ |^index [0-9a-f]{7}' && continue
         short_msg="$line"
         found_valid="true"
         break
@@ -3220,18 +3262,18 @@ Output only the commit message, nothing else."
     # that passed the raw check but become obvious once wrapped in emoji
     local _inner_text
     _inner_text="$(echo "$short_msg" | sed 's/^[^[:alnum:]]*[[:space:]]*//;s/[[:space:]]*[^[:alnum:]]*$//')"
-    if echo "$_inner_text" | __grep -qiE "(error|failed|exception|cannot|unable)"; then
+    if echo "$_inner_text" | __grep -qiE -- "(error|failed|exception|cannot|unable)"; then
       return 1
     fi
-    if echo "$_inner_text" | __grep -qiE '^git (diff|log|show|status|add|commit|push|pull|fetch|clone|branch|checkout|merge|rebase|stash|tag|remote|reset|revert)\b'; then
+    if echo "$_inner_text" | __grep -qiE -- '^git (diff|log|show|status|add|commit|push|pull|fetch|clone|branch|checkout|merge|rebase|stash|tag|remote|reset|revert)\b'; then
       return 1
     fi
-    if echo "$_inner_text" | __grep -qE '^\S+\.[a-zA-Z0-9]{1,6}$'; then
+    if echo "$_inner_text" | __grep -qE -- '^\S+\.[a-zA-Z0-9]{1,6}$'; then
       return 1
     fi
     # Enforce 54-char limit on the description text (excludes emoji bookends and spaces)
     [ ${#_inner_text} -gt 54 ] && return 1
-    long_msg="$(echo "$res" | tail -n +2 | __grep -v '^$')"
+    long_msg="$(echo "$res" | tail -n +2 | __grep -v -- '^$')"
     [ -n "$long_msg" ] && GITCOMMIT_MESSAGE_LONG="$long_msg"
     [ -n "$ai_output_file" ] && echo "$short_msg" >"$ai_output_file" || echo "$short_msg"
     return 0
@@ -3261,7 +3303,7 @@ Output only the commit message, nothing else."
         fi
         if [ -n "$ai_args" ]; then
           error_output="$(mktemp)"
-          result="$(ollama $ai_args "$prompt" 2>"$error_output" | __grep -v '^$')"
+          result="$(ollama $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
           if __ai_try_result "$result" "Ollama AI" "$error_output"; then
             return 0
           else
@@ -3272,7 +3314,7 @@ Output only the commit message, nothing else."
       claude)
         [ -z "$ai_args" ] && ai_args="-p --allowedTools \"\""
         error_output="$(mktemp)"
-        result="$(claude $ai_args "$prompt" 2>"$error_output" | __grep -v '^$')"
+        result="$(claude $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if [ -s "$error_output" ]; then
           if ! __check_ai_error "claude" "$(<"$error_output")" "Claude AI"; then
             rm -f "$error_output"
@@ -3289,7 +3331,7 @@ Output only the commit message, nothing else."
       codex)
         [ -z "$ai_args" ] && ai_args="exec"
         error_output="$(mktemp)"
-        result="$(codex $ai_args "$prompt" 2>"$error_output" | __grep -v '^$')"
+        result="$(codex $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "Codex AI" "$error_output"; then
           return 0
         else
@@ -3299,7 +3341,7 @@ Output only the commit message, nothing else."
       copilot)
         [ -z "$ai_args" ] && ai_args="-p --allow-all-tools"
         error_output="$(mktemp)"
-        result="$(copilot $ai_args "$prompt" 2>"$error_output" | __grep -v '^$')"
+        result="$(copilot $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "GitHub Copilot" "$error_output"; then
           return 0
         else
@@ -3309,7 +3351,7 @@ Output only the commit message, nothing else."
       llama-cli | llama-cpp | llamafile)
         [ -z "$ai_args" ] && ai_args="-p --no-display-prompt"
         error_output="$(mktemp)"
-        result="$($ai_cmd $ai_args "$prompt" 2>"$error_output" | __grep -v '^$')"
+        result="$($ai_cmd $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "$(echo $ai_cmd | tr '-' ' ' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2));}1')" "$error_output"; then
           return 0
         else
@@ -3318,7 +3360,7 @@ Output only the commit message, nothing else."
         ;;
       gpt4all-cli)
         error_output="$(mktemp)"
-        result="$(gpt4all-cli ${ai_args:-} "$prompt" 2>"$error_output" | __grep -v '^$')"
+        result="$(gpt4all-cli ${ai_args:-} "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "GPT4All" "$error_output"; then
           return 0
         else
@@ -3327,7 +3369,7 @@ Output only the commit message, nothing else."
         ;;
       lms)
         error_output="$(mktemp)"
-        result="$(echo "$prompt" | lms ${ai_args:-chat} 2>"$error_output" | __grep -v '^$')"
+        result="$(echo "$prompt" | lms ${ai_args:-chat} 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "LM Studio" "$error_output"; then
           return 0
         else
@@ -3338,9 +3380,9 @@ Output only the commit message, nothing else."
         # Generic command - user provides full args
         error_output="$(mktemp)"
         if [ -n "$ai_args" ]; then
-          result="$($ai_cmd $ai_args "$prompt" 2>"$error_output" | __grep -v '^$')"
+          result="$($ai_cmd $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         else
-          result="$(echo "$prompt" | $ai_cmd 2>"$error_output" | __grep -v '^$')"
+          result="$(echo "$prompt" | $ai_cmd 2>"$error_output" | __grep -v -- '^$')"
         fi
         if __ai_try_result "$result" "$ai_cmd" "$error_output"; then
           return 0
@@ -3363,7 +3405,7 @@ Output only the commit message, nothing else."
     ollama_model="$(ollama list 2>/dev/null | tail -n +2 | head -n1 | awk '{print $1}')"
     if [ -n "$ollama_model" ]; then
       error_output="$(mktemp)"
-      result="$(ollama run "$ollama_model" "$prompt" 2>"$error_output" | __grep -v '^$')"
+      result="$(ollama run "$ollama_model" "$prompt" 2>"$error_output" | __grep -v -- '^$')"
       __ai_try_result "$result" "Ollama" "$error_output" && return 0
     fi
   fi
@@ -3371,32 +3413,32 @@ Output only the commit message, nothing else."
   # Try llama.cpp (llama-cli or main)
   if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists llama-cli; then
     error_output="$(mktemp)"
-    result="$(llama-cli -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v '^$')"
+    result="$(llama-cli -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Llama.cpp CLI" "$error_output" && return 0
   elif [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists llama-cpp; then
     error_output="$(mktemp)"
-    result="$(llama-cpp -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v '^$')"
+    result="$(llama-cpp -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Llama.cpp" "$error_output" && return 0
   fi
 
   # Try llamafile
   if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists llamafile; then
     error_output="$(mktemp)"
-    result="$(llamafile -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v '^$')"
+    result="$(llamafile -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Llamafile" "$error_output" && return 0
   fi
 
   # Try gpt4all
   if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists gpt4all-cli; then
     error_output="$(mktemp)"
-    result="$(gpt4all-cli "$prompt" 2>"$error_output" | __grep -v '^$')"
+    result="$(gpt4all-cli "$prompt" 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "GPT4All" "$error_output" && return 0
   fi
 
   # Try lmstudio CLI
   if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists lms; then
     error_output="$(mktemp)"
-    result="$(echo "$prompt" | lms chat 2>"$error_output" | __grep -v '^$')"
+    result="$(echo "$prompt" | lms chat 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "LM Studio" "$error_output" && return 0
   fi
 
@@ -3405,7 +3447,7 @@ Output only the commit message, nothing else."
   # Try claude CLI
   if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists claude; then
     error_output="$(mktemp)"
-    result="$(claude -p "$prompt" --allowedTools "" 2>"$error_output" | __grep -v '^$')"
+    result="$(claude -p "$prompt" --allowedTools "" 2>"$error_output" | __grep -v -- '^$')"
     [ -s "$error_output" ] && __check_ai_error "claude" "$(<"$error_output")" "Claude AI"
     rm -f "$error_output"
     __parse_ai_result "$result" "Claude AI" && return 0
@@ -3414,21 +3456,21 @@ Output only the commit message, nothing else."
   # Try codex CLI
   if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists codex; then
     error_output="$(mktemp)"
-    result="$(codex exec "$prompt" 2>"$error_output" | __grep -v '^$')"
+    result="$(codex exec "$prompt" 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Codex AI" "$error_output" && return 0
   fi
 
   # Try GitHub Copilot CLI
   if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists copilot; then
     error_output="$(mktemp)"
-    result="$(copilot -p "$prompt" --allow-all-tools 2>"$error_output" | __grep -v '^$')"
+    result="$(copilot -p "$prompt" --allow-all-tools 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "GitHub Copilot" "$error_output" && return 0
   fi
 
   # Try GitHub Copilot via gh extension
-  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists gh && gh extension list 2>/dev/null | __grep -q 'copilot'; then
+  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists gh && gh extension list 2>/dev/null | __grep -q -- 'copilot'; then
     error_output="$(mktemp)"
-    result="$(echo "$prompt" | gh copilot suggest -t shell 2>"$error_output" | __grep -v '^$')"
+    result="$(echo "$prompt" | gh copilot suggest -t shell 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "GitHub Copilot (via gh)" "$error_output" && return 0
   fi
 
@@ -3449,7 +3491,7 @@ Output only the commit message, nothing else."
 __search() {
   [ -n "$1" ] || printf_exit "Usage: $APPNAME search [query] [optionalPath]"
   printf '\r%b ' "${YELLOW}Searching for $1${NC}"
-  results="$(git grep -w -p --cached "$1" $2 | __grep '^')"
+  results="$(git grep -w -p --cached "$1" $2 | __grep -- '^')"
   printf '\n'
   [ -n "$results" ] && printf_blue "$results" || printf_exit "Your search provided not results"
   exit $?
@@ -3502,7 +3544,9 @@ __git_log() {
 
   # Use different format when searching to show full commit body
   if [ -n "$search_pattern" ]; then
-    git_cmd="git --no-pager -C '$dir' log --color=always --pretty='%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)%n%C(white)%b' --grep='$search_pattern' -i 2>/dev/null"
+    git_cmd="git --no-pager -C '$dir' log --color=always"
+    git_cmd+=" --pretty='%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)%n%C(white)%b'"
+    git_cmd+=" --grep='$search_pattern' -i 2>/dev/null"
   else
     git_cmd="git --no-pager -C '$dir' log --color=always --pretty='%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)' 2>/dev/null"
   fi
@@ -3516,14 +3560,14 @@ __git_log() {
   if [ -n "$exclude_patterns" ]; then
     local grep_pattern=$(echo "$exclude_patterns" | sed 's/[[:space:]]*|[[:space:]]*/|/g')
     if [ -n "$search_pattern" ]; then
-      eval "$git_cmd" | __grep --line-buffered -vE "$grep_pattern" | __grep --line-buffered --color=always -iE "$search_pattern|$"
+      eval "$git_cmd" | __grep --line-buffered -vE -- "$grep_pattern" | __grep --line-buffered --color=always -iE -- "$search_pattern|$"
     else
-      eval "$git_cmd" | __grep --line-buffered -vE "$grep_pattern"
+      eval "$git_cmd" | __grep --line-buffered -vE -- "$grep_pattern"
     fi
     return $?
   else
     if [ -n "$search_pattern" ]; then
-      eval "$git_cmd" | __grep --line-buffered --color=always -iE "$search_pattern|$"
+      eval "$git_cmd" | __grep --line-buffered --color=always -iE -- "$search_pattern|$"
     else
       eval "$git_cmd"
     fi
@@ -3551,7 +3595,7 @@ __git_show_commit() {
 
       # Get first commit that doesn't match exclusion patterns
       if [ -n "$grep_exclude" ]; then
-        commit="$(git -C "$dir" log --pretty='%H %s' 2>/dev/null | __grep -vE "$grep_exclude" | head -n1 | awk '{print $1}')"
+        commit="$(git -C "$dir" log --pretty='%H %s' 2>/dev/null | __grep -vE -- "$grep_exclude" | head -n1 | awk '{print $1}')"
       else
         commit="$(git -C "$dir" log --pretty='%H' 2>/dev/null | head -n1)"
       fi
@@ -3571,16 +3615,16 @@ __git_show_commit() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__is_clean() { __git_status "$1" | __grep -v '##' | __grep -q '^' && return 1 || return 0; }
+__is_clean() { __git_status "$1" | __grep -v -- '##' | __grep -q -- '^' && return 1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__is_dirty() { __git_status "$1" | __grep -v '##' | __grep -q '^' && return 0 || return 1; }
+__is_dirty() { __git_status "$1" | __grep -v -- '##' | __grep -q -- '^' && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_remote_push() {
-  git -C "${1:-${GITCOMMIT_ROOT_DIR:-.}}" remote -v 2>/dev/null | __grep -- '(push)' | head -n 1 | awk '{print $2}' 2>/dev/null | __grep '^' || return 1
+  git -C "${1:-${GITCOMMIT_ROOT_DIR:-.}}" remote -v 2>/dev/null | __grep -- '(push)' | head -n 1 | awk '{print $2}' 2>/dev/null | __grep -- '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __github_create_repo() {
-  if echo "$1" | __grep -q '/'; then
+  if echo "$1" | __grep -q -- '/'; then
     git_user="$(echo "$1" | awk -F '/' '{print $(NF-1)}')"
     git_repo="$(echo "$1" | awk -F '/' '{print $NF}')"
   elif [ $# -eq 2 ]; then
@@ -3590,12 +3634,14 @@ __github_create_repo() {
     return 1
   fi
   __cmd_exists gitadmin || return 1
-  __github_api_repo_verify "$git_user" "$git_repo" || gitadmin create "$git_user" "$git_repo" | __grep -qi 'Success:'
+  __github_api_repo_verify "$git_user" "$git_repo" || gitadmin create "$git_user" "$git_repo" | __grep -qi -- 'Success:'
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __github_api_repo_verify() {
-  curl -q -LSsf -X GET -H "Accept: application/vnd.github.v3+json" -H "Authorization: token ${GITCOMMIT_GITHUB_TOKEN}" "https://api.github.com/repos/${1}/${2}" 2>/dev/null | jq -r '.html_url' 2>/dev/null | __grep -qF "${1}/${2}" &>/dev/null
+  curl -q -LSsf -X GET -H "Accept: application/vnd.github.v3+json" -H "Authorization: token ${GITCOMMIT_GITHUB_TOKEN}" \
+    "https://api.github.com/repos/${1}/${2}" 2>/dev/null \
+    | jq -r '.html_url' 2>/dev/null | __grep -qF -- "${1}/${2}" &>/dev/null
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3612,7 +3658,7 @@ __git_fix_last() {
     commit_hash=$(echo "$line" | awk '{print $1}')
     commit_msg=$(echo "$line" | cut -d' ' -f2-)
 
-    if echo "$commit_msg" | __grep -qE "^🚀 Version Bump:|Version Bump:"; then
+    if echo "$commit_msg" | __grep -qE -- "^🚀 Version Bump:|Version Bump:"; then
       version_bump_count=$((version_bump_count + 1))
     else
       break
@@ -3744,7 +3790,7 @@ GITCOMMIT_CHANGELOG_ICON="${GITCOMMIT_CHANGELOG_ICON:-🚀}"
 GITCOMMIT_DEFAULT_COMMIT_FILE="${GITCOMMIT_DEFAULT_COMMIT_FILE:-.git/COMMIT_MESS}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
-[ -f "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+[ -f "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${GITCOMMIT_SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE" ] && . "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE"
@@ -3785,27 +3831,27 @@ GITCOMMIT_GITHUB_TOKEN="${GITCOMMIT_GITHUB_TOKEN:-$GITHUB_ACCESS_TOKEN}"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
-SETARGS=("$@")
+GITCOMMIT_SETARGS=("$@")
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-SHORTOPTS=""
-SHORTOPTS+=""
+GITCOMMIT_SHORTOPTS=""
+GITCOMMIT_SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,dir:,help,options,no-color,version,silent"
-LONGOPTS+=",mess:,message:,amend,force,all"
+GITCOMMIT_LONGOPTS="completions:,config,debug,dir:,help,options,no-color,version,silent"
+GITCOMMIT_LONGOPTS+=",mess:,message:,amend,force,all"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="s status l log is search init setup reset branch pull push merge merge-resolve "
-ARRAY+="tag tar version fixup fix fix-last squash amend "
-ARRAY+="all files modified updated deleted added renamed changed restored spelling changelog spec "
-ARRAY+="new improved fixes fixed release deploy docs test breaking refactor performance "
-ARRAY+="permissions permission bugs bug alot "
-ARRAY+="docker node ruby php perl python scratchpad todo notes blog recipe "
-ARRAY+="ai random emj emojy emojify custom "
+GITCOMMIT_ARRAY="s status l log is search init setup reset branch pull push merge merge-resolve "
+GITCOMMIT_ARRAY+="tag tar version fixup fix fix-last squash amend "
+GITCOMMIT_ARRAY+="all files modified updated deleted added renamed changed restored spelling changelog spec "
+GITCOMMIT_ARRAY+="new improved fixes fixed release deploy docs test breaking refactor performance "
+GITCOMMIT_ARRAY+="permissions permission bugs bug alot "
+GITCOMMIT_ARRAY+="docker node ruby php perl python scratchpad todo notes blog recipe "
+GITCOMMIT_ARRAY+="ai random emj emojy emojify custom "
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-LIST=""
-LIST+=""
+GITCOMMIT_LIST=""
+GITCOMMIT_LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$GITCOMMIT_SHORTOPTS" --long "$GITCOMMIT_LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
@@ -3831,7 +3877,7 @@ while :; do
     ICON_WARN="[ warn ]"
     ICON_ERROR="[ error ]"
     ICON_QUESTION="[ ? ]"
-    printf_column() { tee | __grep '^'; }
+    printf_column() { tee | __grep -- '^'; }
     printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
@@ -3844,13 +3890,13 @@ while :; do
     ;;
   --completions)
     if [ "$2" = "short" ]; then
-      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+      printf '%s\n' "-$GITCOMMIT_SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
     elif [ "$2" = "long" ]; then
-      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+      printf '%s\n' "--$GITCOMMIT_LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
     elif [ "$2" = "array" ]; then
-      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+      printf '%s\n' "$GITCOMMIT_ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
     elif [ "$2" = "list" ]; then
-      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+      printf '%s\n' "$GITCOMMIT_LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
     else
       exit 1
     fi
@@ -3860,10 +3906,10 @@ while :; do
   --options)
     shift 1
     printf_blue "Current options for ${PROG:-$APPNAME}"
-    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
-    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
-    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
-    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    [ -z "$GITCOMMIT_SHORTOPTS" ] || __list_options "Short Options" "-${GITCOMMIT_SHORTOPTS}" ',' '-' 4
+    [ -z "$GITCOMMIT_LONGOPTS" ] || __list_options "Long Options" "--${GITCOMMIT_LONGOPTS}" ',' '--' 4
+    [ -z "$GITCOMMIT_ARRAY" ] || __list_options "Base Options" "${GITCOMMIT_ARRAY}" ',' '' 4
+    [ -z "$GITCOMMIT_LIST" ] || __list_options "GITCOMMIT_LIST Options" "${GITCOMMIT_LIST}" ',' '' 4
     exit $?
     ;;
   --version)
@@ -3886,7 +3932,7 @@ while :; do
     GITCOMMIT_SILENT="true"
     ;;
   --dir)
-    CWD_IS_SET="TRUE"
+    GITCOMMIT_CWD_IS_SET="TRUE"
     GITCOMMIT_CWD="$2"
     [ -d "$GITCOMMIT_CWD" ] || mkdir -p "$GITCOMMIT_CWD" |& __devnull
     shift 2
@@ -3901,7 +3947,7 @@ while :; do
     GITCOMMIT_RUN_AMEND="true"
     ;;
   --force)
-    FORCE_PUSH="true"
+    GITCOMMIT_FORCE_PUSH="true"
     shift 1
     ;;
   --all)
@@ -3968,8 +4014,8 @@ BASE_DIR="${GITCOMMIT_ROOT_DIR##*/}"
 GIT_USERNAME="$(basename -- "$(dirname "$GITCOMMIT_ROOT_DIR")")"
 GIT_VERSION="$GITCOMMIT_VERSION_FORMAT"
 GIT_PROJECT_DIR="$GITCOMMIT_PROJECT_DIR"
-GITADMIN_NO_ERROR="true"
-GITADMIN_NO_ERROR_MESSAGE=""
+GITCOMMIT_GITADMIN_NO_ERROR="true"
+GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE=""
 # Check for commit message files in priority order: COMMIT_MSG first, then COMMIT_MESS
 if [ -f "$GITCOMMIT_ROOT_DIR/.git/COMMIT_MSG" ] && [ -s "$GITCOMMIT_ROOT_DIR/.git/COMMIT_MSG" ]; then
   GITCOMMIT_MESSAGE_FILE="$GITCOMMIT_ROOT_DIR/.git/COMMIT_MSG"
@@ -4165,7 +4211,18 @@ push)
 merge)
   shift 1
   if [ "$1" = "help" ]; then
-    printf_exit "Usage: $APPNAME merge <source_branch> [strategy] [message]\n\nStrategies:\n  auto   - Auto-detect: fast-forward if possible, otherwise merge commit (default)\n  ff     - Fast-forward only (fails if not possible)\n  no-ff  - Always create merge commit (even if fast-forward possible)\n  squash - Squash all commits into one\n\nExamples:\n  $APPNAME merge feature-branch\n  $APPNAME merge develop ff\n  $APPNAME merge hotfix no-ff \"Emergency fix\"\n  $APPNAME merge feature squash \"Combined feature commits\""
+    usage_msg="Usage: $APPNAME merge <source_branch> [strategy] [message]\n\n"
+    usage_msg+="Strategies:\n"
+    usage_msg+="  auto   - Auto-detect: fast-forward if possible, otherwise merge commit (default)\n"
+    usage_msg+="  ff     - Fast-forward only (fails if not possible)\n"
+    usage_msg+="  no-ff  - Always create merge commit (even if fast-forward possible)\n"
+    usage_msg+="  squash - Squash all commits into one\n\n"
+    usage_msg+="Examples:\n"
+    usage_msg+="  $APPNAME merge feature-branch\n"
+    usage_msg+="  $APPNAME merge develop ff\n"
+    usage_msg+="  $APPNAME merge hotfix no-ff \"Emergency fix\"\n"
+    usage_msg+="  $APPNAME merge feature squash \"Combined feature commits\""
+    printf_exit "$usage_msg"
   fi
   source_branch="$1"
   strategy="${2:-auto}"
@@ -4203,7 +4260,7 @@ ai)
     GITCOMMIT_MESSAGE_SHORT="$(<"$_ai_tmp_file")"
     rm -f "$_ai_tmp_file"
     # Reject AI responses that describe an empty diff rather than a real change
-    if echo "$GITCOMMIT_MESSAGE_SHORT" | __grep -qiE '(empty.?diff|no.?diff|no changes|nothing to commit|working.?tree.?clean|no files? (changed|modified))'; then
+    if echo "$GITCOMMIT_MESSAGE_SHORT" | __grep -qiE -- '(empty.?diff|no.?diff|no changes|nothing to commit|working.?tree.?clean|no files? (changed|modified))'; then
       printf_exit "😿 Nothing to commit — AI response indicated empty diff 😿"
     fi
   else
@@ -4839,7 +4896,7 @@ esac
 #
 if __git_porcelain "$GITCOMMIT_ROOT_DIR"; then
   if [ -z "$GITCOMMIT_RAN" ]; then
-    [ "$GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_red "There are no changes to commit in ${BASE_DIR}"
+    [ "$GITCOMMIT_GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_red "There are no changes to commit in ${BASE_DIR}"
     export PUSH_ENABLE="no"
     false
   fi

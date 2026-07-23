@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607220600-git
+##@Version           :  202607230900-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Fix E2BIG on many-file commits (gen-changelog --files argv), plus full lint cleanup: grep --, GITCOMMIT_ prefixed globals, line-length splits.
+# @@Changelog        :  Fix E2BIG on huge commits: -F instead of -m, cap file lists in message bodies, never rewrite a user-authored COMMIT_MESS, drop message-var exports.
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607220600-git"
+VERSION="202607230900-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -564,7 +564,6 @@ __parse_commit_mess_file() {
       GITCOMMIT_MESSAGE_SHORT="$first_line"
       GITCOMMIT_MESSAGE_LONG="$remaining_lines"
       GITCOMMIT_MESSAGE_FROM_FILE="true"
-      export GITCOMMIT_MESSAGE_SHORT GITCOMMIT_MESSAGE_LONG GITCOMMIT_MESSAGE_FROM_FILE
       return 0
     fi
   fi
@@ -1069,10 +1068,13 @@ __gitmessage() {
   test_long_message="$(echo "$GITCOMMIT_MESSAGE_LONG" | __grep -v -- '^$' | head -n1 | __grep -- '^' || false)"
   test_short_message="$(echo "$GITCOMMIT_MESSAGE_SHORT" | __grep -v -- '^$' | head -n1 | __grep -- '^' || false)"
   nomessage="true"
-  printf '%s  \n' "$GITCOMMIT_MESSAGE_SHORT" | sed 's|[ ] *| |g;s|^ ||g' >"$GITCOMMIT_MESSAGE_FILE"
-  if [ -n "$test_long_message" ]; then
-    GITCOMMIT_MESSAGE_LONG="$(printf '%s\n' "$GITCOMMIT_MESSAGE_LONG")"
-    printf '%s  \n\n\n%s  \n' "$GITCOMMIT_MESSAGE_SHORT" "$GITCOMMIT_MESSAGE_LONG" | sed 's|[ ] *| |g;s|^ ||g' >"$GITCOMMIT_MESSAGE_FILE"
+  # A user-authored message file is authoritative — never rewrite it; rewriting destroys the original message when the commit later fails
+  if [ "$GITCOMMIT_MESSAGE_FROM_FILE" != "true" ] || [ ! -s "$GITCOMMIT_MESSAGE_FILE" ]; then
+    printf '%s  \n' "$GITCOMMIT_MESSAGE_SHORT" | sed 's|[ ] *| |g;s|^ ||g' >"$GITCOMMIT_MESSAGE_FILE"
+    if [ -n "$test_long_message" ]; then
+      GITCOMMIT_MESSAGE_LONG="$(printf '%s\n' "$GITCOMMIT_MESSAGE_LONG")"
+      printf '%s  \n\n\n%s  \n' "$GITCOMMIT_MESSAGE_SHORT" "$GITCOMMIT_MESSAGE_LONG" | sed 's|[ ] *| |g;s|^ ||g' >"$GITCOMMIT_MESSAGE_FILE"
+    fi
   fi
   if [ -f "$GITCOMMIT_MESSAGE_FILE" ]; then
     GITCOMMIT_MESSAGE_FULL="$(<"$GITCOMMIT_MESSAGE_FILE")"
@@ -1081,8 +1083,7 @@ __gitmessage() {
   [ -n "$GITCOMMIT_MESSAGE_SHORT" ] || unset GITCOMMIT_MESSAGE_SHORT
   [ "$GITCOMMIT_MESSAGE_LONG" = "$GITCOMMIT_MESSAGE_SHORT" ] && unset GITCOMMIT_MESSAGE_LONG
   unset test_short_message test_long_message test_full_message
-  export nomessage message_set="TRUE"
-  export GITCOMMIT_MESSAGE_FULL GITCOMMIT_MESSAGE_SHORT GITCOMMIT_MESSAGE_LONG GITCOMMIT_MESSAGE_FILE
+  message_set="TRUE"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitcommit_cmd() {
@@ -1126,11 +1127,12 @@ __gitcommit_cmd() {
   GITCOMMIT_FILE_PATH=""
   local _commit_attempt=0 _commit_max=3 _commit_ok=0
   while [ $_commit_attempt -lt $_commit_max ]; do
+    # Pass the message via -F (file/stdin), never -m: a single argv string is capped at 128KiB by the kernel and large messages fail exec with E2BIG
     if [ -s "$GITCOMMIT_MESSAGE_FILE" ]; then
-      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$(<"$GITCOMMIT_MESSAGE_FILE")" \
+      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -F "$GITCOMMIT_MESSAGE_FILE" \
         "${pathspec_flag[@]}" &>"$GITCOMMIT_TEMP_FILE" && { _commit_ok=1; break; }
     else
-      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$GITCOMMIT_MESSAGE_FULL" "${pathspec_flag[@]}" &>"$GITCOMMIT_TEMP_FILE" && { _commit_ok=1; break; }
+      printf '%s\n' "$GITCOMMIT_MESSAGE_FULL" | __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -F - "${pathspec_flag[@]}" &>"$GITCOMMIT_TEMP_FILE" && { _commit_ok=1; break; }
     fi
     _commit_attempt=$((_commit_attempt + 1))
     if [ $_commit_attempt -lt $_commit_max ] && __grep -qi -- 'lock\|Unable to create.*\.lock\|cannot lock' "$GITCOMMIT_TEMP_FILE" 2>/dev/null; then
@@ -1201,6 +1203,18 @@ __git_init() {
   __gitignore_init "$GITCOMMIT_ROOT_DIR" &>/dev/null
   gitadmin --dir "$GITCOMMIT_ROOT_DIR" setup "${REPO:-}" --message="$setmess" && exitCode=0 || exitCode=1
   exit ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Cap a newline-separated file list for commit-message bodies; huge lists (mass deletes, vendor drops) otherwise push the message past kernel exec limits
+__cap_file_list() {
+  local file_list="$1" cap_limit="${2:-200}" cap_total=0
+  cap_total="$(printf '%s\n' "$file_list" | __grep -c -v -- '^$' || true)"
+  if [ "${cap_total:-0}" -le "$cap_limit" ]; then
+    printf '%s\n' "$file_list"
+  else
+    printf '%s\n' "$file_list" | __grep -v -- '^$' | head -n "$cap_limit"
+    printf '... and %s more files\n' "$((cap_total - cap_limit))"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __changed_files() {
@@ -1315,8 +1329,8 @@ __git_all() {
   [ -n "$local_set_mess" ] || local_set_mess="$prepend"
   changelog_message="$prepend"
   setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
-  GITCOMMIT_MESSAGE_LONG="$changed_files"
-  __gitmessage "$setmess" "$changed_files"
+  GITCOMMIT_MESSAGE_LONG="$(__cap_file_list "$changed_files")"
+  __gitmessage "$setmess" "$GITCOMMIT_MESSAGE_LONG"
   if __git_repo "$GITCOMMIT_ROOT_DIR" add . &>/dev/null && __gitcommit "$setmess"; then
     __changelog_create "$setmess" "$changed_files"
   else
@@ -1613,9 +1627,9 @@ __files() {
   local deleted_files="$(__changed_files deleted)"
   local all_files="$(printf '%s\n%s\n' "$added_files" "$deleted_files" | __grep -v -- '^$' | __grep -- '^')"
   setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
-  GITCOMMIT_MESSAGE_LONG="$(printf '%b\n' "$all_files")"
+  GITCOMMIT_MESSAGE_LONG="$(__cap_file_list "$all_files")"
   if [ -n "$added_files" ]; then
-    __gitmessage "$setmess" "$added_files"
+    __gitmessage "$setmess" "$(__cap_file_list "$added_files")"
     if __git_repo "$GITCOMMIT_ROOT_DIR" add $added_files &>/dev/null; then
       __changelog_create "$added_files"
     else
@@ -1623,7 +1637,7 @@ __files() {
     fi
   fi
   if [ -n "$deleted_files" ]; then
-    __gitmessage "$setmess" "$deleted_files"
+    __gitmessage "$setmess" "$(__cap_file_list "$deleted_files")"
     if __git_repo "$GITCOMMIT_ROOT_DIR" rm $deleted_files &>/dev/null; then
       __changelog_create "$deleted_files"
     else
@@ -2478,9 +2492,13 @@ __commit_custom_cmd() {
   if [ "$version_update" = "update_version" ]; then
     __git_repo "$GITCOMMIT_ROOT_DIR" add "$version_file" &&
       __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$GITCOMMIT_MESSAGE_VERSION" "$version_file" &>/dev/null && commit_result=0 || commit_result=1
+  elif [ -s "$GITCOMMIT_MESSAGE_FILE" ]; then
+    # Pass the message via -F (file/stdin), never -m: a single argv string is capped at 128KiB by the kernel and large messages fail exec with E2BIG
+    __git_repo "$GITCOMMIT_ROOT_DIR" add $op &>/dev/null &&
+      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -F "$GITCOMMIT_MESSAGE_FILE" &>/dev/null && commit_result=0 || commit_result=1
   elif [ -n "$GITCOMMIT_MESSAGE_FULL" ]; then
     __git_repo "$GITCOMMIT_ROOT_DIR" add $op &>/dev/null &&
-      __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$GITCOMMIT_MESSAGE_FULL" &>/dev/null && commit_result=0 || commit_result=1
+      printf '%s\n' "$GITCOMMIT_MESSAGE_FULL" | __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -F - &>/dev/null && commit_result=0 || commit_result=1
   else
     __git_repo "$GITCOMMIT_ROOT_DIR" add $op &>/dev/null &&
       __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$GITCOMMIT_MESSAGE_SHORT" &>/dev/null && commit_result=0 || commit_result=1
@@ -2773,15 +2791,16 @@ __commit_custom() {
     end_emoji="${end_emoji:-$start_emoji}"
 
     setmess="$(__normalize_message_spacing "$local_set_mess" "$start_emoji" "$end_emoji")"
+    local capped_files="$(__cap_file_list "$changed_files")"
     if [ -n "$GITCOMMIT_MESSAGE_LONG" ]; then
-      GITCOMMIT_MESSAGE_LONG="$(printf '%s\n\n%s' "$GITCOMMIT_MESSAGE_LONG" "$changed_files")"
+      GITCOMMIT_MESSAGE_LONG="$(printf '%s\n\n%s' "$GITCOMMIT_MESSAGE_LONG" "$capped_files")"
     else
-      GITCOMMIT_MESSAGE_LONG="$changed_files"
+      GITCOMMIT_MESSAGE_LONG="$capped_files"
     fi
   else
     # Regular mode - build message with proper spacing
     setmess="$(__normalize_message_spacing "$local_set_mess" "$emoji_for_spacing" "$icon")"
-    GITCOMMIT_MESSAGE_LONG="$changed_files"
+    GITCOMMIT_MESSAGE_LONG="$(__cap_file_list "$changed_files")"
   fi
   __gitmessage "$setmess" "$GITCOMMIT_MESSAGE_LONG"
   printf_cyan "👊 Committing Changes with the following message: 👊"
@@ -4469,7 +4488,7 @@ spec)
   done
   printf_cyan "👊 Committing .md files with message: 👊"
   printf_yellow "$setmess"
-  if __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -m "$(<"$GITCOMMIT_MESSAGE_FILE")" -- $repo_has_changed &>"$GITCOMMIT_TEMP_FILE"; then
+  if __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -F "$GITCOMMIT_MESSAGE_FILE" -- $repo_has_changed &>"$GITCOMMIT_TEMP_FILE"; then
     printf_green "🔗 Successfully committed spec files 🔗"
     if [ -f "$GITCOMMIT_ROOT_DIR/.git/COMMIT_MESS" ]; then
       rm -f "$GITCOMMIT_ROOT_DIR/.git/COMMIT_MESS"

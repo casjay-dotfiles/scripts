@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607240205-git
+##@Version           :  202607240231-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  reattach over restore - probe all socket paths + SIGUSR1 swept-socket recovery before declaring server down; explicit attach never auto-restores
+# @@Changelog        :  fix kill server, prefix-match clobbering, stale socket-path resolvers, tab-corrupted state.txt, restore rename clobber, __sudo locals, __tmux_ssh recovery
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607240205-git"
+VERSION="202607240231-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -334,9 +334,11 @@ __requiresudo() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute sudo
 __sudo() {
-  CMD="${1:-echo}" && shift 1
-  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
-  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  local exitCode=0
+  local CMD="${1:-echo}" && shift 1
+  local CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  local SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  local OPTS=""
   [ "${SUDO##*/}" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
     export PATH="$PATH"
@@ -706,13 +708,8 @@ __tmux_kill_all() {
 
   # The server for our socket exits once its last session is gone — drop the
   # now-dangling default-dir discovery symlink along with it.
-  local _sock="${TMUX_NEW_SOCKET_FILE:-default}" _sockpath
-  if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
-    _sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$_sock"
-    [ -S "$_sockpath" ] || _sockpath="$TMUX_NEW_SOCKET_DIR/$_sock"
-  else
-    _sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default"
-  fi
+  local _sockpath
+  _sockpath="$(__tmux_resolve_sockpath)"
   __tmux_socket_unlink "$_sockpath"
 
   # Recreate sessions
@@ -783,15 +780,13 @@ __tmux_kill() {
     for arg in "$@"; do
       local retval=0 sockpath
       printf_cyan "Killing server $arg"
-      __tmux kill-server "$arg" &>/dev/null
+      # kill-server takes no session/target argument - it always kills the server
+      # named by -L, so the target socket must be selected explicitly per $arg
+      command tmux -L "$arg" kill-server &>/dev/null
       retval=$?
       exitCode=$((exitCode + retval))
-      if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
-        sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/${TMUX_NEW_SOCKET_FILE}"
-        [ -S "$sockpath" ] || sockpath="$TMUX_NEW_SOCKET_DIR/${TMUX_NEW_SOCKET_FILE}"
-      else
-        sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default"
-      fi
+      sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/${arg}"
+      [ -S "$sockpath" ] || sockpath="$TMUX_NEW_SOCKET_DIR/${arg}"
       __tmux_socket_unlink "$sockpath"
     done
     return $exitCode
@@ -981,6 +976,9 @@ __tmux_save_state() {
       fi
       [ -n "$cmd" ] || cmd=$(tr '\0' ' ' </proc/"$pane_pid"/cmdline 2>/dev/null | sed 's/ *$//')
       [ -n "$cmd" ] || cmd="bash"
+      # An embedded tab in cmd/win_name would shift every field on tab-delimited read-back
+      cmd="${cmd//$'\t'/ }"
+      win_name="${win_name//$'\t'/ }"
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sess" "$win_idx" "$win_name" "$pane_idx" "$pane_path" "$cmd" "$win_layout"
     done >"$tmp_file" 2>/dev/null && mv -f "$tmp_file" "$state_file" 2>/dev/null || rm -f "$tmp_file" 2>/dev/null
 }
@@ -1001,12 +999,17 @@ __tmux_restore_from_state() {
     [ -d "$pane_path" ] || pane_path="$HOME"
     if ! __tmux has-session -t "=$sess" 2>/dev/null; then
       __tmux new-session -d -s "$sess" -n "$win_name" -c "$pane_path" 2>/dev/null || continue
+      # automatic-rename/allow-rename are on globally (templates) so tmux's title
+      # tracking would clobber the restored name the moment a command runs in the
+      # pane below - lock this window's name in place, restore-path only
+      __tmux set-window-option -t "=${sess}:${win_idx}" automatic-rename off 2>/dev/null
     fi
     if ! __tmux list-windows -t "=$sess" -F "#{window_index}" 2>/dev/null | grep -qx -- "$win_idx"; then
       # Target the saved index directly - tmux creates the window at that exact
       # index when it's not already taken, so windows with gapped indices (e.g. 0,2)
       # come back at the right index instead of the next sequential one.
       __tmux new-window -t "=${sess}:${win_idx}" -n "$win_name" -c "$pane_path" 2>/dev/null
+      __tmux set-window-option -t "=${sess}:${win_idx}" automatic-rename off 2>/dev/null
     fi
     if __tmux list-panes -t "=${sess}:${win_idx}" -F "#{pane_index}" 2>/dev/null | grep -qx -- "$pane_idx"; then
       target="=${sess}:${win_idx}.${pane_idx}"
@@ -1087,14 +1090,27 @@ __tmux_cleanup_snapshots() {
 # never sweeps it out from under a long-lived server. Defense-in-depth: TMUX_TMPDIR
 # already keeps our own sockets out of /tmp, but this also covers a user override back
 # to /tmp, or a custom -S socket living under $TMUX_NEW_SOCKET_DIR.
-__tmux_touch_socket() {
-  local _sock="${TMUX_NEW_SOCKET_FILE:-default}" sockpath
-  if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
-    sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$_sock"
-    [ -S "$sockpath" ] || sockpath="$TMUX_NEW_SOCKET_DIR/$_sock"
-  else
-    sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default"
+# Resolve the socket path for the current TMUX_NEW_SOCKET_FILE, preferring
+# TMUX_NEW_SOCKET_PATH when __tmux_server_find already recovered a legacy or
+# swept-socket path - never rebuild it blind from TMUX_TMPDIR alone.
+__tmux_resolve_sockpath() {
+  if [ -n "$TMUX_NEW_SOCKET_PATH" ]; then
+    printf '%s\n' "$TMUX_NEW_SOCKET_PATH"
+    return 0
   fi
+  local _sock="${TMUX_NEW_SOCKET_FILE:-default}" _sockpath
+  if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
+    _sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$_sock"
+    [ -S "$_sockpath" ] || _sockpath="$TMUX_NEW_SOCKET_DIR/$_sock"
+  else
+    _sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default"
+  fi
+  printf '%s\n' "$_sockpath"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__tmux_touch_socket() {
+  local sockpath
+  sockpath="$(__tmux_resolve_sockpath)"
   if [ -S "$sockpath" ]; then
     touch "$sockpath" 2>/dev/null
     __tmux_socket_symlink "$sockpath"
@@ -1136,12 +1152,7 @@ __tmux_new_bg_tasks() {
   local lock_dir="$TMUX_NEW_TEMP_DIR/autosave.${_sock}.lock"
   local lock_file="$TMUX_NEW_TEMP_DIR/autosave.${_sock}.pid"
   local sockpath
-  if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
-    sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$_sock"
-    [ -S "$sockpath" ] || sockpath="$TMUX_NEW_SOCKET_DIR/$_sock"
-  else
-    sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default"
-  fi
+  sockpath="$(__tmux_resolve_sockpath)"
   # Stale-lock reclaim: lock dir exists but the owning process is gone.
   # Handles both normal crashes (PID file present, PID dead) and the rare
   # mid-init window (lock dir present, no PID file yet → treat as stale).
@@ -1361,16 +1372,20 @@ __tmux_attach() {
   fi
   [ -n "$name" ] || return 1
   if [ -n "$TMUX" ]; then
-    __tmux switch-client -t "$name"
+    __tmux switch-client -t "=$name"
   else
-    __tmux attach -t "$name"
+    __tmux attach -t "=$name"
   fi
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_ssh() {
-  tmux -L ssh has-session -t "=ssh" 2>/dev/null || return 1
-  tmux -L ssh a -t ssh
+  # Route through the same swept-socket recovery as every other socket - bare
+  # `tmux -L ssh` bypasses SIGUSR1 recovery and can duplicate the socket after a tmpfiles sweep
+  local TMUX_NEW_SOCKET_FILE="ssh" TMUX_NEW_SOCKET_PATH=""
+  __tmux_server_find || return 1
+  __tmux has-session -t "=ssh" 2>/dev/null || return 1
+  __tmux attach -t "=ssh"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Session management functions
@@ -1381,8 +1396,8 @@ __tmux_switch() {
     return 1
   }
 
-  if __tmux has-session -t "$session" 2>/dev/null; then
-    [ -n "$TMUX" ] && __tmux switch-client -t "$session" || __tmux attach -t "$session"
+  if __tmux has-session -t "=$session" 2>/dev/null; then
+    [ -n "$TMUX" ] && __tmux switch-client -t "=$session" || __tmux attach -t "=$session"
     return $?
   else
     printf_red "Session '$session' does not exist"
@@ -1398,8 +1413,8 @@ __tmux_rename() {
     return 1
   }
 
-  if __tmux has-session -t "$old_name" 2>/dev/null; then
-    __tmux rename-session -t "$old_name" "$new_name" || return 1
+  if __tmux has-session -t "=$old_name" 2>/dev/null; then
+    __tmux rename-session -t "=$old_name" "$new_name" || return 1
     printf_green "Session '$old_name' renamed to '$new_name'"
     return 0
   else
@@ -1532,12 +1547,12 @@ __tmux_clone() {
     return 1
   }
 
-  if ! __tmux has-session -t "$source" 2>/dev/null; then
+  if ! __tmux has-session -t "=$source" 2>/dev/null; then
     printf_red "Source session '$source' does not exist"
     return 1
   fi
 
-  if __tmux has-session -t "$target" 2>/dev/null; then
+  if __tmux has-session -t "=$target" 2>/dev/null; then
     printf_red "Target session '$target' already exists"
     return 1
   fi

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607182230-git
+##@Version           :  202607231030-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  fix exit-hangs-after-detach (fully detach bg subshells stdin), symlink custom sockets into tmux's default socket dir with unlink on teardown
+# @@Changelog        :  reattach over restore - probe all socket paths + SIGUSR1 swept-socket recovery before declaring server down; explicit attach never auto-restores
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607182230-git"
+VERSION="202607231030-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -362,12 +362,73 @@ __sleep() { sleep "${1:-1}"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 # Wrapper that forwards to tmux using the tmux-new socket (always set; "default" is the escape hatch for plain tmux)
+# TMUX_NEW_SOCKET_PATH overrides by absolute path - set by __tmux_server_find when the live server answers somewhere other than the current TMUX_TMPDIR resolution
 __tmux() {
-  if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
+  if [ -n "$TMUX_NEW_SOCKET_PATH" ]; then
+    command tmux -S "$TMUX_NEW_SOCKET_PATH" "$@"
+  elif [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
     command tmux -L "$TMUX_NEW_SOCKET_FILE" "$@"
   else
     command tmux "$@"
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Exhaustive "is a server really up" probe - a plain __tmux list-sessions only checks the
+# socket path the current TMUX_TMPDIR resolves to, so a live server on the legacy /tmp
+# path (started before TMUX_TMPDIR was relocated, or by plain tmux -L) or one whose
+# socket file was swept by systemd-tmpfiles gets falsely reported as down, sending
+# callers into the state.txt restore path instead of reattaching. Probe every candidate
+# socket path, then fall back to finding the server process by its rewritten title
+# ("tmux: server (/path)") and sending SIGUSR1 - tmux's documented signal to recreate a
+# deleted socket file - before re-probing. On success via a non-default path, exports
+# TMUX_NEW_SOCKET_PATH so every later __tmux call talks to that exact server.
+__tmux_server_find() {
+  local _sock="${TMUX_NEW_SOCKET_FILE:-default}" _uid _path _pid
+  if __tmux list-sessions &>/dev/null; then
+    return 0
+  fi
+  [ "$_sock" != "default" ] || return 1
+  _uid="$(id -u)"
+  for _path in "${TMUX_TMPDIR:-/tmp}/tmux-$_uid/$_sock" "/tmp/tmux-$_uid/$_sock" "$TMUX_NEW_SOCKET_DIR/$_sock"; do
+    if [ -S "$_path" ] && command tmux -S "$_path" list-sessions &>/dev/null; then
+      export TMUX_NEW_SOCKET_PATH="$_path"
+      return 0
+    fi
+  done
+  # No socket answered - look for a live server process for this socket name (swept socket
+  # file). On Linux tmux rewrites comm to "tmux: server" / "tmux: client" while cmdline
+  # keeps the launch argv, so select servers by exact comm (never clients - SIGUSR1's
+  # default action would terminate a client with no handler), then confirm the socket
+  # name from cmdline: split on NUL and require the exact "-L <sock>" arg pair or an
+  # "-S <path>" whose basename is <sock>.
+  local _found_pid="" _found_spath="" _a _prev
+  for _pid in $(pgrep -u "$_uid" -x -- "tmux: server" 2>/dev/null); do
+    _prev=""
+    while IFS= read -r -d '' _a; do
+      if [ "$_prev" = "-L" ] && [ "$_a" = "$_sock" ]; then
+        _found_pid="$_pid"
+        break
+      elif [ "$_prev" = "-S" ] && [ "${_a##*/}" = "$_sock" ]; then
+        _found_pid="$_pid"
+        _found_spath="$_a"
+        break
+      fi
+      _prev="$_a"
+    done <"/proc/$_pid/cmdline" 2>/dev/null
+    [ -n "$_found_pid" ] && break
+  done
+  [ -n "$_found_pid" ] || return 1
+  # SIGUSR1 is non-destructive to a server: tmux recreates its socket file and keeps all sessions
+  kill -USR1 "$_found_pid" 2>/dev/null || return 1
+  __sleep 1
+  # The server recreates the socket at the dir it resolved at launch - probe every candidate
+  for _path in $_found_spath "${TMUX_TMPDIR:-/tmp}/tmux-$_uid/$_sock" "/tmp/tmux-$_uid/$_sock" "$TMUX_NEW_SOCKET_DIR/$_sock"; do
+    if [ -S "$_path" ] && command tmux -S "$_path" list-sessions &>/dev/null; then
+      export TMUX_NEW_SOCKET_PATH="$_path"
+      return 0
+    fi
+  done
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Cache helper function
@@ -844,7 +905,8 @@ __launch_tmux() {
     __cd
     local state_file="$TMUX_NEW_RESURRECT_DIR/state.txt"
     local server_is_up="false"
-    __tmux list-sessions &>/dev/null && server_is_up="true"
+    # Full probe incl. legacy-path and swept-socket recovery - restore is a last resort, never the answer to a live server on a different socket path
+    __tmux_server_find && server_is_up="true"
     # Restore saved state before creating our session
     if [ "$server_is_up" = "false" ] && [ -f "$state_file" ]; then
       printf_green "Found saved state - restoring sessions..."
@@ -875,7 +937,9 @@ __launch_tmux() {
       __tmux set-hook -g 'client-attached[99]' \
         "display-popup -E -w 90% -h 90% 'tmux-new --exec keybindings | less -R' ; set-hook -gu 'client-attached[99]'"
     fi
-    if [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
+    if [ -n "$TMUX_NEW_SOCKET_PATH" ]; then
+      exec tmux -S "$TMUX_NEW_SOCKET_PATH" attach -t "$TMUX_NEW_NAME"
+    elif [ -n "$TMUX_NEW_SOCKET_FILE" ] && [ "$TMUX_NEW_SOCKET_FILE" != "default" ]; then
       exec tmux -L "$TMUX_NEW_SOCKET_FILE" attach -t "$TMUX_NEW_NAME"
     else
       exec tmux attach -t "$TMUX_NEW_NAME"
@@ -1112,7 +1176,7 @@ __tmux_new_bg_tasks() {
 # Manual save trigger (runs tmux-resurrect save.sh against the current server)
 __tmux_save() {
   local save_script="$TMUX_NEW_PLUGIN_DIR/tmux-resurrect/scripts/save.sh"
-  __tmux list-sessions &>/dev/null || printf_exit "No tmux server running on socket '${TMUX_NEW_SOCKET_FILE:-default}'"
+  __tmux_server_find || printf_exit "No tmux server running on socket '${TMUX_NEW_SOCKET_FILE:-default}'"
   __tmux_apply_resurrect_dir
   if [ -x "$save_script" ]; then
     "$save_script" >/dev/null 2>&1 && __tmux_cleanup_snapshots || printf_yellow "tmux-resurrect save failed"
@@ -1146,7 +1210,8 @@ __tmux_restore() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Boot-time restore - no-op if server is already running. Safe to call from systemd --user or login hooks.
 __tmux_boot() {
-  if __tmux list-sessions &>/dev/null; then
+  # Full probe - booting a restore next to a live server whose socket was swept would duplicate every session
+  if __tmux_server_find; then
     printf_yellow "tmux server already running on socket '${TMUX_NEW_SOCKET_FILE:-default}' - nothing to boot"
     return 0
   fi
@@ -1278,13 +1343,11 @@ __update_all_configs() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_attach() {
-  # If no server is running but saved state exists, restore all sessions first
-  if ! __tmux list-sessions &>/dev/null; then
-    local state_file="$TMUX_NEW_RESURRECT_DIR/state.txt"
-    if [ -f "$state_file" ]; then
-      __tmux_restore || true
-      __tmux_new_bg_tasks
-    fi
+  # Explicit attach intent must never fall through to a state restore - exhaust every
+  # way of finding the live server first, and fail loudly if none exists so the user
+  # chooses between 'tmux-new restore' and starting fresh
+  if ! __tmux_server_find; then
+    printf_exit "No tmux server running on socket '${TMUX_NEW_SOCKET_FILE:-default}' - run 'tmux-new restore' to restore saved sessions or 'tmux-new' to start fresh"
   fi
   # Attach to named session, or fall back to the most-recently-used one
   local name

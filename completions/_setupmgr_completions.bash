@@ -55,8 +55,8 @@ _setupmgr_completion() {
   #####################################################################
   ARRAY="act aichat aider asdf atuin bat bob broot bun caddy claude coder codex copilot cortex ctop delta deno devbox direnv distrobox dive "
   ARRAY+="dotnet droast dust eslint exa fabric fastfetch fd fnm fzf garage gemini gh glow go gohttpserver gpt gvm helix helm hyperfine incus jekyll "
-  ARRAY+="jless just k9s kind kubectl lapce lazydocker lazygit lima llama-cpp llm localai lua markdownlint mc minikube minio_server mods nix nodejs "
-  ARRAY+="npm-check-updates nvm ollama opencode openclaw opentofu packer pipx plandex podman powershell prettier procs rbenv remove ripgrep ruff rustup rvm "
+  ARRAY+="jless just k9s kind kubectl lapce lazydocker lazygit lima llama-cpp llm localai lua markdownlint mc minikube mods nix nodejs "
+  ARRAY+="npm-check-updates nvm ollama opencode openclaw opentofu packer pipx plandex podman powershell prettier procs rbenv remove ripgrep ruff rustfs rustup rvm "
   ARRAY+="shellcheck shfmt speedtest starship tokei traefik uv vagrant vale vercel vfox webhookd yq zed zellij zig zoxide"
   #####################################################################
   LIST=""

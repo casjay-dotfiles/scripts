@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607241000-git
+##@Version           :  202607240146-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  add NODE_VERSION and NODE_INSTALL_DIR to the runtime env defaults section
+# @@Changelog        :  replace minio_server with rustfs S3 object storage server
 # @@TODO             :  Implement __setup_ functions for Priority 2-9 tools (63 tools pending implementation)
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607241000-git"
+VERSION="202607240146-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 # When invoked via sudo, $HOME points at /root by default. Re-anchor it on
@@ -368,8 +368,8 @@ __help() {
   __printf_line "act,aichat,aider,asdf,atuin,bat,bob,broot,bun,caddy,coder,ctop,delta,deno,devbox,direnv,distrobox,dive"
   __printf_line "dotnet,dust,exa,fabric,fastfetch,fd,fnm,fzf,garage,gemini,gh,glow,go,gohttpserver"
   __printf_line "gpt,gvm,helm,helix,hyperfine,incus,jekyll,jless,just,k9s,kind,kubectl,lapce,lazydocker"
-  __printf_line "lazygit,lima,llama-cpp,llm,localai,lua,mc,markdownlint,minikube,minio_server,mods,nix,nodejs,nvm,ollama"
-  __printf_line "opencode,opentofu,packer,plandex,pipx,podman,powershell,procs,rbenv,ripgrep,ruff,rustup,rvm"
+  __printf_line "lazygit,lima,llama-cpp,llm,localai,lua,mc,markdownlint,minikube,mods,nix,nodejs,nvm,ollama"
+  __printf_line "opencode,opentofu,packer,plandex,pipx,podman,powershell,procs,rbenv,ripgrep,ruff,rustfs,rustup,rvm"
   __printf_line "droast,hadolint,shellcheck,shfmt,speedtest,starship,tokei,traefik,uv,vagrant,vale,vfox"
   __printf_line "webhookd,yq,zed,zellij,zig,zoxide,claude,copilot,cortex,codex,openclaw,vercel,prettier,eslint"
   __printf_line "npm-check-updates"
@@ -2259,7 +2259,6 @@ __is_package_installed() {
   bottom) probe="btm" ;;
   opentofu) probe="tofu" ;;
   powershell) probe="pwsh" ;;
-  minio_server) probe="minio" ;;
   golang) probe="go" ;;
   helix) probe="hx" ;;
   nushell) probe="nu" ;;
@@ -2321,7 +2320,6 @@ __remove_package() {
   bottom) probe="btm" ;;
   opentofu) probe="tofu" ;;
   powershell) probe="pwsh" ;;
-  minio_server) probe="minio" ;;
   golang) probe="go" ;;
   helix) probe="hx" ;;
   nushell) probe="nu" ;;
@@ -2494,6 +2492,33 @@ __remove_package() {
     __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/volta"
     __remove_file "/usr/local/bin/volta"
     [ -d "$VOLTA_HOME" ] && __rm "$VOLTA_HOME" && printf_green "Removed nodejs (volta) from $VOLTA_HOME"
+    ;;
+  rustfs)
+    # Stop + disable systemd service, drop unit + env file, drop binaries; keep data dir
+    if [ -f "/etc/systemd/system/rustfs.service" ]; then
+      __sudo systemctl stop rustfs &>/dev/null
+      __sudo systemctl disable rustfs &>/dev/null
+      __sudo rm -f "/etc/systemd/system/rustfs.service" && printf_green "Removed rustfs systemd service"
+      __sudo systemctl daemon-reload &>/dev/null
+    fi
+    [ -f "/etc/default/rustfs" ] && __sudo rm -f "/etc/default/rustfs" && printf_green "Removed /etc/default/rustfs"
+    __remove_file "/usr/local/bin/rustfs"
+    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/rustfs"
+    [ -d "/var/lib/rustfs" ] && printf_yellow "Data dir /var/lib/rustfs kept — remove manually if no longer needed"
+    ;;
+  minio | minio_server)
+    # Legacy cleanup: minio was replaced by rustfs; keep data dir
+    if [ -f "/etc/systemd/system/minio.service" ]; then
+      __sudo systemctl stop minio &>/dev/null
+      __sudo systemctl disable minio &>/dev/null
+      __sudo rm -f "/etc/systemd/system/minio.service" && printf_green "Removed minio systemd service"
+      __sudo systemctl daemon-reload &>/dev/null
+    fi
+    [ -f "/etc/default/minio" ] && __sudo rm -f "/etc/default/minio" && printf_green "Removed /etc/default/minio"
+    [ -d "/etc/minio" ] && __sudo rm -rf "/etc/minio" && printf_green "Removed /etc/minio"
+    __remove_file "/usr/local/bin/minio"
+    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/minio"
+    [ -d "/var/lib/minio" ] && printf_yellow "Data dir /var/lib/minio kept — remove manually if no longer needed"
     ;;
   rustup)
     __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/rustup"
@@ -4871,24 +4896,24 @@ __setup_lapce() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 
-__setup_minio() {
+__setup_rustfs() {
   local exitCode=0
-  local restart=""
-  local name="minio"
+  local name="rustfs"
   local console_port=""
+  local download_url=""
   local arch="$(uname -m)"
   local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
   local username="administrator"
   local userpass="$(openssl rand -base64 32)"
-  local release_url="https://dl.min.io/server/$name/release"
-  local MINIO_ROOT_USER="${MINIO_ROOT_USER:-$username}"
-  local MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-$userpass}"
-  local MINIO_STORAGE_DIR="${MINIO_STORAGE_DIR:-/var/lib/minio/data}"
-  local MINIO_BROWSER_REDIRECT_URL="${MINIO_BROWSER_REDIRECT_URL:-http://$HOSTNAME:49001}"
+  local release_url="https://dl.rustfs.com/artifacts/rustfs/release"
+  local RUSTFS_ACCESS_KEY="${RUSTFS_ACCESS_KEY:-$username}"
+  local RUSTFS_SECRET_KEY="${RUSTFS_SECRET_KEY:-$userpass}"
+  local RUSTFS_STORAGE_DIR="${RUSTFS_STORAGE_DIR:-/var/lib/rustfs/data}"
+  local RUSTFS_CONSOLE_URL="${RUSTFS_CONSOLE_URL:-http://$HOSTNAME:49001}"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
-  x86_64) download_url="$release_url/linux-amd64/$name" ;;
-  aarch64 | arm64) download_url="$release_url/linux-arm64/$name" ;;
+  x86_64) download_url="$release_url/rustfs-linux-x86_64-musl-latest.zip" ;;
+  aarch64 | arm64) download_url="$release_url/rustfs-linux-aarch64-musl-latest.zip" ;;
   esac
   if __cmd_exists $name; then
     printf_green "Updating $name"
@@ -4896,55 +4921,52 @@ __setup_minio() {
   else
     printf_green "Installing $name"
   fi
-  if __download_and_move "$download_url" "$name" "$binFile"; then
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
+    # Preserve existing credentials on update
     if [ -f "/etc/default/$name" ]; then
       . "/etc/default/$name"
+      RUSTFS_ACCESS_KEY="${RUSTFS_ACCESS_KEY:-$username}"
+      RUSTFS_SECRET_KEY="${RUSTFS_SECRET_KEY:-$userpass}"
     fi
+    console_port="${RUSTFS_CONSOLE_URL##*:}"
     if __sudoif && __install_to_system_bin "$binFile"; then
-      if ! grep -sq "/var/lib/$name" /etc/passwd; then
+      if ! grep -sq -- "/var/lib/$name" /etc/passwd; then
         sudo useradd -s /sbin/nologin -d "/var/lib/$name" $name >/dev/null 2>&1
       fi
-      console_port="$(echo "$MINIO_BROWSER_REDIRECT_URL" | awk -F ':' '{print $NF}' | grep '^')"
-      [ -d "/etc/minio" ] || sudo mkdir -p "/etc/minio"
-      [ -d "$MINIO_STORAGE_DIR" ] || sudo mkdir -p "$MINIO_STORAGE_DIR"
+      [ -d "$RUSTFS_STORAGE_DIR" ] || sudo mkdir -p "$RUSTFS_STORAGE_DIR"
+      [ -d "/var/log/$name" ] || sudo mkdir -p "/var/log/$name"
       cat <<EOF | sudo tee "/etc/default/$name" &>/dev/null
-# Volume to be used for Minio server.
-MINIO_VOLUMES="$MINIO_STORAGE_DIR"
-
-# Use if you want to run Minio on a custom port.
-MINIO_OPTS="--address 0.0.0.0:49000 --console-address 0.0.0.0:$console_port"
-
-# set console web address
-MINIO_BROWSER_REDIRECT_URL="$MINIO_BROWSER_REDIRECT_URL"
-
-# Root user for the server.
-MINIO_ROOT_USER=$MINIO_ROOT_USER
-# Root secret for the server.
-MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD
-
+RUSTFS_ACCESS_KEY=$RUSTFS_ACCESS_KEY
+RUSTFS_SECRET_KEY=$RUSTFS_SECRET_KEY
+RUSTFS_VOLUMES="$RUSTFS_STORAGE_DIR"
+RUSTFS_ADDRESS=":49000"
+RUSTFS_CONSOLE_ADDRESS=":$console_port"
+RUSTFS_CONSOLE_ENABLE=true
+RUSTFS_OBS_LOGGER_LEVEL=error
+RUSTFS_OBS_LOG_DIRECTORY="/var/log/$name/"
 EOF
       cat <<EOF | sudo tee "/etc/systemd/system/$name.service" &>/dev/null
 [Unit]
-Description=S3 compatible server
-Documentation=https://docs.min.io
+Description=RustFS S3 compatible object storage server
+Documentation=https://docs.rustfs.com
+After=network-online.target
+Wants=network-online.target
 AssertFileIsExecutable=/usr/local/bin/$name
 
 [Service]
+Type=notify
+NotifyAccess=main
 User=root
 Group=root
 
 WorkingDirectory=/var/lib/$name
 EnvironmentFile=/etc/default/$name
-Environment=MINIO_VOLUMES=$MINIO_STORAGE_DIR
-Environment=MINIO_ROOT_USER=$MINIO_ROOT_USER
-Environment=MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD
-Environment=MINIO_BROWSER_REDIRECT_URL=$MINIO_BROWSER_REDIRECT_URL
-Environment=MINIO_OPTS=--address 0.0.0.0:49000 --console-address 0.0.0.0:$console_port
 
-ExecStart=/usr/local/bin/$name server \$MINIO_OPTS $MINIO_STORAGE_DIR
+ExecStart=/usr/local/bin/$name
 
 # Let systemd restart this service always
 Restart=always
+RestartSec=10s
 
 # Specifies the maximum file descriptor number that can be opened by this process
 LimitNOFILE=65536
@@ -4958,21 +4980,23 @@ WantedBy=multi-user.target
 
 EOF
       sudo systemctl daemon-reload >/dev/null 2>&1
-      sudo chmod 777 "$MINIO_STORAGE_DIR" >/dev/null 2>&1
-      sudo chown -f $name:$name /etc/default/$name >/dev/null 2>&1
+      sudo chmod 600 "/etc/default/$name" >/dev/null 2>&1
       sudo chown -Rf $name:$name "/var/lib/$name" >/dev/null 2>&1
-      sudo chown -Rf $name:$name "/etc/minio/minio.conf" >/dev/null 2>&1
+      sudo chown -Rf $name:$name "/var/log/$name" >/dev/null 2>&1
       __message_installed_ok "$name"
-      printf_yellow "MinIO service created but NOT enabled"
-      [ -z "$MINIO_ROOT_USER" ] || printf_cyan "Username: $MINIO_ROOT_USER"
-      [ -z "$MINIO_ROOT_PASSWORD" ] || printf_cyan "Password: $MINIO_ROOT_PASSWORD"
-      printf_cyan "Console URL: $MINIO_BROWSER_REDIRECT_URL"
+      printf_yellow "RustFS service created but NOT enabled"
+      [ -z "$RUSTFS_ACCESS_KEY" ] || printf_cyan "Access Key: $RUSTFS_ACCESS_KEY"
+      [ -z "$RUSTFS_SECRET_KEY" ] || printf_cyan "Secret Key: $RUSTFS_SECRET_KEY"
+      printf_cyan "Console URL: $RUSTFS_CONSOLE_URL"
       printf_cyan "Enable service: sudo systemctl enable $name"
       printf_cyan "Start service:  sudo systemctl start $name"
       printf_cyan "Status:         sudo systemctl status $name"
     else
       __message_installed_ok "$name"
-      printf_yellow "MINIO_ROOT_USER=$MINIO_ROOT_USER MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD $binFile --address 0.0.0.0:49000 --console-address 0.0.0.0:$console_port \"$HOME/.local/share/minio/data\""
+      local run_cmd="RUSTFS_ACCESS_KEY=$RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY=$RUSTFS_SECRET_KEY"
+      run_cmd+=" RUSTFS_ADDRESS=\":49000\" RUSTFS_CONSOLE_ADDRESS=\":$console_port\" RUSTFS_CONSOLE_ENABLE=true"
+      run_cmd+=" $binFile \"$HOME/.local/share/rustfs/data\""
+      printf_yellow "$run_cmd"
     fi
   else
     exitCode=1
@@ -6560,7 +6584,7 @@ if [ -z "$SETUPMGR_DEFAULT_SHARE_DIR" ]; then
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dog dotnet droast dua duf dust earthly entr evans exa eza fabric fastfetch fd fnm fzf fx garage gh ghz git-cliff gitleaks gitui glow golang gohttpserver gpt grex gron grype grpcurl gvm hadolint helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama_cpp llm localai lsd lua mc miller mise minio minikube mods nix nodejs nushell nvm oha ollama opencode opentofu packer pipx plandex podman powershell procs rbenv ripgrep ruff rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task tgpt tig tilt tldr tokei traefik trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd wrk xcaddy xh xsv yq zed zellij zig zoxide}"
+SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dog dotnet droast dua duf dust earthly entr evans exa eza fabric fastfetch fd fnm fzf fx garage gh ghz git-cliff gitleaks gitui glow golang gohttpserver gpt grex gron grype grpcurl gvm hadolint helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama_cpp llm localai lsd lua mc miller mise minikube mods nix nodejs nushell nvm oha ollama opencode opentofu packer pipx plandex podman powershell procs rbenv ripgrep ruff rustfs rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task tgpt tig tilt tldr tokei traefik trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd wrk xcaddy xh xsv yq zed zellij zig zoxide}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LUA_JIT_VERSION="${LUA_JIT_VERSION:-2.0.5}"
 LUA_DEFAULT_VERSION="${LUA_DEFAULT_VERSION:-5.4.3}"
@@ -6662,8 +6686,8 @@ NODE_INSTALL_DIR="${NODE_INSTALL_DIR:-$SETUPMGR_DEFAULT_SHARE_DIR/nodejs}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ZED_INSTALL_DIR="${ZED_INSTALL_DIR:-$SETUPMGR_DEFAULT_SHARE_DIR/zed_editor}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-MINIO_STORAGE_DIR="${MINIO_STORAGE_DIR:-/var/lib/minio/data}"
-MINIO_BROWSER_REDIRECT_URL="${MINIO_BROWSER_REDIRECT_URL:-http://$HOSTNAME:49001}"
+RUSTFS_STORAGE_DIR="${RUSTFS_STORAGE_DIR:-/var/lib/rustfs/data}"
+RUSTFS_CONSOLE_URL="${RUSTFS_CONSOLE_URL:-http://$HOSTNAME:49001}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 GARAGE_STORAGE_DIR="${GARAGE_STORAGE_DIR:-/var/lib/garage/data}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -6703,8 +6727,8 @@ LONGOPTS="completions:,config,reset-config,configure,debug,dir:,help,options,no-
 LONGOPTS+="system,all,$GET_OPTIONS_NO,$GET_OPTIONS_YES"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="act,aichat,asdf,bat,bob,bun,caddy,coder,delta,deno,devbox,direnv,distrobox,dotnet,dust,exa,fabric,fastfetch,fd,fnm,fzf,garage,gh,glow,go,gohttpserver,"
-ARRAY+="gpt,gvm,helm,incus,jekyll,jless,just,kind,kubectl,lapce,lazydocker,lazygit,lima,llama-cpp,llm,lua,mc,minikube,minio_server,mods,nix,nodejs,nvm,ollama,opencode,opentofu,"
-ARRAY+="packer,pipx,podman,powershell,procs,rbenv,remove,ripgrep,rvm,speedtest,starship,tokei,traefik,uv,vagrant,vfox,webhookd,yq,zed,zoxide,"
+ARRAY+="gpt,gvm,helm,incus,jekyll,jless,just,kind,kubectl,lapce,lazydocker,lazygit,lima,llama-cpp,llm,lua,mc,minikube,mods,nix,nodejs,nvm,ollama,opencode,opentofu,"
+ARRAY+="packer,pipx,podman,powershell,procs,rbenv,remove,ripgrep,ruff,rustfs,rvm,speedtest,starship,tokei,traefik,uv,vagrant,vfox,webhookd,yq,zed,zoxide,"
 ARRAY+="claude,copilot,codex,openclaw,vercel,prettier,eslint,npm-check-updates"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -7249,11 +7273,6 @@ while [ $# -gt 0 ]; do
     __setup_mods
     SETUPMGR_EXIT_STATUS=$?
     ;;
-  minio)
-    shift 1
-    __setup_minio
-    SETUPMGR_EXIT_STATUS=$?
-    ;;
   nix)
     shift 1
     __setup_nix
@@ -7328,6 +7347,11 @@ while [ $# -gt 0 ]; do
   ruff)
     shift 1
     __setup_ruff
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  rustfs)
+    shift 1
+    __setup_rustfs
     SETUPMGR_EXIT_STATUS=$?
     ;;
   rustup)

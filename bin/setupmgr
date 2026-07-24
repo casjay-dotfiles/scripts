@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607182300-git
+##@Version           :  202607240900-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  added droast (dockerfile-roast linter)
+# @@Changelog        :  nodejs now installs the latest release directly from nodejs.org (volta no longer used)
 # @@TODO             :  Implement __setup_ functions for Priority 2-9 tools (63 tools pending implementation)
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607182300-git"
+VERSION="202607240900-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 # When invoked via sudo, $HOME points at /root by default. Re-anchor it on
@@ -318,6 +318,8 @@ COOLIFY_SCRIPT_URL="${COOLIFY_SCRIPT_URL:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 GO_VERSION="${GO_VERSION:-}"
 GO_INSTALL_DIR="${GO_INSTALL_DIR:-}"
+NODE_VERSION="${NODE_VERSION:-}"
+NODE_INSTALL_DIR="${NODE_INSTALL_DIR:-}"
 ZED_INSTALL_DIR="${ZED_INSTALL_DIR:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -1355,7 +1357,7 @@ __configure_skaffold() {
 # Disabled: this helper used to do `curl <url> | bash` style installs, which
 # is prohibited in this codebase. Each previous consumer has been rewritten
 # to download a known-good binary or git-cloned repo and install it natively
-# (see __setup_rustup, __setup_dotnet, __setup_volta, __setup_fnm,
+# (see __setup_rustup, __setup_dotnet, __setup_nodejs, __setup_fnm,
 # __setup_devbox, __setup_distrobox, __setup_nix, __setup_plandex, etc.).
 # Calls to this function now fail loudly so we don't accidentally regress.
 __download_and_execute() {
@@ -2481,15 +2483,17 @@ __remove_package() {
     __remove_file "/usr/local/bin/mlr"
     ;;
   nodejs)
+    for node_bin in node npm npx corepack; do
+      __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/$node_bin"
+      __remove_file "/usr/local/bin/$node_bin"
+    done
+    unset node_bin
+    local node_dir="${NODE_INSTALL_DIR:-$SETUPMGR_DEFAULT_SHARE_DIR/nodejs}"
+    [ -d "$node_dir" ] && __sudo rm -rf "$node_dir" && printf_green "Removed nodejs from $node_dir"
+    # Legacy cleanup: earlier versions installed nodejs through volta
     __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/volta"
     __remove_file "/usr/local/bin/volta"
     [ -d "$VOLTA_HOME" ] && __rm "$VOLTA_HOME" && printf_green "Removed nodejs (volta) from $VOLTA_HOME"
-    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/node"
-    __remove_file "/usr/local/bin/node"
-    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/npm"
-    __remove_file "/usr/local/bin/npm"
-    __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/npx"
-    __remove_file "/usr/local/bin/npx"
     ;;
   rustup)
     __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/rustup"
@@ -3467,34 +3471,44 @@ __setup_nvm() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_nodejs() {
   local exitCode=0
-  local version="${NODE_VERSION:-24}"
-  if __cmd_exists node || __cmd_exists nodejs; then
-    printf_green "Attempting to update nodejs"
+  local name="node"
+  local arch="$(uname -m)"
+  local node_arch=""
+  local latest_file=""
+  local download_url=""
+  local tempBin="bin/node"
+  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
+  local installDir="${NODE_INSTALL_DIR:-$SETUPMGR_DEFAULT_SHARE_DIR/nodejs}"
+  local release_base_url="https://nodejs.org/dist/latest"
+  SYMLINK_FILES_TO="$SETUPMGR_DEFAULT_BIN_DIR"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) node_arch="linux-x64" ;;
+  aarch64 | arm64) node_arch="linux-arm64" ;;
+  *) printf_red "Only x86_64 and ARM64 architecture is supported" && return 1 ;;
+  esac
+  # NODE_VERSION pins a specific release; otherwise dist/latest always points at the newest current release (not LTS)
+  if [ -n "$NODE_VERSION" ]; then
+    release_base_url="https://nodejs.org/dist/v${NODE_VERSION#v}"
+    latest_file="node-v${NODE_VERSION#v}-$node_arch.tar.xz"
   else
-    printf_green "Installing nodejs"
+    latest_file="$(__curl "$release_base_url/" | grep -o -- "node-v[0-9.]*-$node_arch\.tar\.xz" | head -n1)"
   fi
-
-  # Install volta natively from its GitHub releases (no curl|sh), then let
-  # volta itself install the node toolchain into $VOLTA_HOME under the user.
-  if ! __cmd_exists volta; then
-    if ! __install_from_archive "volta" "$VOLTA_GITREPO" "$SETUPMGR_DEFAULT_BIN_DIR"; then
-      printf_red "Failed to install volta"
-      pkmgr silent install nodejs || pkmgr silent install node
-    fi
+  if [ -z "$latest_file" ]; then
+    printf_red "Failed to determine the latest nodejs release"
+    return 1
   fi
-
-  if __cmd_exists volta; then
-    __user_mkdir "$VOLTA_HOME"
-    __run_as_user env VOLTA_HOME="$VOLTA_HOME" volta install "node@$version" >/dev/null 2>&1
+  download_url="$release_base_url/$latest_file"
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
   fi
-
-  if __cmd_exists nodejs || __cmd_exists node; then
-    local npm_ver="$(npm -v 2>/dev/null)"
-    version="$(node --version 2>/dev/null)"
-    printf_green "nodejs $version and npm $npm_ver have been installed"
+  if __download_extract_install "$download_url" "$installDir" "$tempBin" "$binFile" && __is_installed "$name" "$installDir"; then
+    __message_installed_ok "$name"
   else
     exitCode=1
-    printf_red "Failed to install nodejs"
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -6603,8 +6617,8 @@ GOPATH="${GOPATH:-$GODIR}"
 GOBIN="${GOBIN:-$GODIR/bin}"
 GOCACHE="${GOCACHE:-$GODIR/build}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# VOLTA_HOME is only referenced by the legacy nodejs (volta) removal cleanup
 VOLTA_HOME="${VOLTA_HOME:-$HOME/.local/share/nodejs/volta}"
-VOLTA_GITREPO="${VOLTA_GITREPO:-volta-cli/volta}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 DEVBOX_GITREPO="${DEVBOX_GITREPO:-jetify-com/devbox}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -

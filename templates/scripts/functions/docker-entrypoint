@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607082330-git
+##@Version           :  202607271325-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Sep 03, 2023 01:40 EDT
 # @@File             :  docker-entrypoint
 # @@Description      :  functions for my docker containers
-# @@Changelog        :  newScript
+# @@Changelog        :  fix __setup_mta calling __symlink with from/to swapped, which no-op'd the symlink and broke msmtp/ssmtp/postfix config on container start
 # @@TODO             :  Refactor code
 # @@Other            :
 # @@Resource         :
@@ -1171,12 +1171,14 @@ from           ${account_user:-root}@${account_domain:-$HOSTNAME}
 EOF
     fi
     if [ -f "/config/msmtp/msmtprc" ]; then
-      __symlink "/config/msmtp/msmtprc" "/etc/msmtprc"
+      # __symlink(from, to) requires the "to" (config) side to already exist
+      # and creates "from" (etc) as a symlink to it — arguments were reversed here
+      __symlink "/etc/msmtprc" "/config/msmtp/msmtprc"
       __initialize_replace_variables "/etc/msmtprc"
       chmod 600 "/etc/msmtprc" 2>/dev/null || true
       # sendmail compat symlink
       if [ ! -e "/usr/sbin/sendmail" ] && command -v msmtp &>/dev/null; then
-        __symlink "$(command -v msmtp)" "/usr/sbin/sendmail"
+        __symlink "/usr/sbin/sendmail" "$(command -v msmtp)"
       fi
       [ "$DEBUGGER" = "on" ] && echo "Done setting up msmtp"
     fi
@@ -1204,17 +1206,19 @@ FromLineOverride=yes
 EOF
     fi
     if [ -f "/config/ssmtp/ssmtp.conf" ]; then
+      # __symlink(from, to) requires the "to" (config) side to already exist
+      # and creates "from" (etc) as a symlink to it — arguments were reversed here
       for file in $symlink_files; do
-        __symlink "/config/ssmtp/$file" "/etc/ssmtp/$file"
+        __symlink "/etc/ssmtp/$file" "/config/ssmtp/$file"
         __initialize_replace_variables "/etc/ssmtp/$file"
       done
       if [ -f "/etc/ssmtp/revaliases" ] && [ ! -f "/config/ssmtp/revaliases" ]; then
         mv -f "/etc/ssmtp/revaliases" "/config/ssmtp/revaliases"
-        __symlink "/config/ssmtp/revaliases" "/etc/ssmtp/revaliases"
+        __symlink "/etc/ssmtp/revaliases" "/config/ssmtp/revaliases"
         __initialize_replace_variables "/etc/ssmtp/revaliases"
       else
         touch "/config/ssmtp/revaliases"
-        __symlink "/config/ssmtp/revaliases" "/etc/ssmtp/revaliases"
+        __symlink "/etc/ssmtp/revaliases" "/config/ssmtp/revaliases"
         __initialize_replace_variables "/etc/ssmtp/revaliases"
       fi
       [ "$DEBUGGER" = "on" ] && echo "Done setting up ssmtp"
@@ -1255,8 +1259,10 @@ relayhost = [$relay_server]:$relay_port
 EOF
     fi
     if [ -d "/config/postfix" ]; then
+      # __symlink(from, to) requires the "to" (config) side to already exist
+      # and creates "from" (etc) as a symlink to it — arguments were reversed here
       for f in $symlink_files; do
-        __symlink "/config/postfix/$f" "/etc/postfix/$f"
+        __symlink "/etc/postfix/$f" "/config/postfix/$f"
       done
       __initialize_replace_variables "/etc/postfix"
       touch "/config/postfix/aliases" "/config/postfix/mynetworks" "/config/postfix/transport"

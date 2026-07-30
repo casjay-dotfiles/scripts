@@ -480,7 +480,11 @@ SKIP_SERVICE_START="no"
 [ "$2" = "init" ] && SKIP_SERVICE_START="yes" && CONTAINER_INIT="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Start all services if no pidfile and not skipping
-if [ "$START_SERVICES" = "yes" ] || [ -z "$1" ]; then
+# Start all services only when no command was given at all — an explicit
+# command (exec, shell, tail, or an arbitrary program) must reach the case
+# statement below instead of being swallowed into daemon/monitor mode, even
+# on a first run where START_SERVICES is force-set to "yes"
+if [ -z "$1" ]; then
   if [ "$SKIP_SERVICE_START" = "no" ]; then
     [ "$1" = "start" ] && shift 1
     [ "$1" = "all" ] && shift 1
@@ -622,9 +626,23 @@ procs)
   exit $?
   ;;
 # Launch shell
-*/bin/sh | */bin/bash | bash | sh | shell)
-  shift 1
+# Launch shell — do not shift here: "sh -c 'cmd'" / "bash -c 'cmd'" needs the
+# interpreter name kept as argv[0] for __exec_command's `exec "$@"` to work;
+# shifting it away turned "sh -c 'cmd'" into `exec -c cmd` (command not found)
+*/bin/sh | */bin/bash | bash | sh)
   __exec_command "$@"
+  exit $?
+  ;;
+# "shell" is a keyword, not a real interpreter — it must be shifted away, and
+# any remaining args need "sh" prepended so __exec_command's `exec "$@"` gets
+# a real interpreter instead of trying to exec "-c" as a program
+shell)
+  shift 1
+  if [ $# -eq 0 ]; then
+    __exec_command
+  else
+    __exec_command sh "$@"
+  fi
   exit $?
   ;;
 # execute commands

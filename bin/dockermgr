@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608020000-git
+##@Version           :  202608021900-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -10,7 +10,7 @@
 # @Created           :  Saturday, Aug 28, 2021 19:04 EDT
 # @File              :  dockermgr
 # @Description       :  docker script to manage containers
-# @Changelog         :  Fix ghcr.io temp-tag deletion — added GitHub Packages API deleter since ghcr.io rejects OCI manifest DELETE
+# @Changelog         :  Fix ghcr.io PAT source — read from ~/.docker/config.json (same as other non-docker.io registries) instead of a nonexistent hub_password file
 # @TODO              :
 # @Other             :
 # @Resource          :
@@ -18,7 +18,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608020000-git"
+VERSION="202608021900-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -616,6 +616,17 @@ __registry_delete_tag() {
   [ "$http_code" = "204" ] || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Read decoded "user:pass" credentials for a registry from the docker CLI config.
+# This is the one place any non-docker.io registry's credentials are sourced from
+# (~/.docker/config.json, populated by `docker login <registry>`) — docker.io uses
+# its own Hub JWT login flow via __api_auth_token instead.
+# Usage: __docker_config_creds <registry-host>  e.g. ghcr.io
+__docker_config_creds() {
+  local registry="$1" auth_b64
+  auth_b64="$(jq -r --arg reg "$registry" '.auths[$reg].auth // empty' ~/.docker/config.json 2>/dev/null)"
+  [ -n "$auth_b64" ] && printf '%s' "$auth_b64" | base64 -d
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete a tag from any OCI-compliant registry using only curl + jq.
 # Usage: __registry_delete_tag_oci <full-image-ref>  e.g. ghcr.io/org/repo:tag
 __registry_delete_tag_oci() {
@@ -636,9 +647,8 @@ __registry_delete_tag_oci() {
     repo_path="$ref_notag"
   fi
   # Read stored credentials from docker config (base64 user:pass or user:token)
-  local auth_b64 creds
-  auth_b64="$(jq -r --arg reg "$registry" '.auths[$reg].auth // empty' ~/.docker/config.json 2>/dev/null)"
-  [ -n "$auth_b64" ] && creds="$(printf '%s' "$auth_b64" | base64 -d)"
+  local creds
+  creds="$(__docker_config_creds "$registry")"
   # Perform OCI token auth challenge to obtain a bearer token
   local challenge realm service token
   challenge="$(curl -q -LSsf -o /dev/null -D - "https://$registry/v2/" 2>/dev/null | grep -i 'www-authenticate:')"
@@ -679,20 +689,18 @@ __registry_delete_tag_ghcr() {
   local full_ref="$1"
   local log_file="$DOCKERMGR_CACHE_DIR/delete.log"
   printf '%s' "$(printf_cyan "Attempting to delete temporary tag: $full_ref"): "
-  local tag ref_notag owner repo repo_enc pat
+  local tag ref_notag owner repo repo_enc creds pat
   tag="${full_ref##*:}"
   ref_notag="${full_ref%:*}"
   ref_notag="${ref_notag#ghcr.io/}"
   owner="${ref_notag%%/*}"
   repo="${ref_notag#*/}"
   repo_enc="${repo//\//%2F}"
-  if [ -f "$DOCKERMGR_CONFIG_DIR/.ghcr.io_hub_password" ]; then
-    pat="$(<"$DOCKERMGR_CONFIG_DIR/.ghcr.io_hub_password")"
-  elif [ -f "$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_password" ]; then
-    pat="$(<"$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_password")"
-  fi
+  # Reuse the same docker config credential source as __registry_delete_tag_oci
+  creds="$(__docker_config_creds "ghcr.io")"
+  pat="${creds#*:}"
   if [ -z "$pat" ]; then
-    printf '%b' "Cannot delete $full_ref - no ghcr.io token\n" >>"$log_file"
+    printf '%b' "Cannot delete $full_ref - no ghcr.io credentials in ~/.docker/config.json (run: docker login ghcr.io)\n" >>"$log_file"
     return 1
   fi
   local owner_type endpoint_base versions version_id http_code

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607122345-git
+##@Version           :  202608020000-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -10,7 +10,7 @@
 # @Created           :  Saturday, Aug 28, 2021 19:04 EDT
 # @File              :  dockermgr
 # @Description       :  docker script to manage containers
-# @Changelog         :  Fix __migrate_srv_base: old_dir was mistakenly set to the same path as new_dir, causing the migration check to always print "Skipping migration: already exists" on every invocation instead of running once and going silent
+# @Changelog         :  Fix ghcr.io temp-tag deletion — added GitHub Packages API deleter since ghcr.io rejects OCI manifest DELETE
 # @TODO              :
 # @Other             :
 # @Resource          :
@@ -18,7 +18,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607122345-git"
+VERSION="202608020000-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -671,6 +671,54 @@ __registry_delete_tag_oci() {
   [ "$http_code" = "202" ] || [ "$http_code" = "204" ] || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Delete a tag from ghcr.io using the GitHub Packages REST API.
+# ghcr.io rejects DELETE on the OCI distribution manifests endpoint (405),
+# so temp tags must be removed through GitHub's packages API instead.
+# Usage: __registry_delete_tag_ghcr <full-image-ref>  e.g. ghcr.io/org/repo:tag
+__registry_delete_tag_ghcr() {
+  local full_ref="$1"
+  local log_file="$DOCKERMGR_CACHE_DIR/delete.log"
+  printf '%s' "$(printf_cyan "Attempting to delete temporary tag: $full_ref"): "
+  local tag ref_notag owner repo repo_enc pat
+  tag="${full_ref##*:}"
+  ref_notag="${full_ref%:*}"
+  ref_notag="${ref_notag#ghcr.io/}"
+  owner="${ref_notag%%/*}"
+  repo="${ref_notag#*/}"
+  repo_enc="${repo//\//%2F}"
+  if [ -f "$DOCKERMGR_CONFIG_DIR/.ghcr.io_hub_password" ]; then
+    pat="$(<"$DOCKERMGR_CONFIG_DIR/.ghcr.io_hub_password")"
+  elif [ -f "$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_password" ]; then
+    pat="$(<"$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_password")"
+  fi
+  if [ -z "$pat" ]; then
+    printf '%b' "Cannot delete $full_ref - no ghcr.io token\n" >>"$log_file"
+    return 1
+  fi
+  local owner_type endpoint_base versions version_id http_code
+  for owner_type in orgs users; do
+    endpoint_base="https://api.github.com/$owner_type/$owner/packages/container/$repo_enc"
+    versions="$(curl -q -LSsf \
+      -H "Authorization: Bearer $pat" \
+      -H "Accept: application/vnd.github+json" \
+      "$endpoint_base/versions?per_page=100" 2>>"$log_file")"
+    [ -n "$versions" ] && printf '%s' "$versions" | jq -e 'type == "array"' >/dev/null 2>&1 && break
+  done
+  version_id="$(printf '%s' "$versions" | jq -r --arg tag "$tag" '.[] | select(.metadata.container.tags[]? == $tag) | .id' 2>/dev/null | head -1)"
+  if [ -z "$version_id" ]; then
+    printf '%b' "Cannot find version id for $full_ref\n" >>"$log_file"
+    return 1
+  fi
+  http_code="$(curl -q -LSsf \
+    -H "Authorization: Bearer $pat" \
+    -H "Accept: application/vnd.github+json" \
+    -X DELETE \
+    -o "$log_file" \
+    -w "%{http_code}" \
+    "$endpoint_base/versions/$version_id" 2>>"$log_file")"
+  [ "$http_code" = "204" ] || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Build a single-platform image from stdin Dockerfile and push it to the registry.
 # Usage: __buildx_push_platform <from-image> <platform> <push-tag> <log-file> [extra-flags...]
 __buildx_push_platform() {
@@ -1151,6 +1199,8 @@ __create_manifest() {
       if [ -z "$do_not_delete" ]; then
         if [ "$is_docker_hub" = "yes" ]; then
           __registry_delete_tag "$rm_name" "$rm_tag" && printf_green "Success 😺" || { printf_red "Failed 😿" && code=1; }
+        elif [ "${del_tag%%/*}" = "ghcr.io" ]; then
+          __registry_delete_tag_ghcr "$del_tag" && printf_green "Success 😺" || { printf_red "Failed 😿" && code=1; }
         else
           __registry_delete_tag_oci "$del_tag" && printf_green "Success 😺" || { printf_red "Failed 😿" && code=1; }
         fi

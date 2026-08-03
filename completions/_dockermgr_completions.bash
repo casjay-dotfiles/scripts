@@ -31,7 +31,7 @@ _dockermgr() {
   local FILEDIR=""
   local OPTS=""
   local SHORTOPTS="-p -P -v -m -e -d -u -w"
-  local LONGOPTS="--completions --debug --no-color --options --config --version --help --silent --dir --force --all --describe --platform --dockerfile "
+  local LONGOPTS="--completions --debug --no-color --options --config --migrate --version --help --silent --dir --force --all --describe --platform --dockerfile "
   local LONGOPTS+="--name --info --domain --hostname --network --registry --tagno-delete --interactive --cron --hub"
   local ARRAY="service proxy health attach multiarch builder api enter test exec active available connect cron download clone inactive init install k3b minikube "
   local ARRAY+="list log ps rancher remove rm rmi run search status update version ds network helm prune generate manifest rebuild swarm compose restart tag pull "
@@ -77,6 +77,11 @@ _dockermgr() {
 
     --config)
       local prev="--config"
+      COMPREPLY=($(compgen -W '' -- "${cur}"))
+      ;;
+
+    --migrate)
+      local prev="--migrate"
       COMPREPLY=($(compgen -W '' -- "${cur}"))
       ;;
 

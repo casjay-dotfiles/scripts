@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608022100-git
+##@Version           :  202608022200-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -10,7 +10,7 @@
 # @Created           :  Saturday, Aug 28, 2021 19:04 EDT
 # @File              :  dockermgr
 # @Description       :  docker script to manage containers
-# @Changelog         :  __migrate_srv_base now also rewrites the old /var/lib/srv path in generated scripts under DOCKERMGR_CONFIG_DIR/scripts
+# @Changelog         :  /var/lib/srv migration is now opt-in via --migrate, with a marker file so the legacy-path notice stops nagging after migration
 # @TODO              :
 # @Other             :
 # @Resource          :
@@ -18,7 +18,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608022100-git"
+VERSION="202608022200-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -231,6 +231,7 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "--help                                 - Shows this message"
   __printf_line "--config                               - Generate user config file"
+  __printf_line "--migrate                              - Migrate data from legacy /var/lib/srv to /srv"
   __printf_line "--version                              - Show script version"
   __printf_line "--options                              - Shows all available options"
   __printf_line "--debug                                - Enables script debugging"
@@ -2991,15 +2992,32 @@ DOCKERMGR_MANIFEST_TEMPLATE="${DOCKERMGR_MANIFEST_TEMPLATE:-https://gist.githubu
 DOCKERMGR_SHOW_USAGE="${DOCKERMGR_SHOW_USAGE:-yes}"
 DOCKERMGR_DEFAULT_MANIFEST_FILE="${DOCKERMGR_DEFAULT_MANIFEST_FILE:-$HOME/Documents/docker-migrate.txt}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Migrate data from legacy /var/lib/srv base to /srv
-__migrate_srv_base() {
-  [ "${DOCKERMGR_MIGRATING:-}" = "1" ] && return 0
-  __cmd_exists rsync || return 0
+# Detect legacy /var/lib/srv data and point at --migrate; read-only, safe to
+# run automatically on every invocation - the marker file keeps it silent
+# once migrated so it never nags on a normal run
+__check_srv_migration() {
   local old_dir="/var/lib/srv/$USER/docker"
   local new_dir="/srv/$USER/docker"
   [ -d "$old_dir" ] || return 0
+  [ -f "$new_dir/.dockermgr_migrated" ] && return 0
+  printf_yellow "Legacy data found at $old_dir - run 'dockermgr --migrate' to convert it to $new_dir"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Migrate data from legacy /var/lib/srv base to /srv - destructive (stops
+# containers, rsync, rm -rf old_dir), so it only runs via the --migrate flag
+__migrate_srv_base() {
+  [ "${DOCKERMGR_MIGRATING:-}" = "1" ] && return 0
+  __cmd_exists rsync || { printf_red "rsync is required to migrate"; return 1; }
+  local old_dir="/var/lib/srv/$USER/docker"
+  local new_dir="/srv/$USER/docker"
+  local marker="$new_dir/.dockermgr_migrated"
+  if [ ! -d "$old_dir" ]; then
+    printf_yellow "Nothing to migrate: $old_dir does not exist"
+    return 0
+  fi
   if [ -d "$new_dir" ]; then
     printf_yellow "Skipping migration: $new_dir already exists"
+    : >"$marker" 2>/dev/null
     return 0
   fi
   printf_yellow "Migrating $old_dir → $new_dir"
@@ -3036,13 +3054,15 @@ __migrate_srv_base() {
         fi
       done
     fi
+    : >"$marker" 2>/dev/null
     printf_green "Migrated: $new_dir"
     rmdir "/srv/$USER" 2>/dev/null || true
   else
     printf_red "Migration failed: rsync error for $old_dir"
+    return 1
   fi
 }
-__migrate_srv_base
+__check_srv_migration
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -3079,7 +3099,7 @@ fi
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
 SHORTOPTS="p:,P,v:,m:,e:,d,u:,w:,"
-LONGOPTS="raw,completions:,options,config,version,help,dir:,"
+LONGOPTS="raw,completions:,options,config,version,help,migrate,dir:,"
 LONGOPTS+="force,all,describe:,platform:,dockerfile,name:,info,domain:,hostname:,network:,registry:,tag:no-delete,interactive,cron,hub:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="service proxy health attach multiarch builder api enter test exec active available connect cron download inactive init install k3b minikube "
@@ -3134,6 +3154,11 @@ while :; do
   --config)
     shift 1
     __gen_config
+    exit $?
+    ;;
+  --migrate)
+    shift 1
+    __migrate_srv_base
     exit $?
     ;;
   --dir)

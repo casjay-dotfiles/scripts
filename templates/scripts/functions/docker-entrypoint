@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608030000-git
+##@Version           :  202608030955-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Sep 03, 2023 01:40 EDT
 # @@File             :  docker-entrypoint
 # @@Description      :  functions for my docker containers
-# @@Changelog        :  fix __setup_mta computing symlink_files before config creation, which skipped symlinking ssmtp.conf/main.cf on first run
+# @@Changelog        :  fix __symlink/__initialize_ssl_certs returning nonzero on success under set -e, aborting the entrypoint on symlink success
 # @@TODO             :  Refactor code
 # @@Other            :
 # @@Resource         :
@@ -645,7 +645,15 @@ __symlink() {
   [ "$from" = "$to" ] && return 0
   __rm "$from"
   [ -d "${from%/*}" ] || mkdir -p "${from%/*}" 2>/dev/null
-  ln -sf "$to" "$from" && [ "$DEBUGGER" = "on" ] && echo "Created symlink: $from -> $to"
+  # Debug echo is decoupled from the return value on purpose — under
+  # set -eo pipefail, a bare "[ "$DEBUGGER" = on ] && echo" tail made this
+  # function return 1 (aborting the whole entrypoint) whenever the symlink
+  # succeeded but DEBUGGER was unset, since that's the normal/default case
+  if ln -sf "$to" "$from"; then
+    [ "$DEBUGGER" = "on" ] && echo "Created symlink: $from -> $to"
+    return 0
+  fi
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __file_copy() {
@@ -1489,7 +1497,13 @@ __initialize_ssl_certs() {
       __create_ssl_cert
     fi
   fi
-  type update-ca-certificates &>/dev/null && update-ca-certificates &>/dev/null
+  # Explicit return so a missing update-ca-certificates binary (common on
+  # minimal images) never becomes this function's return value — under
+  # set -eo pipefail that would abort the caller when this is called bare
+  if type update-ca-certificates &>/dev/null; then
+    update-ca-certificates &>/dev/null
+  fi
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __start_php_dev_server() {

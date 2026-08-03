@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608022200-git
+##@Version           :  202608022206-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -10,7 +10,7 @@
 # @Created           :  Saturday, Aug 28, 2021 19:04 EDT
 # @File              :  dockermgr
 # @Description       :  docker script to manage containers
-# @Changelog         :  /var/lib/srv migration is now opt-in via --migrate, with a marker file so the legacy-path notice stops nagging after migration
+# @Changelog         :  Hub delete retries login + ignores stale cached tokens; --migrate help text shows full path
 # @TODO              :
 # @Other             :
 # @Resource          :
@@ -18,7 +18,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608022200-git"
+VERSION="202608022206-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -231,7 +231,7 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "--help                                 - Shows this message"
   __printf_line "--config                               - Generate user config file"
-  __printf_line "--migrate                              - Migrate data from legacy /var/lib/srv to /srv"
+  __printf_line "--migrate                              - Migrate data from legacy /var/lib/srv/$USER/docker to /srv/$USER/docker"
   __printf_line "--version                              - Show script version"
   __printf_line "--options                              - Shows all available options"
   __printf_line "--debug                                - Enables script debugging"
@@ -603,24 +603,42 @@ __update_repo_info() {
 __registry_delete_tag() {
   local org_repo="$1" tag="$2"
   local log_file="$DOCKERMGR_CACHE_DIR/delete.log"
-  local TOKEN http_code
+  local TOKEN http_code attempt token_age_max=300
   printf '%s' "$(printf_cyan "Attempting to delete temporary tag: $org_repo:$tag"): "
-  # Always get a fresh token — Hub JWTs expire mid-run on long manifest jobs
+  # Always get a fresh token — Hub JWTs expire mid-run on long manifest jobs.
+  # Retry a few times: a single transient login failure should not fall
+  # through to a stale cached token that may be hours/days old.
   if [ -f "$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_username" ] && [ -f "$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_password" ]; then
     local dh_user dh_pass
     dh_user="$(<"$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_username")"
     dh_pass="$(<"$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_password")"
-    TOKEN="$(__api_auth_token "$dh_user" "$dh_pass")"
+    for attempt in 1 2 3; do
+      TOKEN="$(__api_auth_token "$dh_user" "$dh_pass")"
+      [ -n "$TOKEN" ] && break
+      sleep 1
+    done
     [ -n "$TOKEN" ] && echo "$TOKEN" >"$AUTH_TOKEN_NAME"
   fi
-  [ -n "$TOKEN" ] || { [ -f "$AUTH_TOKEN_NAME" ] && TOKEN="$(<"$AUTH_TOKEN_NAME")"; }
+  # Only fall back to the cached token if it was written recently — an old
+  # cached JWT is certainly expired and will just fail auth silently.
+  if [ -z "$TOKEN" ] && [ -f "$AUTH_TOKEN_NAME" ]; then
+    local token_mtime token_now
+    token_mtime="$(stat -c %Y "$AUTH_TOKEN_NAME" 2>/dev/null || echo 0)"
+    token_now="$(date +%s)"
+    [ $((token_now - token_mtime)) -le "$token_age_max" ] && TOKEN="$(<"$AUTH_TOKEN_NAME")"
+  fi
   if [ -z "$TOKEN" ]; then
-    printf '%b' "Can not delete $org_repo:$tag - no auth\n"
+    printf '%b' "Can not delete $org_repo:$tag - no auth (login failed or token expired)\n"
     return 1
   fi
   http_code=$(curl -q -LSsf -H "Authorization: Bearer $TOKEN" -X DELETE \
     -o "$log_file" -w "%{http_code}" "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org_repo/tags/$tag" 2>>"$log_file")
-  [ "$http_code" = "204" ] || return 1
+  if [ "$http_code" = "204" ]; then
+    return 0
+  else
+    printf '%b' "(http $http_code) "
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Read decoded "user:pass" credentials for a registry from the docker CLI config.

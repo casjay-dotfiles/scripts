@@ -28,7 +28,11 @@ USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[ "$1" == "--debug" ] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+if [ "$1" == "--debug" ]; then
+  set -xo pipefail
+  export SCRIPT_OPTS="--debug"
+  export _DEBUG="on"
+fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -80,7 +84,13 @@ disable_selinux() {
   selinuxenabled
   devnull setenforce 0
 }
-grab_remote_file() { urlverify "$1" && curl -sSLq "$@" || exit 1; }
+grab_remote_file() {
+  if urlverify "$1" && curl -sSLq "$@"; then
+    :
+  else
+    exit 1
+  fi
+}
 run_external() { printf_green "Executing $*" && "$@" >/dev/null 2>&1; }
 retrieve_version_file() { grab_remote_file https://github.com/casjay-base/centos/raw/GEN_SCRIPT_REPLACE_DEFAULT_BRANCH/version.txt | head -n1 || echo "Unknown version"; }
 run_grub() {
@@ -90,7 +100,10 @@ run_grub() {
 }
 #### OS Specific
 test_pkg() {
-  devnull sudo rpm -q $1 && printf_success "$1 is installed" && return 1 || return 0
+  if devnull sudo rpm -q $1 && printf_success "$1 is installed"; then
+    return 1
+  fi
+  return 0
   setexitstatus
   set --
 }

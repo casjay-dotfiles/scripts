@@ -22,7 +22,10 @@ cat <<EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 set -eo pipefail
-[ "\$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -x\$DEBUGGER_OPTIONS
+if [ "\$DEBUGGER" = "on" ]; then
+  echo "Enabling debugging"
+  set -x\$DEBUGGER_OPTIONS
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Load functions
 __find_and_remove() { [ -z "\$1" ] || find "\${2:-/etc}" -iname "\$1" -exec rm -Rf {} + 2>/dev/null; }

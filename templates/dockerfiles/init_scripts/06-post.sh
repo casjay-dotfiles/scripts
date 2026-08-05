@@ -22,7 +22,10 @@ cat <<EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 set -eo pipefail
-[ "\$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -x\$DEBUGGER_OPTIONS
+if [ "\$DEBUGGER" = "on" ]; then
+  echo "Enabling debugging"
+  set -x\$DEBUGGER_OPTIONS
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set env variables
 exitCode=0

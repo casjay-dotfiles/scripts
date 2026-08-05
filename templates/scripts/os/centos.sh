@@ -27,7 +27,12 @@ HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-if [ "$1" = "--debug" ]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+if [ "$1" = "--debug" ]; then
+  shift 1
+  set -xo pipefail
+  export SCRIPT_OPTS="--debug"
+  export _DEBUG="on"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 if ! swapon --show 2>/dev/null | grep -v '^NAME ' | grep -q '^'; then
   echo "Creating and enabling swapfile"
@@ -43,12 +48,23 @@ if ! swapon --show 2>/dev/null | grep -v '^NAME ' | grep -q '^'; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 for pkg in sudo git curl wget; do
-  command -v $pkg &>/dev/null || { printf '%b\n' "${CYAN}Installing $pkg${NC}" && yum install -yy -q $pkg &>/dev/null || exit 1; } || { echo "Failed to install $pkg" && exit 1; }
+  if command -v $pkg &>/dev/null; then
+    :
+  else
+    if printf '%b\n' "${CYAN}Installing $pkg${NC}" && yum install -yy -q $pkg &>/dev/null; then
+      :
+    else
+      exit 1
+    fi
+  fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ ! -d "/usr/local/share/CasjaysDev/scripts" ]; then
   git clone https://github.com/casjay-dotfiles/scripts /usr/local/share/CasjaysDev/scripts -q
-  eval /usr/local/share/CasjaysDev/scripts/install.sh || { echo "Failed to initialize" && exit 1; }
+  if ! eval /usr/local/share/CasjaysDev/scripts/install.sh; then
+    echo "Failed to initialize"
+    exit 1
+  fi
   export PATH="/usr/local/share/CasjaysDev/scripts/bin:$PATH"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -100,16 +116,37 @@ fi
 SERVICES_ENABLE="chrony cockpit cockpit.socket docker httpd munin-node nginx ntpd php-fpm postfix proftpd rsyslog snmpd sshd uptimed downtimed"
 SERVICES_DISABLE="avahi-daemon.service avahi-daemon.socket cups.path cups.service cups.socket dhcpd dhcpd6 dm-event.socket fail2ban firewalld import-state.service irqbalance.service iscsi iscsid.socket iscsiuio.socket kdump loadmodules.service lvm2-lvmetad.socket lvm2-lvmpolld.socket lvm2-monitor mdmonitor multipathd.service multipathd.socket named nfs-client.target nis-domainname.service nmb radvd rpcbind.service rpcbind.socket shorewall shorewall6 smb sssd-kcm.socket timedatex.service tuned.service udisks2.service"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-grep --no-filename -sE '^ID=|^ID_LIKE=|^NAME=' /etc/*-release | grep -qiwE "$SCRIPT_OS" && true || printf_exit "This installer is meant to be run on a $SCRIPT_OS based system"
+if grep --no-filename -sE '^ID=|^ID_LIKE=|^NAME=' /etc/*-release | grep -qiwE "$SCRIPT_OS"; then
+  true
+else
+  printf_exit "This installer is meant to be run on a $SCRIPT_OS based system"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$1" == "--help" ] && printf_exit "${GREEN}${SCRIPT_DESCRIBE} installer for $SCRIPT_OS${NC}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 port_in_use() { netstatg 2>&1 | awk '{print $4}' | grep ':[0-9]' | awk -F':' '{print $2}' | grep '[0-9]' | grep -q "^$1$" || return 2; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-system_service_exists() { systemctl status "$1" 2>&1 | grep 'Loaded:' | grep -iq "$1" && return 0 || return 1; }
+system_service_exists() {
+  if systemctl status "$1" 2>&1 | grep 'Loaded:' | grep -iq "$1"; then
+    return 0
+  fi
+  return 1
+}
 system_service_active() { (systemctl is-enabled "$1" || systemctl is-active "$1") | grep -qiE 'enabled|active' || return 1; }
-system_service_enable() { systemctl status "$1" 2>&1 | grep -iq 'inactive' && execute "systemctl enable --now $1" "Enabling service: $1" || return 1; }
-system_service_disable() { systemctl status "$1" 2>&1 | grep -iq 'active' && execute "systemctl disable --now $1" "Disabling service: $1" || return 1; }
+system_service_enable() {
+  if systemctl status "$1" 2>&1 | grep -iq 'inactive' && execute "systemctl enable --now $1" "Enabling service: $1"; then
+    :
+  else
+    return 1
+  fi
+}
+system_service_disable() {
+  if systemctl status "$1" 2>&1 | grep -iq 'active' && execute "systemctl disable --now $1" "Disabling service: $1"; then
+    :
+  else
+    return 1
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 does_user_exist() { grep -qs "^$1:" "/etc/passwd" || return 1; }
 does_group_exist() { grep -qs "^$1:" "/etc/group" || return 1; }
@@ -143,7 +180,11 @@ install_pkg() {
   local statusCode=0
   if test_pkg "$*"; then
     execute "__dnf_yum install -q -yy $*" "Installing: $*"
-    test_pkg "$*" &>/dev/null && statusCode=1 || statusCode=0
+    if test_pkg "$*" &>/dev/null; then
+      statusCode=1
+    else
+      statusCode=0
+    fi
   else
     statusCode=0
   fi
@@ -154,7 +195,10 @@ detect_selinux() {
   if [ -f "/etc/selinux/config" ]; then
     grep -sh 'SELINUX=' "/etc/selinux/config" | grep -q 'enabled' || return 1
   elif [ -f "$(type -P selinuxenabled 2>/dev/null)" ]; then
-    selinuxenabled && return 1 || return 0
+    if selinuxenabled; then
+      return 1
+    fi
+    return 0
   else
     return 0
   fi
@@ -202,7 +246,10 @@ get_user_ssh_key() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 run_init_check() {
-  { printf '%b\n' "${YELLOW}Updating cache and installing epel-release${NC}" && yum makecache &>/dev/null && __dnf_yum install epel-release -yy -q &>/dev/null; } || true
+  if printf '%b\n' "${YELLOW}Updating cache and installing epel-release${NC}" && yum makecache &>/dev/null && __dnf_yum install epel-release -yy -q &>/dev/null; then
+    :
+  fi
+  true
   if [ -d "/usr/local/share/CasjaysDev/scripts/.git" ]; then
     git -C /usr/local/share/CasjaysDev/scripts pull -q
     if [ $? -ne 0 ]; then
@@ -213,11 +260,34 @@ run_init_check() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __yum() { yum "$@" $yum_opts &>/dev/null || return 1; }
-grab_remote_file() { urlverify "$1" && curl -q -SLs "$1" || exit 1; }
+grab_remote_file() {
+  if urlverify "$1" && curl -q -SLs "$1"; then
+    :
+  else
+    exit 1
+  fi
+}
 backup_repo_files() { cp -Rf "/etc/yum.repos.d/." "$BACKUP_DIR" 2>/dev/null || return 0; }
-rm_repo_files() { [ "${1:-$YUM_DELETE}" = "yes" ] && rm -Rf "/etc/yum.repos.d"/* &>/dev/null || return 0; }
-run_external() { printf_green "Executing $*" && eval "$*" >/dev/null 2>&1 || return 1; }
-save_remote_file() { urlverify "$1" && curl -q -SLs "$1" | tee "$2" &>/dev/null || exit 1; }
+rm_repo_files() {
+  if [ "${1:-$YUM_DELETE}" = "yes" ]; then
+    rm -Rf "/etc/yum.repos.d"/* &>/dev/null
+  fi
+  return 0
+}
+run_external() {
+  if printf_green "Executing $*" && eval "$*" >/dev/null 2>&1; then
+    :
+  else
+    return 1
+  fi
+}
+save_remote_file() {
+  if urlverify "$1" && curl -q -SLs "$1" | tee "$2" &>/dev/null; then
+    :
+  else
+    exit 1
+  fi
+}
 domain_name() { hostname -d | grep '^' || hostname -f | awk -F'.' '{$1="";OFS="." ; print $0}' | sed 's/^.//;s| |.|g' | grep '^'; }
 retrieve_version_file() { grab_remote_file "https://github.com/casjay-base/centos/raw/main/version.txt" | head -n1 || echo "Unknown version"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -294,14 +364,22 @@ run_grub() {
     if [ -n "$grub_cfg" ]; then
       for cfg in $grub_cfg; do
         if [ -e "$cfg" ]; then
-          devnull $grub_bin -o "$cfg" && printf_green "Updated $cfg" || printf_return "Failed to update $cfg"
+          if devnull $grub_bin -o "$cfg" && printf_green "Updated $cfg"; then
+            :
+          else
+            printf_return "Failed to update $cfg"
+          fi
         fi
       done
     fi
     if [ -n "$grub_efi" ]; then
       for efi in $grub_efi; do
         if [ -e "$efi" ]; then
-          devnull $grub_bin -o "$efi" && printf_green "Updated $efi" || printf_return "Failed to update $efi"
+          if devnull $grub_bin -o "$efi" && printf_green "Updated $efi"; then
+            :
+          else
+            printf_return "Failed to update $efi"
+          fi
         fi
       done
     fi
@@ -326,7 +404,11 @@ __kernel_ml() {
     printf_blue "Switching to the newest kernel from elrepo"
     for p in $(rpm -qa --queryformat "%{NAME}\n" | grep 'kernel' | sort -u); do rpm -ev --nodeps $p; done >/dev/null
     yum install -yyq kernel-ml* >/dev/null || exitC=1
-    run_grub && printf_green "Rebooting the system - Please rerun this script after reboot" && reboot || exit 1
+    if run_grub && printf_green "Rebooting the system - Please rerun this script after reboot" && reboot; then
+      :
+    else
+      exit 1
+    fi
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -340,7 +422,11 @@ __kernel_lt() {
     printf_blue "Switching to the newest lts kernel from elrepo"
     for p in $(rpm -qa --queryformat "%{NAME}\n" | grep 'kernel' | sort -u); do rpm -ev --nodeps $p; done >/dev/null
     yum install -yyq kernel-lt* >/dev/null || exitC=1
-    run_grub && printf_green "Rebooting the system - Please rerun this script after reboot" && reboot || exit 1
+    if run_grub && printf_green "Rebooting the system - Please rerun this script after reboot" && reboot; then
+      :
+    else
+      exit 1
+    fi
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -685,7 +771,11 @@ devnull chmod 644 -Rf /etc/cron.d/* /etc/logrotate.d/*
 devnull touch /etc/postfix/mydomains.pcre
 devnull chattr +i /etc/resolv.conf
 does_user_exist 'apache' && devnull chown -Rf apache:apache "/var/www" "/usr/local/share/httpd"
-does_user_exist 'named' && devnull mkdir -p /etc/named /var/named /var/log/named && devnull chown -Rf named:named /etc/named* /var/named /var/log/named
+if does_user_exist 'named'; then
+  if devnull mkdir -p /etc/named /var/named /var/log/named; then
+    devnull chown -Rf named:named /etc/named* /var/named /var/log/named
+  fi
+fi
 devnull postmap /etc/postfix/transport /etc/postfix/canonical /etc/postfix/virtual /etc/postfix/mydomains /etc/postfix/sasl/passwd
 devnull newaliases &>/dev/null || newaliases.postfix -I &>/dev/null
 if ! grep -shq 'kernel.domainname' "/etc/sysctl.conf"; then
@@ -696,7 +786,11 @@ printf_head "Enabling services"
 ##################################################################################################################
 for service_enable in $SERVICES_ENABLE; do
   [ -n "$service_enable" ] && system_service_enable $service_enable
-  [ -n "$service_enable" ] && system_service_exists "$service_enable" && systemctl restart $service_enable >/dev/null 2>&1
+  if [ -n "$service_enable" ]; then
+    if system_service_exists "$service_enable"; then
+      systemctl restart $service_enable >/dev/null 2>&1
+    fi
+  fi
 done
 ##################################################################################################################
 printf_head "Disabling services"
@@ -715,11 +809,25 @@ printf_head "Setting up ssl certificates"
 le_primary_domain="$(hostname -d 2>/dev/null | grep '^' || hostname -f 2>/dev/null | grep '^' || echo "$HOSTNAME")"
 le_options="--primary $le_primary_domain"
 [ "$le_primary_domain" = "$le_primary_domain" ] || le_options="--primary $le_primary_domain --domains $HOSTNAME"
-[ -f "/etc/certbot/dns.conf" ] && chmod -f 600 "/etc/certbot/dns.conf" && [ -n "$(command -v acme-cli 2>/dev/null)" ] && acme-cli $le_options
+if [ -f "/etc/certbot/dns.conf" ]; then
+  if chmod -f 600 "/etc/certbot/dns.conf"; then
+    if [ -n "$(command -v acme-cli 2>/dev/null)" ]; then
+      acme-cli $le_options
+    fi
+  fi
+fi
 le_dir_not_empty="$(find /etc/letsencrypt/live/* -maxdepth 0 -type d | grep -vE 'domain|^$' | head -n1 | grep '^' || false)"
-[ -z "$le_dir_not_empty" ] && le_dir_not_empty="/etc/letsencrypt/live/$(domainname)" || le_certs=yes
+if [ -z "$le_dir_not_empty" ]; then
+  le_dir_not_empty="/etc/letsencrypt/live/$(domainname)"
+else
+  le_certs=yes
+fi
 if [ -d "$le_dir_not_empty" ] || [ -L "/etc/letsencrypt/live/domain" ]; then
-  [ ! -L "/etc/letsencrypt/live/domain" ] && unlink "/etc/letsencrypt/live/domain" || devnull rm_if_exists "/etc/letsencrypt/live/domain"
+  if [ ! -L "/etc/letsencrypt/live/domain" ] && unlink "/etc/letsencrypt/live/domain"; then
+    :
+  else
+    devnull rm_if_exists "/etc/letsencrypt/live/domain"
+  fi
   ln -s "$le_dir_not_empty" "/etc/letsencrypt/live/domain"
 fi
 if [ "$le_certs" = "yes" ]; then
@@ -745,7 +853,11 @@ if [ -f "/etc/ssl/CA/CasjaysDev/certs/ca.crt" ]; then
     cp -Rf "/etc/ssl/CA/CasjaysDev/certs/ca.crt" "/etc/pki/ca-trust/source/anchors/"
   fi
 fi
-[ -n "$(type -P update-ca-trust)" ] && devnull update-ca-trust && devnull update-ca-trust extract
+if [ -n "$(type -P update-ca-trust)" ]; then
+  if devnull update-ca-trust; then
+    devnull update-ca-trust extract
+  fi
+fi
 [ -n "$(type -P dpkg-reconfigure)" ] && devnull dpkg-reconfigure ca-certificates
 ##################################################################################################################
 printf_head "Setting up munin-node"

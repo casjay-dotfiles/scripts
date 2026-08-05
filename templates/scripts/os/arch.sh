@@ -26,7 +26,12 @@ HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-if [ "$1" = "--debug" ]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+if [ "$1" = "--debug" ]; then
+  shift 1
+  set -xo pipefail
+  export SCRIPT_OPTS="--debug"
+  export _DEBUG="on"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
 SCRIPTSFUNCTURL="${SCRIPTSFUNCTURL:-https://github.com/casjay-dotfiles/scripts/raw/main/functions}"
@@ -51,16 +56,41 @@ SCRIPT_NAME="${SCRIPT_NAME%.*}"
 RELEASE_VER="$(grep --no-filename -s 'VERSION_ID=' /etc/*-release | awk -F '=' '{print $2}' | sed 's#"##g' | awk -F '.' '{print $1}' | grep '^')"
 RELEASE_NAME="$(grep --no-filename -s '^NAME=' /etc/*-release | awk -F'=' '{print $2}' | sed 's|"||g;s| .*||g' | tr '[:upper:]' '[:lower:]' | grep '^')"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-grep --no-filename -sE '^ID=|^ID_LIKE=|^NAME=' /etc/*-release | grep -qiwE "$SCRIPT_OS" && true || printf_exit "This installer is meant to be run on a $SCRIPT_OS based system"
+if grep --no-filename -sE '^ID=|^ID_LIKE=|^NAME=' /etc/*-release | grep -qiwE "$SCRIPT_OS"; then
+  true
+else
+  printf_exit "This installer is meant to be run on a $SCRIPT_OS based system"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$1" == "--help" ] && printf_exit "${GREEN}${SCRIPT_DESCRIBE} installer for $SCRIPT_OS${NC}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-system_service_exists() { systemctl status "$1" 2>&1 | grep -iq "$1" && return 0 || return 1; }
-system_service_enable() { systemctl status "$1" 2>&1 | grep -iq 'inactive' && execute "systemctl enable $1" "Enabling service: $1" || return 1; }
-system_service_disable() { systemctl status "$1" 2>&1 | grep -iq 'active' && execute "systemctl disable --now $1" "Disabling service: $1" || return 1; }
+system_service_exists() {
+  if systemctl status "$1" 2>&1 | grep -iq "$1"; then
+    return 0
+  fi
+  return 1
+}
+system_service_enable() {
+  if systemctl status "$1" 2>&1 | grep -iq 'inactive' && execute "systemctl enable $1" "Enabling service: $1"; then
+    :
+  else
+    return 1
+  fi
+}
+system_service_disable() {
+  if systemctl status "$1" 2>&1 | grep -iq 'active' && execute "systemctl disable --now $1" "Disabling service: $1"; then
+    :
+  else
+    return 1
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 get_user_ssh_key() {
-  [ -n "$GITHUB_USER" ] && local ssh_key="" || return 0
+  if [ -n "$GITHUB_USER" ]; then
+    local ssh_key=""
+  else
+    return 0
+  fi
   ssh_key="$(curl -q -LSsf "https://github.com/$GITHUB_USER.keys" 2>/dev/null | grep '^' || echo '')"
   if [ -n "$ssh_key" ]; then
     [ -d "/root/.ssh" ] || mkdir -p "/root/.ssh"
@@ -79,10 +109,33 @@ get_user_ssh_key() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_head_clear() { clear && printf_head "$*"; }
-grab_remote_file() { urlverify "$1" && curl -q -SLs "$1" || exit 1; }
-rm_repo_files() { [ "${1:-$YUM_DELETE}" = "yes" ] && rm -Rf "/etc/yum.repos" || true; }
-run_external() { printf_green "Executing $*" && eval "$*" >/dev/null 2>&1 || return 1; }
-save_remote_file() { urlverify "$1" && curl -q -SLs "$1" | tee -p "$2" &>/dev/null || exit 1; }
+grab_remote_file() {
+  if urlverify "$1" && curl -q -SLs "$1"; then
+    :
+  else
+    exit 1
+  fi
+}
+rm_repo_files() {
+  if [ "${1:-$YUM_DELETE}" = "yes" ]; then
+    rm -Rf "/etc/yum.repos"
+  fi
+  true
+}
+run_external() {
+  if printf_green "Executing $*" && eval "$*" >/dev/null 2>&1; then
+    :
+  else
+    return 1
+  fi
+}
+save_remote_file() {
+  if urlverify "$1" && curl -q -SLs "$1" | tee -p "$2" &>/dev/null; then
+    :
+  else
+    exit 1
+  fi
+}
 domain_name() { hostname -f | awk -F'.' '{$1="";OFS="." ; print $0}' | sed 's/^.//;s| |.|g' | grep '^'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 rm_if_exists() {
@@ -106,14 +159,22 @@ run_grub() {
     if [ -n "$grub_cfg" ]; then
       for cfg in $grub_cfg; do
         if [ -e "$cfg" ]; then
-          devnull $grub_bin -o "$cfg" && printf_green "Updated $cfg" || printf_return "Failed to update $cfg"
+          if devnull $grub_bin -o "$cfg" && printf_green "Updated $cfg"; then
+            :
+          else
+            printf_return "Failed to update $cfg"
+          fi
         fi
       done
     fi
     if [ -n "$grub_efi" ]; then
       for efi in $grub_efi; do
         if [ -e "$efi" ]; then
-          devnull $grub_bin -o "$efi" && printf_green "Updated $efi" || printf_return "Failed to update $efi"
+          if devnull $grub_bin -o "$efi" && printf_green "Updated $efi"; then
+            :
+          else
+            printf_return "Failed to update $efi"
+          fi
         fi
       done
     fi
@@ -137,7 +198,10 @@ fix_network_device_name() {
 ##################################################################################################################
 #### OS Specific
 test_pkg() {
-  devnull pacman -Qi "$1" && printf_success "$1 is installed" && return 1 || return 0
+  if devnull pacman -Qi "$1" && printf_success "$1 is installed"; then
+    return 1
+  fi
+  return 0
   setexitstatus
   set --
 }
@@ -172,7 +236,11 @@ if [ -f "/etc/casjaysdev/updates/versions/$SCRIPT_NAME.txt" ]; then
   printf_red "/etc/casjaysdev/updates/versions/$SCRIPT_NAME.txt"
   exit 1
 else
-  install_pkg vnstat && system_service_enable vnstat && systemctl start vnstat &>/dev/null
+  if install_pkg vnstat; then
+    if system_service_enable vnstat; then
+      systemctl start vnstat &>/dev/null
+    fi
+  fi
   printf '%s\n' "Installed on $(date +'%Y-%m-%d at %H:%M %Z')" >"/etc/casjaysdev/updates/versions/$SCRIPT_NAME.txt"
 fi
 if ! builtin type -P systemmgr &>/dev/null; then

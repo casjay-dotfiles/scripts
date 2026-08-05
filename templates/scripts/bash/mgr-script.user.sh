@@ -38,7 +38,11 @@ set -eo pipefail
 export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-${0##*/}}}" CASJAYSDEV_TITLE_SET
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initial debugging
-[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+if [ "$1" = "--debug" ]; then
+  set -x
+  export SCRIPT_OPTS="--debug"
+  export _DEBUG="on"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Disables colorization
 [ "$1" = "--no-color" ] && export SHOW_RAW="true"
@@ -147,23 +151,44 @@ export SCRIPTS_PREFIX="$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send all output to /dev/null
 __devnull() {
-  tee &>/dev/null && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  if tee &>/dev/null; then
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+  else
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  fi
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send errors to /dev/null
 __devnull2() {
-  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
-  eval $cmd "$*" 2>/dev/null && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  if [ -n "$1" ]; then
+    local cmd="$1"
+    shift 1
+  else
+    return 1
+  fi
+  if eval $cmd "$*" 2>/dev/null; then
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+  else
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  fi
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # See if the executable exists
 __cmd_exists() {
   GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
-  [ -n "$1" ] && local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS="" || return 0
+  if [ -n "$1" ]; then
+    local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=""
+  else
+    return 0
+  fi
   for cmd in "$@"; do
-    builtin command -v "$cmd" &>/dev/null && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS+=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + 0)) || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS+=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + 1))
+    if builtin command -v "$cmd" &>/dev/null; then
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS+=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + 0))
+    else
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS+=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + 1))
+    fi
   done
   [ $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS -eq 0 ] || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=3
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
@@ -201,7 +226,13 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
   printf_column() { tee | grep '^'; }
   __printf_color() { printf '%s\n' "$1"; }
 else
-  __printf_color() { [[ -t 1 ]] && printf '%b%s%b\n' "${2:-$PRINTF_SET_RESET}" "$1" "$PRINTF_SET_RESET" || printf '%s\n' "$1"; }
+  __printf_color() {
+    if [[ -t 1 ]]; then
+      printf '%b%s%b\n' "${2:-$PRINTF_SET_RESET}" "$1" "$PRINTF_SET_RESET"
+    else
+      printf '%s\n' "$1"
+    fi
+  }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional printf_ colors
@@ -325,7 +356,11 @@ __run_install_version() {
       GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
     fi
   fi
-  [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  if [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ]; then
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+  else
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  fi
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -352,7 +387,11 @@ __cron_updater() {
       fi
     fi
   fi
-  [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  if [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ]; then
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+  else
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  fi
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -380,7 +419,11 @@ __installer_delete() {
     fi
     printf_yellow "Removing any broken symlinks"
     __broken_symlinks "$BIN" "$SHARE" "$COMPDIR" "$CONF" "$THEMEDIR" "$FONTDIR" "$ICONDIR"
-    { [ -e "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" ] || [ -d "$INSTALL_DIR_NAME/$app" ] || [ -d "$APP_DIR_NAME/$app" ]; } && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+    if [ -e "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" ] || [ -d "$INSTALL_DIR_NAME/$app" ] || [ -d "$APP_DIR_NAME/$app" ]; then
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+    else
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+    fi
     [ $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS = 0 ] && printf_cyan "$app has been removed"
     return $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS
   else
@@ -403,7 +446,11 @@ __run_install_init() {
     printf_red "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh\n"
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
-  [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  if [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ]; then
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+  else
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  fi
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -416,7 +463,11 @@ __run_install_update() {
   local NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME}"
   local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON}"
   export NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON
-  __run_install_init "$1" && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  if __run_install_init "$1"; then
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+  else
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  fi
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -451,7 +502,11 @@ __run_download() {
   if [ -d "$DIR_NAME/.git" ]; then
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   fi
-  [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  if [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ]; then
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+  else
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  fi
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -473,7 +528,11 @@ __api_list() {
     __list_available "$LIST"
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
   fi
-  [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  if [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ]; then
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+  else
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  fi
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -492,7 +551,11 @@ __run_search() {
     printf_exit "Your search produced no results"
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
-  [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  if [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ]; then
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+  else
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  fi
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -501,7 +564,10 @@ __is_an_option() { if [[ "$ARRAY" == *"${1:-^}"* ]]; then return 1; else return 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
-  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+  if [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; then
+    return 0
+  fi
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user not root
@@ -516,26 +582,43 @@ __sudo_group() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # # Get sudo password
 __sudoask() {
-  ask_for_password sudo true && return 0 || return 1
+  if ask_for_password sudo true; then
+    return 0
+  fi
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run sudo
 __sudorun() {
-  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  if __sudoif && __cmd_exists sudo && sudo -HE "$@"; then
+    :
+  else
+    __sudoif && eval "$@"
+  fi
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Test if user has access to sudo
 __can_i_sudo() {
   (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+  if __sudo_group "${1:-$USER}"; then
+    return 0
+  elif __sudoif; then
+    return 0
+  elif __sudo true &>/dev/null; then
+    return 0
+  fi
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
 __sudoif() {
   __user_is_root && return 0
   __can_i_sudo "${RUN_USER:-$USER}" && return 0
-  __user_is_not_root && __sudoask && return 0 || return 1
+  if __user_is_not_root && __sudoask; then
+    return 0
+  fi
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute sudo
@@ -546,7 +629,11 @@ __sudo() {
   [ "${SUDO##*/}" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
     export PATH="$PATH"
-    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    if $SUDO ${OPTS:-} $CMD $CMD_ARGS; then
+      true
+    else
+      false
+    fi
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
   else
     printf '%s\n' "This requires root to run"
@@ -742,8 +829,11 @@ while :; do
     [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-'
     [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--'
     [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' ''
-    [ -n "$SHOW_LIST" ] && printf '\n' && printf_yellow "Below are the available packages:" &&
+    if [ -n "$SHOW_LIST" ]; then
+      printf '\n'
+      printf_yellow "Below are the available packages:"
       printf '%s\n' "$SHOW_LIST" | printf_column $GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR
+    fi
     printf '\n'
     exit $?
     ;;
@@ -876,7 +966,11 @@ remove)
     MESSAGE="Removing $rmf from $GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$rmf"
     __installer_delete "$rmf"
     retVal=$?
-    [ $retVal = 0 ] && __notifications "Deletion of $APPNAME was successfull" || __notifications "Deletetion of $APPNAME has failed"
+    if [ $retVal = 0 ]; then
+      __notifications "Deletion of $APPNAME was successfull"
+    else
+      __notifications "Deletetion of $APPNAME has failed"
+    fi
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
     printf '\n'
   done
@@ -899,7 +993,11 @@ install)
       APPNAME="$ins"
       __run_install_update "$APPNAME"
       retVal=$?
-      [ $retVal = 0 ] && __notifications "Successfully installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+      if [ $retVal = 0 ]; then
+        __notifications "Successfully installed $APPNAME"
+      else
+        __notifications "Installation of $APPNAME has failed"
+      fi
       GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
     fi
   done
@@ -918,7 +1016,11 @@ update)
       APPNAME="$ins"
       __run_install_update "$APPNAME"
       retVal=$?
-      [ $retVal = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
+      if [ $retVal = 0 ]; then
+        __notifications "Successfully updated $APPNAME"
+      else
+        __notifications "Update of $APPNAME has failed"
+      fi
       GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
     done
   elif [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && [ ${#LISTARRAY} -ne 0 ]; then
@@ -926,7 +1028,11 @@ update)
       APPNAME="$upd"
       __run_install_update "$APPNAME"
       retVal=$?
-      [ $retVal = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
+      if [ $retVal = 0 ]; then
+        __notifications "Successfully updated $APPNAME"
+      else
+        __notifications "Update of $APPNAME has failed"
+      fi
       GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
     done
   else
@@ -947,7 +1053,11 @@ download | clone)
     for pkgs in "${LISTARRAY[@]}"; do
       __run_download "$pkgs"
       retVal=$?
-      [ $retVal = 0 ] && __notifications "Downloaded $APPNAME" || __notifications "Download of $APPNAME has failed"
+      if [ $retVal = 0 ]; then
+        __notifications "Downloaded $APPNAME"
+      else
+        __notifications "Download of $APPNAME has failed"
+      fi
       GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
     done
   else

@@ -28,7 +28,11 @@ USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[ "$1" == "--debug" ] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+if [ "$1" == "--debug" ]; then
+  set -xo pipefail
+  export SCRIPT_OPTS="--debug"
+  export _DEBUG="on"
+fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -86,7 +90,13 @@ disable_selinux() {
   devnull setenforce 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-grab_remote_file() { urlverify "$1" && curl -sSLq "$@" || exit 1; }
+grab_remote_file() {
+  if urlverify "$1" && curl -sSLq "$@"; then
+    :
+  else
+    exit 1
+  fi
+}
 run_external() { printf_green "Executing $*" && "$@" >/dev/null 2>&1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 retrieve_version_file() {
@@ -101,7 +111,10 @@ run_grub() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 #### OS Specific
 test_pkg() {
-  devnull sudo dpkg-query -l "$1" && printf_success "$1 is installed" && return 0 || return 1
+  if devnull sudo dpkg-query -l "$1" && printf_success "$1 is installed"; then
+    return 0
+  fi
+  return 1
   setexitstatus
   set --
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607071200-git
+##@Version           :  202608130404-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607071200-git"
+VERSION="202608130404-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -900,6 +900,33 @@ __parse_version() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Track the last-downloaded remote filename for each local ISO path, so a later
+# run can tell an existing on-disk ISO apart from a newer upstream release with
+# the same local name and overwrite it in place instead of skipping or blindly
+# re-downloading. Map file is a flat "local_path=remote_filename" list.
+# Usage: __version_map_get "$local_path"; __version_map_set "$local_path" "$remote_name"
+__version_map_file() {
+  printf '%s' "${LATEST_ISO_CONFIG_DIR}/${LATEST_ISO_VERSION_MAP_FILE:-versions.conf}"
+}
+__version_map_get() {
+  local key="$1" map_file
+  map_file="$(__version_map_file)"
+  [ -f "$map_file" ] || return 0
+  __grep -F -- "${key}=" "$map_file" | tail -n1 | __sed "s|^${key}=||"
+}
+__version_map_set() {
+  local key="$1" value="$2" map_file
+  [ -n "$key" ] || return 1
+  map_file="$(__version_map_file)"
+  [ -d "$LATEST_ISO_CONFIG_DIR" ] || mkdir -p "$LATEST_ISO_CONFIG_DIR"
+  [ -f "$map_file" ] || : >"$map_file"
+  if __grep -qF -- "${key}=" "$map_file"; then
+    __sed -i "s|^${key}=.*|${key}=${value}|" "$map_file"
+  else
+    printf '%s=%s\n' "$key" "$value" >>"$map_file"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Build the local save path for an ISO.
 # When a version is pinned (via =VERSION or env var), produces {dir}/{name}.{version}.{ext}
 # so pinned downloads don't overwrite the latest copy. Without a version, falls back to
@@ -1300,12 +1327,20 @@ __grab_iso() {
     [ -f "$extracted_iso" ] && check_file="$extracted_iso"
     ;;
   esac
+  # An unrecorded local file is assumed up to date (avoids surprise re-downloads
+  # for files that predate the version map); a recorded remote name that differs
+  # from the newly-resolved one means a newer release is available upstream.
+  local recorded_remote_name
+  recorded_remote_name="$(__version_map_get "$check_file")"
   if [ -f "$check_file" ] && [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
-    __filesize_local "$check_file" "silent" &>/dev/null
-    printf_cyan "File already exists in: ${PURPLE}$check_file : $local_file_size"
-    [ -n "$GRAB_LATEST" ] && printf_blue "$GRAB_LATEST : $remote_filesize"
-    printf_newline
-    return 0
+    if [ -z "$recorded_remote_name" ] || [ "$recorded_remote_name" = "$GRAB_REMOTE_ISO_NAME" ]; then
+      __filesize_local "$check_file" "silent" &>/dev/null
+      printf_cyan "File already exists in: ${PURPLE}$check_file : $local_file_size"
+      [ -n "$GRAB_LATEST" ] && printf_blue "$GRAB_LATEST : $remote_filesize"
+      printf_newline
+      return 0
+    fi
+    printf_yellow "Update available for $check_file: $recorded_remote_name -> $GRAB_REMOTE_ISO_NAME"
   fi
 
   # Proceed with download
@@ -1317,6 +1352,7 @@ __grab_iso() {
     if __execute_download; then
       __verify_download
       exitCode=$?
+      [ "$exitCode" -eq 0 ] && __version_map_set "$GRAB_DOWNLOAD_FILE" "$GRAB_REMOTE_ISO_NAME"
     else
       printf_red "Failed to download $GRAB_LATEST"
       exitCode=2
@@ -2915,6 +2951,7 @@ __download_with_progress() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 LATEST_ISO_CONFIG_FILE="${LATEST_ISO_CONFIG_FILE:-settings.conf}"
+LATEST_ISO_VERSION_MAP_FILE="${LATEST_ISO_VERSION_MAP_FILE:-versions.conf}"
 LATEST_ISO_CONFIG_DIR="${LATEST_ISO_CONFIG_DIR:-$HOME/.config/myscripts/latest-iso}"
 LATEST_ISO_CONFIG_BACKUP_DIR="${LATEST_ISO_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/latest-iso/backups}"
 LATEST_ISO_LOG_DIR="${LATEST_ISO_LOG_DIR:-$HOME/.local/log/latest-iso}"

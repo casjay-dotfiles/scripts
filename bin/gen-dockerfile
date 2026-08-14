@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606280134-git
+##@Version           :  202608141458-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Tuesday, Aug 29, 2023 20:55 EDT
 # @@File             :  gen-dockerfile
 # @@Description      :  Create a Dockerfile
-# @@Changelog        :  Auto-migrate legacy .env.scripts variables
+# @@Changelog        :  Map git org to a different registry push org for new repos
 # @@TODO             :  Rewite/Cleanup variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606280134-git"
+VERSION="202608141458-git"
 SCRIPT_EXEC="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "$0")"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
@@ -186,6 +186,9 @@ __gen_config() {
 GEN_DOCKERFILE_BACKUP_EXT="${GEN_DOCKERFILE_BACKUP_EXT:-}"
 GEN_DOCKERFILE_DEFAULT_GIT_ORG="${GEN_DOCKERFILE_DEFAULT_GIT_ORG:-}"
 GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG="${GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG:-}"
+# Maps a detected git org to its registry push org, comma-separated
+# git_org:registry_org pairs, for orgs where the two differ (source:image)
+GEN_DOCKERFILE_ORG_REGISTRY_MAP="${GEN_DOCKERFILE_ORG_REGISTRY_MAP:-}"
 BUILDX_BUILD_DATE_FORMAT="${BUILDX_BUILD_DATE_FORMAT:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Maintainer info
@@ -590,6 +593,24 @@ __is_project_directory() {
   return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Looks up the registry push org for a detected git org in
+# GEN_DOCKERFILE_ORG_REGISTRY_MAP ("git_org:registry_org,..."); prints the
+# mapped registry org and returns 0, or returns 1 if no entry matches
+__org_registry_from_map() {
+  local git_org="${1:-}" entry="" map_org="" map_registry=""
+  [ -n "$git_org" ] || return 1
+  local IFS=","
+  for entry in $GEN_DOCKERFILE_ORG_REGISTRY_MAP; do
+    map_org="${entry%%:*}"
+    map_registry="${entry#*:}"
+    [ "$map_org" = "$git_org" ] || continue
+    [ -n "$map_registry" ] || continue
+    printf '%s\n' "$map_registry"
+    return 0
+  done
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __resolve_repo_settings() {
   local default_git_org="${GEN_DOCKERFILE_DEFAULT_GIT_ORG:-casjaysdevdocker}"
   local default_registry_org="${GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG:-casjaysdevdocker}"
@@ -610,8 +631,12 @@ __resolve_repo_settings() {
   [ "$configured_registry_org" = "$default_registry_org" ] && configured_registry_org=""
   GEN_DOCKERFILE_RESOLVED_REGISTRY_REPO="${GEN_DOCKERFILE_SET_REGISTRY_REPO:-${ENV_REGISTRY_REPO:-${GEN_DOCKERFILE_REMOTE_REPO:-${path_repo:-$default_repo}}}}"
   GEN_DOCKERFILE_RESOLVED_GIT_REPO_NAME="${GEN_DOCKERFILE_SET_GIT_REPO:-${GEN_DOCKERFILE_REMOTE_REPO:-${path_repo:-$default_repo}}}"
-  GEN_DOCKERFILE_RESOLVED_GIT_ORG="${GEN_DOCKERFILE_SET_GIT_ORG:-${configured_git_org:-${GEN_DOCKERFILE_REMOTE_OWNER:-$path_org}}}"
-  GEN_DOCKERFILE_RESOLVED_REGISTRY_ORG="${GEN_DOCKERFILE_SET_REGISTRY_ORG:-${ENV_REGISTRY_ORG:-${configured_registry_org:-${GEN_DOCKERFILE_REMOTE_OWNER:-$path_org}}}}"
+  # Detected git org (from an existing remote, else the parent directory name)
+  # feeds both the git-org resolution and the org-registry map lookup below
+  local detected_git_org="${GEN_DOCKERFILE_REMOTE_OWNER:-$path_org}" mapped_registry_org=""
+  mapped_registry_org="$(__org_registry_from_map "$detected_git_org")" || mapped_registry_org=""
+  GEN_DOCKERFILE_RESOLVED_GIT_ORG="${GEN_DOCKERFILE_SET_GIT_ORG:-${configured_git_org:-$detected_git_org}}"
+  GEN_DOCKERFILE_RESOLVED_REGISTRY_ORG="${GEN_DOCKERFILE_SET_REGISTRY_ORG:-${ENV_REGISTRY_ORG:-${configured_registry_org:-${mapped_registry_org:-$detected_git_org}}}}"
   [ -n "$GEN_DOCKERFILE_RESOLVED_GIT_ORG" ] || GEN_DOCKERFILE_RESOLVED_GIT_ORG="$default_git_org"
   [ -n "$GEN_DOCKERFILE_RESOLVED_REGISTRY_ORG" ] || GEN_DOCKERFILE_RESOLVED_REGISTRY_ORG="$default_registry_org"
   GEN_DOCKERFILE_RESOLVED_ORG="${GEN_DOCKERFILE_RESOLVED_REGISTRY_ORG:-$GEN_DOCKERFILE_RESOLVED_GIT_ORG}"
@@ -1431,6 +1456,9 @@ GEN_DOCKERFILE_PROJECT_DIRS="${GEN_DOCKERFILE_PROJECT_DIRS:-$HOME/Documents $HOM
 GEN_DOCKER_VERSION_FORMAT="${GEN_DOCKER_VERSION_FORMAT:-${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}}"
 GEN_DOCKERFILE_DEFAULT_GIT_ORG="${GEN_DOCKERFILE_DEFAULT_GIT_ORG:-casjaysdevdocker}"
 GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG="${GEN_DOCKERFILE_DEFAULT_REGISTRY_ORG:-casjaysdevdocker}"
+# dockersrc holds base OS/toolchain images pushed under the casjaysdev registry org;
+# casjaysdevdocker holds app images pushed under its own org (git org == registry org)
+GEN_DOCKERFILE_ORG_REGISTRY_MAP="${GEN_DOCKERFILE_ORG_REGISTRY_MAP:-dockersrc:casjaysdev,casjaysdevdocker:casjaysdevdocker}"
 # Org of the project being generated — auto-detected from the parent dir of $PWD;
 # override via env when invoking gen-dockerfile from outside the project tree
 GEN_DOCKERFILE_APP_DIR="${GEN_DOCKERFILE_APP_DIR:-$(basename -- "$(dirname -- "$PWD")")}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608141653-git
+##@Version           :  202608141710-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Nov 01, 2024 16:56 EDT
 # @@File             :  composemgr
 # @@Description      :
-# @@Changelog        :  Added COMPOSEMGR_NETWORKS env var (comma separated) - missing networks are created silently before "up" brings the stack up
+# @@Changelog        :  Fixed config load-order bug, dead vars/functions, unquoted __is_number_even, workDir/working_dir mixup, missing COMPOSEMGR_SCRIPTS_PREFIX default
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329,SC2063
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608141653-git"
+VERSION="202608141710-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -156,6 +156,7 @@ COMPOSEMGR_GIT_ORG_URL="${COMPOSEMGR_GIT_ORG_URL:-}"
 COMPOSEMGR_DEFAULT_PROJECT_DIR="${COMPOSEMGR_DEFAULT_PROJECT_DIR:-}"
 COMPOSEMGR_DEFAULT_RUN_LEVEL="${COMPOSEMGR_DEFAULT_RUN_LEVEL:-}"
 COMPOSEMGR_DEFAULT_ENV_FILE="${COMPOSEMGR_DEFAULT_ENV_FILE:-}"
+COMPOSEMGR_NETWORKS="${COMPOSEMGR_NETWORKS:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 COMPOSEMGR_OUTPUT_COLOR_1="${COMPOSEMGR_OUTPUT_COLOR_1:-}"
@@ -740,14 +741,6 @@ __docker_compose_cmd() {
   else return 1; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_data_dir() {
-  images=$(__get_image_name)
-  for image in $images; do
-    repo="${image##*/}"
-    org="${image%/*}" && org="${org##*/}"
-  done
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_docker_compose() {
   if [ -f "docker-compose.yaml" ] || [ -f "docker-compose.yml" ] || [ -f "compose.yml" ] || [ -f "compose.yaml" ]; then
     [ -f "$COMPOSEMGR_CWD/.env" ] && . "$COMPOSEMGR_CWD/.env"
@@ -786,15 +779,12 @@ __init_dir() {
   local domainName="$(hostname -d | grep -- '\..*' || echo "$HOSTNAME")"
   [ -n "$COMPOSEMGR_DEFAULT_PROJECT_NAME" ] && working_dir="$COMPOSEMGR_DEFAULT_PROJECT_DIR/$COMPOSEMGR_DEFAULT_PROJECT_NAME"
   export COMPOSEMGR_CWD="$workDir"
-  edit_compose_file=no
   is_docker_app_running="${is_docker_app_running:-$([ -d "$workDir" ] && composemgr --dir "$workDir" ps 2>/dev/null | grep -v -- '^NAME  ' | grep -- '^' || false)}"
   [ -n "$is_docker_app_running" ] && printf_yellow "Stopping the containers for app: $repo_name" && composemgr --dir "$workDir" down >/dev/null 2>&1
   if [ "$kind" = "file" ]; then
     mkdir -p "$workDir"
     if __cd "$workDir" && __retrieve_compose "$clone_url"; then
-      edit_compose_file="yes"
       __get_docker_compose "$workDir"
-      COMPOSEMGR_HOSTNAME="${repo_name##*/}.$BASE_DOMAIN_NAME"
       if [ ! -f "$workDir/app.env" ] || [ -s "$workDir/app.env" ]; then
         cat <<EOF >"$workDir/app.env"
 # Docker Compose Global env
@@ -849,13 +839,10 @@ EOF
       fi
     fi
     if [ $exitCode -eq 0 ]; then
-      edit_compose_file="yes"
       [ -d "$tmpdir" ] && cp -Rfa "$tmpdir/." "$workDir/"
       if \cd "$workDir"; then
         __get_docker_compose "$workDir"
-        COMPOSEMGR_HOSTNAME="${repo_name##*/}.$BASE_DOMAIN_NAME"
         if [ ! -f "$workDir/$COMPOSEMGR_DEFAULT_ENV_FILE" ]; then
-          edit_compose_file="yes"
           if [ -f "$workDir/app.env.default" ]; then
             if [ ! -f "$workDir/app.env" ]; then
               cp -Rf "$workDir/app.env.default" "$workDir/app.env"
@@ -925,11 +912,11 @@ __install_files() {
   __resolve_install_source "$1"
   local repo_name="${COMPOSEMGR_PROJECT_NAME:-$INSTALL_NAME}"
   local dockerNetworks="$(__get_docker_networks)"
-  dotenvFile="no"
+  local dotenvFile="no"
   working_dir="$COMPOSEMGR_DEFAULT_PROJECT_DIR/$repo_name"
   [ -n "$COMPOSEMGR_DEFAULT_PROJECT_NAME" ] && working_dir="$COMPOSEMGR_DEFAULT_PROJECT_DIR/$COMPOSEMGR_DEFAULT_PROJECT_NAME"
-  is_docker_app_running="${is_docker_app_running:-$([ -d "$workDir" ] && composemgr --dir "$workDir" ps 2>/dev/null | grep -v -- '^NAME  ' | grep -- '^' || false)}"
-  if ! __is_docker_compose; then edit_compose_file="${edit_compose_file:-yes}" && COMPOSEMGR_FIRST_RUN="yes"; fi
+  is_docker_app_running="${is_docker_app_running:-$([ -d "$working_dir" ] && composemgr --dir "$working_dir" ps 2>/dev/null | grep -v -- '^NAME  ' | grep -- '^' || false)}"
+  if ! __is_docker_compose; then COMPOSEMGR_FIRST_RUN="yes"; fi
   if __init_dir "$repo_name" "$INSTALL_URL" "$INSTALL_KIND"; then
     __cd "$working_dir" || return 1
     if __get_docker_compose "$working_dir"; then
@@ -940,7 +927,7 @@ __install_files() {
       done
       if [ -n "$is_docker_app_running" ]; then
         printf_green "Bringing up the containers for: $repo_name"
-        composemgr --dir "$workDir" up >/dev/null 2>&1 && composemgr --dir "$workDir" ps | grep -q "^$repo_name"
+        composemgr --dir "$working_dir" up >/dev/null 2>&1 && composemgr --dir "$working_dir" ps | grep -q "^$repo_name"
         exitCode=$?
       else
         printf_green "$repo_name has been installed: run \"export COMPOSEMGR_INIT=\"yes\";$APPNAME --dir $working_dir up;unset COMPOSEMGR_INIT\" to run"
@@ -957,7 +944,8 @@ __install_files() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __compose_up() {
   local exitCode=0
-  pname="$(__project_name "$1")"
+  local pname="$(__project_name "$1")"
+  local dotenvFile="yes"
   COMPOSEMGR_INIT="${COMPOSEMGR_INIT:-no}"
   [ -f "$COMPOSEMGR_CWD/$COMPOSEMGR_DEFAULT_ENV_FILE" ] && . "$COMPOSEMGR_CWD/$COMPOSEMGR_DEFAULT_ENV_FILE" || dotenvFile="no"
   if __is_docker_compose; then
@@ -999,9 +987,10 @@ __compose_up() {
 __remove_files() {
   local retVal=0
   local exitCode=0
-  pname="$(__project_name "$1")"
-  directories="$(eval echo $(__get_project_dir) | sed 's|/srv/'$USER'/docker,||g' | tr ',' '\n')"
-  files="$(ls -A "$COMPOSEMGR_CWD" | grep -Ev "$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME|$COMPOSEMGR_DEFAULT_ENV_FILE$|app.env$")"
+  local dir="" file=""
+  local pname="$(__project_name "$1")"
+  local directories="$(eval echo $(__get_project_dir) | sed 's|/srv/'$USER'/docker,||g' | tr ',' '\n')"
+  local files="$(ls -A "$COMPOSEMGR_CWD" | grep -Ev "$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME|$COMPOSEMGR_DEFAULT_ENV_FILE$|app.env$")"
   printf_cyan "Running docker compose down for $pname"
   if __compose_down; then
     printf_blue "Removing the directories for $pname"
@@ -1050,7 +1039,7 @@ __compose_edit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_number_even() {
   local num="${1:-16}"
-  [ $num != 0 ] || [ -n "$num" ] || num=32
+  [[ "$num" =~ ^[0-9]+$ ]] || num=32
   if ((num % 2 == 0)); then
     true
   else
@@ -1114,6 +1103,7 @@ __generate_nginx_proxy() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __backup() {
   local folders=()
+  local databases=""
   local year="$(date +'%Y')"
   local date="$(date +'%m-%d')"
   local backup_ext="$(date +'%%H-%M').tar.gz"
@@ -1176,9 +1166,6 @@ __new_project() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" ] && . "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 COMPOSEMGR_START_TIMER="${COMPOSEMGR_START_TIMER:-$(date +%s.%N)}"
 
@@ -1190,6 +1177,7 @@ COMPOSEMGR_EXIT_STATUS=0
 COMPOSEMGR_CONFIG_DIR="${COMPOSEMGR_CONFIG_DIR:-$HOME/.config/myscripts/composemgr}"
 COMPOSEMGR_CONFIG_BACKUP_DIR="${COMPOSEMGR_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/composemgr/backups}"
 COMPOSEMGR_LOG_DIR="${COMPOSEMGR_LOG_DIR:-$HOME/.local/log/composemgr}"
+COMPOSEMGR_SCRIPTS_PREFIX="${COMPOSEMGR_SCRIPTS_PREFIX:-composemgr}"
 COMPOSEMGR_RUN_DIR="${COMPOSEMGR_RUN_DIR:-$HOME/.local/run/system_scripts/$COMPOSEMGR_SCRIPTS_PREFIX}"
 COMPOSEMGR_TEMP_DIR="${COMPOSEMGR_TEMP_DIR:-$HOME/.local/tmp/system_scripts/composemgr}"
 COMPOSEMGR_CACHE_DIR="${COMPOSEMGR_CACHE_DIR:-$HOME/.cache/composemgr}"
@@ -1197,6 +1185,9 @@ COMPOSEMGR_CACHE_DIR="${COMPOSEMGR_CACHE_DIR:-$HOME/.cache/composemgr}"
 # File settings
 COMPOSEMGR_CONFIG_FILE="${COMPOSEMGR_CONFIG_FILE:-settings.conf}"
 COMPOSEMGR_LOG_ERROR_FILE="${COMPOSEMGR_LOG_ERROR_FILE:-$COMPOSEMGR_LOG_DIR/error.log}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" ] && . "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 COMPOSEMGR_OUTPUT_COLOR_1="${COMPOSEMGR_OUTPUT_COLOR_1:-33}"
@@ -1471,7 +1462,6 @@ while :; do
   --force)
     shift 1
     export FORCE_INSTALL="true"
-    COMPOSEMGR_FORCE_INSTALL="true"
     ;;
   --dir)
     CWD_IS_SET="true"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607201530-git
+##@Version           :  202608141653-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Nov 01, 2024 16:56 EDT
 # @@File             :  composemgr
 # @@Description      :
-# @@Changelog        :  __migrate_srv_base now also detects the original /srv/$USER/composemgr legacy path, checks /srv and /srv/$USER write access before migrating, and writes a marker file so a stuck/undeletable old_dir no longer re-triggers the full migration flow on every run
+# @@Changelog        :  Added COMPOSEMGR_NETWORKS env var (comma separated) - missing networks are created silently before "up" brings the stack up
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329,SC2063
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202607201530-git"
+VERSION="202608141653-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -280,6 +280,21 @@ EOF
 __get_docker_networks() {
   local networks="$(docker network ls 2>/dev/null | grep -Ev 'NETWORK ID.*NAME|bridge.*bridge.*local|host.*host.*local|none.*null.*local' | awk '{print $2}' | sort -u | grep -v '^$' | grep '^' || false)"
   [ -n "$networks" ] && printf '%s\n' "${networks[@]}" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create any missing networks listed in COMPOSEMGR_NETWORKS (comma separated)
+__ensure_networks() {
+  [ -n "$COMPOSEMGR_NETWORKS" ] || return 0
+  local dockerNetworks="$(__get_docker_networks)"
+  local network=""
+  local exitCode=0
+  for network in ${COMPOSEMGR_NETWORKS//,/ }; do
+    [ -n "$network" ] || continue
+    if [[ "$dockerNetworks" != *"$network"* ]]; then
+      docker network create "$network" >/dev/null 2>&1 || exitCode=1
+    fi
+  done
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Help function - Align to 50
@@ -968,6 +983,10 @@ __compose_up() {
       fi
     fi
     unset COMPOSEMGR_INIT compose defdotenv appdotenv
+    if ! __ensure_networks; then
+      printf_red "Failed to create one or more networks from COMPOSEMGR_NETWORKS" >&2
+      return 1
+    fi
     __docker_compose_cmd up -d --remove-orphans --force-recreate
     exitCode=$?
   else
@@ -1207,6 +1226,7 @@ COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME="${COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME:-comp
 COMPOSEMGR_DEFAULT_RUN_LEVEL="${COMPOSEMGR_DEFAULT_RUN_LEVEL:-devel}"
 COMPOSEMGR_DEFAULT_ENV_FILE="${COMPOSEMGR_DEFAULT_ENV_FILE:-default.env}"
 COMPOSEMGR_ENV_ENABLED="${COMPOSEMGR_ENV_ENABLED:-yes}"
+COMPOSEMGR_NETWORKS="${COMPOSEMGR_NETWORKS:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 TZ="${TZ:-America/New_York}"
 BASE_DOMAIN_NAME="${BASE_DOMAIN_NAME:-$(hostname -d 2>/dev/null | grep '\.' | grep '^' || echo "$BASE_HOST_NAME")}"

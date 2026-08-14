@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608141710-git
+##@Version           :  202608141744-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Nov 01, 2024 16:56 EDT
 # @@File             :  composemgr
 # @@Description      :
-# @@Changelog        :  Fixed config load-order bug, dead vars/functions, unquoted __is_number_even, workDir/working_dir mixup, missing COMPOSEMGR_SCRIPTS_PREFIX default
+# @@Changelog        :  Added /srv/$USER/compose fallback to $HOME/.local/srv/compose when not readable/writable; migration target now uses the same resolved dir
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329,SC2063
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608141710-git"
+VERSION="202608141744-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1166,6 +1166,19 @@ __new_project() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Resolve the compose project base directory, falling back to a user-local
+# path when /srv/$USER/compose is not readable and writable
+__resolve_compose_dir() {
+  local srv_dir="/srv/$USER/compose"
+  local local_dir="$HOME/.local/srv/compose"
+  [ -d "$srv_dir" ] || mkdir -p "$srv_dir" 2>/dev/null
+  if [ -r "$srv_dir" ] && [ -w "$srv_dir" ]; then
+    printf '%s\n' "$srv_dir"
+  else
+    printf '%s\n' "$local_dir"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 COMPOSEMGR_START_TIMER="${COMPOSEMGR_START_TIMER:-$(date +%s.%N)}"
 
@@ -1209,7 +1222,7 @@ COMPOSEMGR_NOTIFY_CLIENT_ICON="${COMPOSEMGR_NOTIFY_CLIENT_ICON:-notification-new
 COMPOSEMGR_NOTIFY_CLIENT_URGENCY="${COMPOSEMGR_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-COMPOSEMGR_DEFAULT_PROJECT_DIR="${COMPOSEMGR_DEFAULT_PROJECT_DIR:-/srv/$USER/compose}"
+COMPOSEMGR_DEFAULT_PROJECT_DIR="${COMPOSEMGR_DEFAULT_PROJECT_DIR:-$(__resolve_compose_dir)}"
 COMPOSEMGR_GIT_ORG_URL="${COMPOSEMGR_GIT_ORG_URL:-https://github.com/composemgr}"
 COMPOSEMGR_GIT_ORG_RAW="${COMPOSEMGR_GIT_ORG_RAW:-https://raw.githubusercontent.com/composemgr}"
 COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-$COMPOSEMGR_CONFIG_DIR/compose.env}"
@@ -1222,7 +1235,7 @@ COMPOSEMGR_NETWORKS="${COMPOSEMGR_NETWORKS:-}"
 TZ="${TZ:-America/New_York}"
 BASE_DOMAIN_NAME="${BASE_DOMAIN_NAME:-$(hostname -d 2>/dev/null | grep '\.' | grep '^' || echo "$BASE_HOST_NAME")}"
 BASE_HOST_NAME="${BASE_HOST_NAME:-$HOSTNAME}"
-BASE_DIR_STORAGE="${BASE_DIR_STORAGE:-/srv/$USER/compose}"
+BASE_DIR_STORAGE="${BASE_DIR_STORAGE:-$(__resolve_compose_dir)}"
 BASE_DIR_DATABASES="${BASE_DIR_DATABASES:-/srv/$USER/databases}"
 NGINX_PROXY_URL="${NGINX_PROXY_URL:-}"
 SERVICE_USER="${SERVICE_USER:-$(id -u)}"
@@ -1275,11 +1288,12 @@ RFC2136_TSIG_SECRET="${RFC2136_TSIG_SECRET:-}"
 # Generate config files
 [ -f "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Migrate compose data from legacy /srv/$USER/composemgr or /var/lib/srv/$USER/composemgr to /srv/$USER/compose
+# Migrate compose data from legacy /srv/$USER/composemgr or /var/lib/srv/$USER/composemgr
+# to the resolved compose dir (/srv/$USER/compose, or $HOME/.local/srv/compose as fallback)
 __migrate_srv_base() {
   [ "${COMPOSEMGR_MIGRATING:-}" = "1" ] && return 0
   __cmd_exists rsync || return 0
-  local new_dir="/srv/$USER/compose"
+  local new_dir="$(__resolve_compose_dir)"
   local marker="$new_dir/.composemgr_migrated"
   [ -f "$marker" ] && return 0
   local old_dir=""
@@ -1289,13 +1303,10 @@ __migrate_srv_base() {
     old_dir="/srv/$USER/composemgr"
   fi
   [ -n "$old_dir" ] || return 0
-  if [ ! -d "/srv" ] || [ ! -w "/srv" ]; then
-    printf_red "Migration skipped: no write access to /srv"
-    return 1
-  fi
-  mkdir -p "/srv/$USER" 2>/dev/null
-  if [ ! -w "/srv/$USER" ]; then
-    printf_red "Migration skipped: no write access to /srv/$USER"
+  local new_parent="$(dirname -- "$new_dir")"
+  mkdir -p "$new_parent" 2>/dev/null
+  if [ ! -w "$new_parent" ]; then
+    printf_red "Migration skipped: no write access to $new_parent"
     return 1
   fi
   if [ ! -w "$(dirname -- "$old_dir")" ]; then

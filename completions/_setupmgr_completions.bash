@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608202247-git
+##@Version           :  202608202310-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -53,11 +53,15 @@ _setupmgr_completion() {
   LONGOPTS="--completions --config --reset-config --debug --dir --help --options --no-color --version --silent --force --no- "
   LONGOPTS+="--all "
   #####################################################################
-  ARRAY="act aichat aider asdf atuin bat bob broot bun caddy claude coder codex copilot cortex ctop delta deno devbox direnv distrobox dive "
-  ARRAY+="dnsglobe dotnet droast dust eslint exa fabric fastfetch fd fnm fzf garage gemini gh glow go gohttpserver gpt gvm helix helm hyperfine incus jekyll "
-  ARRAY+="jless just k9s kind kubectl lapce lazydocker lazygit lima llama-cpp llm localai lua markdownlint mc minikube mods nix nodejs "
-  ARRAY+="npm-check-updates nvm ollama opencode openclaw opentofu packer pipx plandex podman powershell prettier procs rbenv remove ripgrep ruff rustfs rustup rvm "
-  ARRAY+="shellcheck shfmt speedtest starship task terminal-browser tgpt tig tilt tldr tokei traefik uv vagrant vale vercel vfox webhookd yq zed zellij zig zoxide"
+  ARRAY="act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy claude coder codex cody "
+  ARRAY+="continue copilot cortex cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv distrobox dive dnsglobe dog dotnet droast dua "
+  ARRAY+="duf dust earthly entr eslint evans exa eza fabric fastfetch fd fnm fx fzf garage gemini gh ghz git-cliff gitleaks gitui glow go "
+  ARRAY+="gohttpserver golang gpt grex gron grpcurl grype gvm hadolint helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind "
+  ARRAY+="kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llama_cpp llm localai lsd lua markdownlint mc miller minikube "
+  ARRAY+="mise mods nix nodejs npm-check-updates nushell nvm oha ollama openclaw opencode opentofu packer pipx plandex podman powershell prettier "
+  ARRAY+="procs rbenv remove ripgrep ruff rustfs rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task "
+  ARRAY+="terminal-browser tgpt tig tilt tldr tokei traefik trivy trufflehog uv vagrant vale vegeta vercel vfox viddy watchexec webhookd wrk xcaddy "
+  ARRAY+="xh xsv yq zed zellij zig zoxide"
   #####################################################################
   LIST=""
   LIST+=""

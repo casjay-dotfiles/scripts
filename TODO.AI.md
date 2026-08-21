@@ -44,3 +44,13 @@
   `setupmgr all` silently skips them. Found incidentally while auditing the
   dispatch-case gap above; not fixed since it's a separate mechanism from
   both `SETUPMGR_ALL_TOOLS` and the completions/man-page sync.
+
+## bin/apimgr
+
+- **UUOC at `bin/apimgr` line ~2820**: `__apimgr_jq -r '.[] | .' | awk '{printf
+  "%s\n", $0}'` — the `awk` is redundant since `jq -r '.[]'` already prints
+  each element on its own line. Found incidentally by the `script-lint` agent
+  while linting an unrelated multi-provider action-surface fix (removing
+  unsupported dispatcher actions, implementing pagure/onedev/artifactory/
+  nexus/cloudsmith/gitee stubs); not fixed since it's outside that change's
+  working set. Fix: replace with `__apimgr_jq -r '.[]'`.

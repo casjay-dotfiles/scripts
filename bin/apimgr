@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202608211739-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605161300-git"
+VERSION="202608211739-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -2300,11 +2300,8 @@ __bitbucket_pr_close() {
   # Bitbucket: close = decline. Separate endpoint, not a state PATCH.
   __bitbucket_api POST "/repositories/$APIMGR_REPO/pullrequests/$n/decline" '{}' | __apimgr_jq -r '"Declined PR #\(.id) — \(.links.html.href)"'
 }
-# Bitbucket Cloud has no first-class release object — releases are just git tags. Surface a friendly stub
-# rather than a generic "not implemented" so the user knows it's a platform limitation, not a missing feature.
-__bitbucket_release_unsupported() {
-  __apimgr_die "bitbucket has no release API (releases are plain git tags). Use 'apimgr bitbucket tag list' instead."
-}
+# Bitbucket Cloud has no first-class release object — releases are just git tags; the 'release' action is
+# intentionally absent from the dispatcher for this provider. Use 'apimgr bitbucket tag list' instead.
 # Git-tag actions for bitbucket. Path is /refs/tags. Bitbucket wraps responses in {values:[]}.
 __bitbucket_tag_repo() { __apimgr_resolve_repo || __apimgr_die "bitbucket tag: --repo WORKSPACE/REPO required"; }
 __bitbucket_tag_list() {
@@ -2565,6 +2562,16 @@ __gitee_tag_list() {
   __gitee_repo_check
   __gitee_api GET "/repos/$APIMGR_REPO/tags" | __apimgr_print_git_tag_list
 }
+__gitee_tag_get() {
+  local tag="${APIMGR_TAG:-$1}"
+  __apimgr_require_creds gitee
+  __gitee_repo_check
+  [ -n "$tag" ] || __apimgr_die "gitee tag get: --tag NAME or positional TAG required"
+  # Gitee has no single-tag-get endpoint; list all tags and filter client-side for the requested name.
+  local match; match="$(__gitee_api GET "/repos/$APIMGR_REPO/tags" | __apimgr_jq -r --arg t "$tag" '.[] | select(.name == $t)')"
+  [ -n "$match" ] || __apimgr_die "gitee tag get: '$tag' not found in $APIMGR_REPO"
+  __apimgr_jq . <<<"$match"
+}
 __gitee_tag_create() {
   __apimgr_require_creds gitee
   __gitee_repo_check
@@ -2681,9 +2688,8 @@ __pagure_repo_create() {
     --data-urlencode "description=${APIMGR_BODY:-}" \
     "$base/new" | __apimgr_jq -r '.message // "Created \(.fullname // "")"'
 }
-__pagure_repo_delete() {
-  __apimgr_die "pagure: project deletion is not supported via API. Use the web UI: https://pagure.io/$APIMGR_REPO/settings"
-}
+# Pagure has no project-deletion API endpoint; 'repo delete' is intentionally absent from the dispatcher for
+# this provider. Use the web UI: https://pagure.io/<repo>/settings
 __pagure_repo_all() { if [ -n "$APIMGR_ORG" ]; then __pagure_org_all; else __pagure_repo_list; fi; }
 __pagure_issue_repo() { __apimgr_resolve_repo || __apimgr_die "pagure issue: --repo NAMESPACE/REPO required"; }
 __pagure_issue_list() {
@@ -2773,6 +2779,23 @@ __pagure_pr_get() {
     "",
     "\(.initial_comment // "")"
   '
+}
+# Pagure's PR-create endpoint takes form-encoded fields, not JSON, and (for same-project PRs) only needs
+# branch_to/branch_from — a cross-fork PR would additionally need repo_from, which apimgr does not model.
+__pagure_pr_create() {
+  __apimgr_require_creds pagure
+  __pagure_issue_repo
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "pagure pr create: --title required"
+  [ -n "$APIMGR_BASE" ] || __apimgr_die "pagure pr create: --base BRANCH required (target branch)"
+  [ -n "$APIMGR_BRANCH" ] || __apimgr_die "pagure pr create: --branch BRANCH required (source branch)"
+  local base; base="$(__apimgr_provider_url pagure)" || return 1
+  local token; token="$(__apimgr_provider_token pagure)" || return 1
+  __apimgr_curl -X POST -H "Authorization: token $token" -H "Accept: application/json" \
+    --data-urlencode "title=$APIMGR_TITLE" \
+    --data-urlencode "branch_to=$APIMGR_BASE" \
+    --data-urlencode "branch_from=$APIMGR_BRANCH" \
+    --data-urlencode "initial_comment=${APIMGR_BODY:-}" \
+    "$base/$APIMGR_REPO/pull-request/new" | __apimgr_jq -r '"Created PR #\(.id) — \(.title)"'
 }
 __pagure_pr_merge() {
   local n="$1"
@@ -2908,12 +2931,10 @@ __sourcehut_tag_list() {
     __apimgr_jq -r '.results[]? | select(.name | startswith("refs/tags/")) | {name: (.name | sub("refs/tags/"; "")), target: .target} | "\(.name)\t\(.target[0:12])"' |
     awk -F'\t' '{printf "%-30s %-12s\n", $1, $2}'
 }
-__sourcehut_issue_unsupported() {
-  __apimgr_die "sourcehut: tickets live in todo.sr.ht (a separate service decoupled from repos). Use 'apimgr sourcehut api /trackers' for raw access."
-}
-__sourcehut_pr_unsupported() {
-  __apimgr_die "sourcehut: pull requests are mailing-list patches in lists.sr.ht — incompatible with apimgr's PR model. Use git send-email or 'apimgr sourcehut api /lists/...' for raw access."
-}
+# Sourcehut has no 'issue' or 'pr' actions in the dispatcher for this provider: tickets live in the
+# separate todo.sr.ht service (use 'apimgr sourcehut api /trackers' with APIMGR_SERVICE=todo for raw
+# access) and pull requests are mailing-list patches in lists.sr.ht, incompatible with apimgr's PR model
+# (use git send-email or 'apimgr sourcehut api /lists/...' with APIMGR_SERVICE=lists).
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ============== OneDev provider (per-instance /~api — modern self-host forge) ==============
 # Auth: Bearer token (OneDev access tokens). URL is per-instance — set ONEDEV_API_URL to your install
@@ -3046,6 +3067,29 @@ __onedev_pr_get() {
   local id; id="$(__onedev_project_id)"
   [ -n "$n" ] || __apimgr_die "onedev pr get: PR NUMBER required"
   __onedev_api GET "/projects/$id/pull-requests/$n" | __apimgr_jq .
+}
+# Same-project PR only (source and target branch both live in $APIMGR_REPO) — OneDev also supports
+# cross-project PRs, but apimgr does not model a second --repo for the source project.
+__onedev_pr_create() {
+  __apimgr_require_creds onedev
+  local id; id="$(__onedev_project_id)"
+  [ -n "$APIMGR_TITLE" ] || __apimgr_die "onedev pr create: --title required"
+  [ -n "$APIMGR_BASE" ] || __apimgr_die "onedev pr create: --base BRANCH required (target branch)"
+  [ -n "$APIMGR_BRANCH" ] || __apimgr_die "onedev pr create: --branch BRANCH required (source branch)"
+  local payload; payload="$(__apimgr_jq -n \
+    --arg t "$APIMGR_TITLE" --arg d "${APIMGR_BODY:-}" \
+    --arg tb "$APIMGR_BASE" --arg sb "$APIMGR_BRANCH" \
+    '{title:$t, description:$d, targetProjectId: null, targetBranch:$tb, sourceProjectId: null, sourceBranch:$sb}')"
+  payload="$(__apimgr_jq -c --argjson id "$id" '.targetProjectId=$id | .sourceProjectId=$id' <<<"$payload")"
+  __onedev_api POST "/projects/$id/pull-requests" "$payload" | __apimgr_jq -r '"Created PR #\(.number // .) — \(.title // "")"'
+}
+__onedev_pr_merge() {
+  local n="$1"
+  __apimgr_require_creds onedev
+  local id; id="$(__onedev_project_id)"
+  [ -n "$n" ] || __apimgr_die "onedev pr merge: PR NUMBER required"
+  __apimgr_confirm "Merge PR #$n in $APIMGR_REPO?" || { printf_yellow "Aborted"; return 1; }
+  __onedev_api POST "/projects/$id/pull-requests/$n/merge" '{}' >/dev/null && printf_green "Merged PR #$n"
 }
 __onedev_tag_list() {
   __apimgr_require_creds onedev
@@ -3772,8 +3816,16 @@ __cloudsmith_verify() {
 __cloudsmith_user_get() {
   __apimgr_require_creds cloudsmith
   if [ -n "$APIMGR_USER" ]; then
-    # Cloudsmith doesn't expose arbitrary-user lookup; fall back to listing their repos.
-    __apimgr_die "cloudsmith user get --user X: not exposed by API. Use 'apimgr cloudsmith repo list --user X' instead."
+    # Cloudsmith has no site-wide username lookup; a member can only be resolved within an org's member list.
+    [ -n "$APIMGR_ORG" ] || __apimgr_die "cloudsmith user get --user X: requires --org NAMESPACE too (Cloudsmith only exposes users scoped to an org's member list)"
+    local resp match
+    resp="$(__cloudsmith_api GET "/orgs/$APIMGR_ORG/members/")" || __apimgr_die "Cloudsmith org members lookup failed for '$APIMGR_ORG'"
+    match="$(__apimgr_jq -r --arg u "$APIMGR_USER" '
+      .[] | select((.user.slug // .user.username // .slug // .username // "") == $u)
+    ' <<<"$resp")"
+    [ -n "$match" ] || __apimgr_die "cloudsmith user '$APIMGR_USER' not found in org '$APIMGR_ORG' members"
+    __apimgr_jq . <<<"$match"
+    return 0
   fi
   __cloudsmith_api GET /user/self/ | __apimgr_jq .
 }
@@ -3923,8 +3975,21 @@ __artifactory_repo_delete() {
   __apimgr_confirm "Delete Artifactory repo '$key'? Requires admin and is irreversible." || { printf_yellow "Aborted"; return 1; }
   __artifactory_api DELETE "/repositories/$key" >/dev/null && printf_green "Deleted Artifactory repo '$key'"
 }
+# Artifactory repo creation needs a per-format JSON spec. This covers the common baseline (rclass +
+# packageType + description) via PUT /repositories/{key} — enough for simple local repos (generic, maven,
+# npm, docker, etc. without extra per-format tuning). --visibility selects rclass (local|remote|virtual,
+# default local); --format selects packageType (default generic). For anything needing extra fields
+# (remote url, docker port, maven layout, etc.), use 'apimgr artifactory api /repositories/<key>' with PUT.
 __artifactory_repo_create() {
-  __apimgr_die "artifactory repo create: requires a per-format JSON spec (rclass, packageType, etc.) that doesn't fit a generic --visibility flag. Use 'apimgr artifactory api /repositories/<key>' with PUT and a hand-crafted body, or the JFrog UI."
+  __apimgr_require_creds artifactory
+  __apimgr_resolve_repo || __apimgr_die "artifactory repo create: --repo KEY required"
+  local key="${APIMGR_REPO##*/}"
+  local rclass="${APIMGR_VISIBILITY:-local}"
+  case "$rclass" in local|remote|virtual) ;; *) __apimgr_die "artifactory repo create: --visibility must be local|remote|virtual (selects rclass)" ;; esac
+  local packagetype="${APIMGR_FORMAT:-generic}"
+  local payload; payload="$(__apimgr_jq -n --arg k "$key" --arg r "$rclass" --arg p "$packagetype" --arg d "${APIMGR_BODY:-}" \
+    '{key:$k, rclass:$r, packageType:$p, description:$d}')"
+  __artifactory_api PUT "/repositories/$key" "$payload" >/dev/null && printf_green "Created Artifactory repo '$key' ($rclass/$packagetype)"
 }
 # Tag listing for Artifactory's docker repos. Path: /api/docker/<repo-key>/v2/<image>/tags/list — different
 # from the generic /repositories/.../tags pattern. Requires --repo REPOKEY/IMAGE (slash-split).
@@ -4036,8 +4101,19 @@ __nexus_repo_delete() {
   __apimgr_confirm "Delete Nexus repo '$key'? Requires admin and is irreversible." || { printf_yellow "Aborted"; return 1; }
   __nexus_api DELETE "/repositories/$key" >/dev/null && printf_green "Deleted Nexus repo '$key'"
 }
+# Nexus repo creation needs a per-format JSON spec too; this covers the common hosted-repo baseline
+# (name + online + default blob store) via POST /repositories/{format}/hosted — enough for simple formats
+# (raw, npm-hosted-style, maven2 with defaults, etc.). --format selects the path segment (default raw).
+# Formats needing extra fields (docker http port, maven versionPolicy, etc.) still need a hand-crafted
+# body via 'apimgr nexus api /repositories/<format>/hosted' with POST.
 __nexus_repo_create() {
-  __apimgr_die "nexus repo create: requires a per-format JSON spec (rclass, format, storage config) that doesn't fit a generic --visibility flag. Use 'apimgr nexus api /repositories/<format>/hosted' with PUT and a hand-crafted body, or the Nexus UI."
+  __apimgr_require_creds nexus
+  __apimgr_resolve_repo || __apimgr_die "nexus repo create: --repo NAME required"
+  local key="${APIMGR_REPO##*/}"
+  local format="${APIMGR_FORMAT:-raw}"
+  local payload; payload="$(__apimgr_jq -n --arg n "$key" \
+    '{name:$n, online:true, storage:{blobStoreName:"default", strictContentTypeValidation:true}, cleanup:null}')"
+  __nexus_api POST "/repositories/$format/hosted" "$payload" >/dev/null && printf_green "Created Nexus repo '$key' (format=$format, hosted)"
 }
 # Components (the Nexus tag-equivalent). Listed via /components?repository=X.
 __nexus_tag_list() {
@@ -4361,8 +4437,6 @@ __apimgr_dispatch_provider() {
             close|decline)    __bitbucket_pr_close "$1" ;;
             *)                __apimgr_die "bitbucket pr: unknown sub '$sub' (try list|get|create|merge|close)" ;;
           esac ;;
-        release|releases|rel)
-          __bitbucket_release_unsupported ;;
         tag|tags)
           case "$sub" in
             list|"")
@@ -4442,9 +4516,10 @@ __apimgr_dispatch_provider() {
             list|"")
               [ "${1:-}" = "all" ] && APIMGR_ALL="true"
               __gitee_tag_list ;;
+            get|show)         __gitee_tag_get "$1" ;;
             create|new)       __gitee_tag_create ;;
             delete|rm)        __gitee_tag_delete "$1" ;;
-            *)                __apimgr_die "gitee tag: unknown sub '$sub' (try list|create|delete — gitee has no get-tag endpoint)" ;;
+            *)                __apimgr_die "gitee tag: unknown sub '$sub' (try list|get|create|delete)" ;;
           esac ;;
         api)
           [ -n "$sub" ] || __apimgr_die "gitee api: PATH required (e.g. apimgr gitee api /user)"
@@ -4467,9 +4542,8 @@ __apimgr_dispatch_provider() {
               __pagure_repo_list ;;
             get|"")           __pagure_repo_get ;;
             create)           __pagure_repo_create ;;
-            delete|rm)        __pagure_repo_delete ;;
             all)              APIMGR_ALL="true"; __pagure_repo_all ;;
-            *)                __apimgr_die "pagure repo: unknown sub '$sub' (try list|get|create|delete|all)" ;;
+            *)                __apimgr_die "pagure repo: unknown sub '$sub' (try list|get|create|all — Pagure has no delete API)" ;;
           esac ;;
         issue)
           case "$sub" in
@@ -4488,20 +4562,18 @@ __apimgr_dispatch_provider() {
               [ "${1:-}" = "all" ] && APIMGR_ALL="true"
               __pagure_pr_list ;;
             get|show)         __pagure_pr_get "$1" ;;
+            create|new)       __pagure_pr_create ;;
             merge)            __pagure_pr_merge "$1" ;;
             close)            __pagure_pr_close "$1" ;;
-            create|new)       __apimgr_die "pagure pr create: not yet implemented (Pagure's PR-create has a complex form payload — use the web UI or apimgr pagure api)" ;;
-            *)                __apimgr_die "pagure pr: unknown sub '$sub' (try list|get|merge|close)" ;;
+            *)                __apimgr_die "pagure pr: unknown sub '$sub' (try list|get|create|merge|close)" ;;
           esac ;;
         tag|tags)
           case "$sub" in
             list|"")
               [ "${1:-}" = "all" ] && APIMGR_ALL="true"
               __pagure_tag_list ;;
-            *)                __apimgr_die "pagure tag: only 'list' supported via API (create/delete are not exposed)" ;;
+            *)                __apimgr_die "pagure tag: only 'list' supported (Pagure's API doesn't expose create/delete for tags)" ;;
           esac ;;
-        release|releases|rel)
-          __apimgr_die "pagure has no release API surface; releases are tracked as git tags. Use 'apimgr pagure tag list'." ;;
         api)
           [ -n "$sub" ] || __apimgr_die "pagure api: PATH required (e.g. apimgr pagure api /-/whoami)"
           __pagure_api GET "$sub" ;;
@@ -4529,10 +4601,6 @@ __apimgr_dispatch_provider() {
             list|"")          __sourcehut_tag_list ;;
             *)                __apimgr_die "sourcehut tag: only 'list' supported (sourcehut's API doesn't expose create/delete/get for tags)" ;;
           esac ;;
-        issue)                __sourcehut_issue_unsupported ;;
-        pr|pull|pulls|mr)     __sourcehut_pr_unsupported ;;
-        release|releases|rel) __apimgr_die "sourcehut has no release API — releases are git tags. Use 'apimgr sourcehut tag list'." ;;
-        org)                  __apimgr_die "sourcehut has no orgs (~user is the only namespace). Use 'apimgr sourcehut repo list --user NAME' instead." ;;
         api)
           local service="${APIMGR_SERVICE:-meta}"
           [ -n "$sub" ] || __apimgr_die "sourcehut api: PATH required (e.g. apimgr sourcehut api /repos). Use APIMGR_SERVICE=git|todo|lists to switch services."
@@ -4569,17 +4637,17 @@ __apimgr_dispatch_provider() {
               [ "${1:-}" = "all" ] && APIMGR_ALL="true"
               __onedev_pr_list ;;
             get|show)         __onedev_pr_get "$1" ;;
-            *)                __apimgr_die "onedev pr: unknown sub '$sub' (try list|get — create/merge need raw api with branch IDs)" ;;
+            create|new)       __onedev_pr_create ;;
+            merge)            __onedev_pr_merge "$1" ;;
+            *)                __apimgr_die "onedev pr: unknown sub '$sub' (try list|get|create|merge)" ;;
           esac ;;
         tag|tags)
           case "$sub" in
             list|"")
               [ "${1:-}" = "all" ] && APIMGR_ALL="true"
               __onedev_tag_list ;;
-            *)                __apimgr_die "onedev tag: only 'list' supported via apimgr (create/delete need raw api)" ;;
+            *)                __apimgr_die "onedev tag: only 'list' supported (OneDev's REST API doesn't expose a tag create/delete resource)" ;;
           esac ;;
-        org)                  __apimgr_die "onedev has no orgs/namespaces — projects sit at the top level. Use 'repo list' instead." ;;
-        release|releases|rel) __apimgr_die "onedev has no first-class release API — use 'apimgr onedev tag list' for tags." ;;
         api)
           [ -n "$sub" ] || __apimgr_die "onedev api: PATH required (e.g. apimgr onedev api /me)"
           __onedev_api GET "$sub" ;;
@@ -4673,7 +4741,6 @@ __apimgr_dispatch_provider() {
             delete|rm)        __glcr_tag_delete "$1" ;;
             *)                __apimgr_die "glcr tag: unknown sub '$sub' (try list|get|delete)" ;;
           esac ;;
-        user|org)             __apimgr_die "glcr has no separate user/org endpoints — registry repos belong to gitlab projects. Use 'apimgr gitlab user/org' for those." ;;
         api)
           [ -n "$sub" ] || __apimgr_die "glcr api: PATH required (e.g. apimgr glcr api /projects/<id>/registry/repositories)"
           __glcr_api GET "$sub" ;;
@@ -4755,7 +4822,7 @@ __apimgr_dispatch_provider() {
             get|"")           __nexus_repo_get ;;
             create)           __nexus_repo_create ;;
             delete|rm)        __nexus_repo_delete ;;
-            *)                __apimgr_die "nexus repo: unknown sub '$sub' (try list|get|delete — create needs raw api)" ;;
+            *)                __apimgr_die "nexus repo: unknown sub '$sub' (try list|get|create|delete)" ;;
           esac ;;
         tag|tags|component|components)
           case "$sub" in
@@ -4766,7 +4833,6 @@ __apimgr_dispatch_provider() {
             delete|rm)        __nexus_tag_delete "$1" ;;
             *)                __apimgr_die "nexus tag/component: unknown sub '$sub' (try list|get|delete)" ;;
           esac ;;
-        org)                  __apimgr_die "nexus has no orgs/namespaces — repo names are flat. Use 'repo list' instead." ;;
         api)
           [ -n "$sub" ] || __apimgr_die "nexus api: PATH required (e.g. apimgr nexus api /status)"
           __nexus_api GET "$sub" ;;
@@ -4783,7 +4849,7 @@ __apimgr_dispatch_provider() {
             create)           __artifactory_repo_create ;;
             delete|rm)        __artifactory_repo_delete ;;
             all)              __artifactory_repo_list ;;
-            *)                __apimgr_die "artifactory repo: unknown sub '$sub' (try list|get|delete — create needs raw api)" ;;
+            *)                __apimgr_die "artifactory repo: unknown sub '$sub' (try list|get|create|delete)" ;;
           esac ;;
         tag|tags)
           case "$sub" in
@@ -4792,7 +4858,6 @@ __apimgr_dispatch_provider() {
             delete|rm)        __artifactory_tag_delete "$1" ;;
             *)                __apimgr_die "artifactory tag: unknown sub '$sub' (try list|get|delete)" ;;
           esac ;;
-        org)                  __apimgr_die "artifactory has no orgs/namespaces — repo keys are flat. Use 'repo list' instead." ;;
         api)
           [ -n "$sub" ] || __apimgr_die "artifactory api: PATH required (e.g. apimgr artifactory api /system/version)"
           __artifactory_api GET "$sub" ;;

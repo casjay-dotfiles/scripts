@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608202120-git
+##@Version           :  202608202252-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608202120-git"
+VERSION="202608202252-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 # When invoked via sudo, $HOME points at /root by default. Re-anchor it on
@@ -851,8 +851,9 @@ __compare_versions() {
   if [ "$installed" = "$available" ]; then
     return 2
   fi
-  local IFS=.
-  local i ver1=($installed) ver2=($available)
+  local i ver1=() ver2=()
+  IFS=. read -ra ver1 <<<"$installed"
+  IFS=. read -ra ver2 <<<"$available"
   for ((i=0; i<${#ver1[@]} || i<${#ver2[@]}; i++)); do
     local num1=${ver1[i]:-0}
     local num2=${ver2[i]:-0}
@@ -2131,6 +2132,10 @@ __install_from_archive() {
   local platform="${5:-github}" # github, gitlab, gitea, codeberg, sourcehut, bitbucket
   local extract_path="${6}"     # Optional: path within archive (e.g., "bin/shellcheck")
   local custom_host="$7"        # Optional: custom host for self-hosted instances
+  local strip_mode="$8"         # Optional: "do_not_strip_components" for flat archives
+                                 # (binary sits at the archive's true top level, alongside
+                                 # other top-level files, with no wrapping directory —
+                                 # tar --strip-components=1 would silently drop it)
 
   local exitCode=0
   local arch="$(__get_system_arch)"
@@ -2168,7 +2173,10 @@ __install_from_archive() {
 
   # Download, extract, and install
   local extract_name="${extract_path:-$name}"
-  if __download_extract_move "$download_url" "$extract_name" "$binFile" && __is_installed "$name" "$binFile"; then
+  local move_args=("$download_url")
+  [ "$strip_mode" = "do_not_strip_components" ] && move_args+=("do_not_strip_components")
+  move_args+=("$extract_name" "$binFile")
+  if __download_extract_move "${move_args[@]}" && __is_installed "$name" "$binFile"; then
     # Validate binary architecture BEFORE installing to system
     if ! __validate_binary_arch "$binFile" "$arch"; then
       printf_red "Extracted binary is not compatible with system architecture"
@@ -2999,11 +3007,10 @@ __setup_rustup() {
   __user_mkdir "$RUST_HOME" "$CARGO_HOME" "$RUSTUP_HOME"
 
   local install_output=""
-  install_output="$(RUSTUP_HOME="$RUSTUP_HOME" CARGO_HOME="$CARGO_HOME" \
-    __run_as_user env \
-      RUSTUP_HOME="$RUSTUP_HOME" \
-      CARGO_HOME="$CARGO_HOME" \
-      "$init_bin" -y --no-modify-path --default-toolchain stable </dev/null 2>&1)"
+  install_output="$(__run_as_user env \
+    RUSTUP_HOME="$RUSTUP_HOME" \
+    CARGO_HOME="$CARGO_HOME" \
+    "$init_bin" -y --no-modify-path --default-toolchain stable </dev/null 2>&1)"
   install_rc=$?
 
   rm -rf "$stage_dir"
@@ -5757,7 +5764,12 @@ __setup_ncdu() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_tldr() {
-  __install_from_binary "tldr" "tldr-pages/tlrc" "$SETUPMGR_DEFAULT_BIN_DIR"
+  # tlrc only publishes .tar.gz/.zip archives (plus .deb packages) — no raw
+  # binary assets — so this must use the archive installer, not
+  # __install_from_binary, which would grab the .deb and try to run it.
+  # The archive is flat (binary at the true top level, no wrapping directory)
+  # — do_not_strip_components avoids tar dropping it via --strip-components=1
+  __install_from_archive "tldr" "tldr-pages/tlrc" "$SETUPMGR_DEFAULT_BIN_DIR" "" "github" "" "" "do_not_strip_components"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_httpie() {
@@ -5843,7 +5855,9 @@ __setup_skaffold() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_tilt() {
-  __install_from_archive "tilt" "tilt-dev/tilt" "$SETUPMGR_DEFAULT_BIN_DIR"
+  # tilt-dev/tilt archives are flat (binary at the true top level, no wrapping
+  # directory) — do_not_strip_components avoids tar dropping it via --strip-components=1
+  __install_from_archive "tilt" "tilt-dev/tilt" "$SETUPMGR_DEFAULT_BIN_DIR" "" "github" "" "" "do_not_strip_components"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_ctlptl() {
@@ -5855,7 +5869,9 @@ __setup_kompose() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_task() {
-  __install_from_archive "task" "go-task/task" "$SETUPMGR_DEFAULT_BIN_DIR"
+  # go-task/task archives are flat (binary at the true top level, no wrapping
+  # directory) — do_not_strip_components avoids tar dropping it via --strip-components=1
+  __install_from_archive "task" "go-task/task" "$SETUPMGR_DEFAULT_BIN_DIR" "" "github" "" "" "do_not_strip_components"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_terminal_browser() {
@@ -7452,9 +7468,34 @@ while [ $# -gt 0 ]; do
     __setup_starship
     SETUPMGR_EXIT_STATUS=$?
     ;;
+  task)
+    shift 1
+    __setup_task
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
   terminal-browser)
     shift 1
     __setup_terminal_browser
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  tgpt)
+    shift 1
+    __setup_tgpt
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  tig)
+    shift 1
+    __setup_tig
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  tilt)
+    shift 1
+    __setup_tilt
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  tldr)
+    shift 1
+    __setup_tldr
     SETUPMGR_EXIT_STATUS=$?
     ;;
   tokei)

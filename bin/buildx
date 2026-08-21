@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608210631-git
+##@Version           :  202608211211-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 21:22 EDT
 # @@File             :  buildx
 # @@Description      :  Docker buildx wrapper
-# @@Changelog        :  Warn when a target registry has no docker credential helper configured
+# @@Changelog        :  Silently pass GITHUB_TOKEN/GITHUB_ACCESS_TOKEN as a build secret when set
 # @@TODO             :  Refactor code: clean up arguments and variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608210631-git"
+VERSION="202608211211-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1425,11 +1425,22 @@ __run_dockermgr_script() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_buildx_script() {
+  # if GITHUB_TOKEN or GITHUB_ACCESS_TOKEN is set, silently pass it to the
+  # build as a buildkit secret (id=github_token) so a Dockerfile can
+  # `RUN --mount=type=secret,id=github_token` and use the higher
+  # authenticated gh api rate limit instead of the unauthenticated 60/hr
+  # limit. GITHUB_TOKEN takes priority when both are set.
+  local BUILDX_DOCKER_ARGS=()
+  if [ -n "$GITHUB_TOKEN" ]; then
+    BUILDX_DOCKER_ARGS+=("--secret id=github_token,env=GITHUB_TOKEN")
+  elif [ -n "$GITHUB_ACCESS_TOKEN" ]; then
+    BUILDX_DOCKER_ARGS+=("--secret id=github_token,env=GITHUB_ACCESS_TOKEN")
+  fi
   if [ "$BUILDX_USE_LEGACY_BUILD" = "true" ]; then
     printf_yellow "Using legacy docker build (buildx not available)"
     set_build_command="$BUILDX_DOCKER_CMD build,, $DOCKER_BUILD_ARGS,, --rm --pull,, --no-cache,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile} && $BUILDX_DOCKER_CMD push $tagged_name"
   else
-    set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, $DOCKER_BUILD_ARGS,, $DOCKER_ANNOTATIONS,, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --pull --push,, --no-cache --progress plain --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
+    set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, $DOCKER_BUILD_ARGS,, ${BUILDX_DOCKER_ARGS[*]},, $DOCKER_ANNOTATIONS,, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --pull --push,, --no-cache --progress plain --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
   fi
   set_build_command="${set_build_command//  / }"
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
@@ -1487,7 +1498,7 @@ __run_buildx_script() {
 
           # For retry, use cache to avoid full rebuild - remove --no-cache and --pull for faster retry
           if [ "$retry_count" -gt 1 ]; then
-            set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, $DOCKER_BUILD_ARGS,, $DOCKER_ANNOTATIONS,, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --push,, --progress plain --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
+            set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, $DOCKER_BUILD_ARGS,, ${BUILDX_DOCKER_ARGS[*]},, $DOCKER_ANNOTATIONS,, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --push,, --progress plain --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
             set_build_command="${set_build_command//  / }"
             set_build_command="${set_build_command//,,/}"
             printf_cyan "Using cached layers for retry (removed --no-cache --pull)"

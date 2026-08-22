@@ -461,6 +461,10 @@ trap 'printf "\e[?1049l\e[0 q"' EXIT   # restore on exit (set BEFORE entering)
 
 Non-TUI scripts (one-shot output, batch) must NOT enter the alt buffer.
 
+### One message, one line
+
+Every `printf_*` call (`printf_yellow`, `printf_red`, `printf_green`, `printf_info`, etc.) is one sentence on one line — never split a single message across multiple consecutive `printf_*` calls to simulate a paragraph. Splitting breaks the line-per-call convention every script in this repo follows, and callers/log-tailing tools that expect one message per printed line will mis-render it. If a message needs more detail, extend the one line (or route the detail to a log file), not add more `printf_*` calls.
+
 ---
 
 ## Self-Contained Scripts

@@ -968,7 +968,7 @@ __tmux_save_state() {
   _fmt+="${_tab}#{pane_current_path}${_tab}#{pane_pid}${_tab}#{window_layout}"
   __tmux list-panes -a -F "$_fmt" 2>/dev/null |
     while IFS=$'\t' read -r sess win_idx win_name pane_idx pane_path pane_pid win_layout; do
-      local cmd child_pid
+      local cmd="" child_pid=""
       [ -n "$pane_pid" ] || continue
       child_pid=$(pgrep -P "$pane_pid" 2>/dev/null | tail -1)
       if [ -n "$child_pid" ]; then
@@ -1191,17 +1191,43 @@ __tmux_save() {
   __tmux_server_find || printf_exit "No tmux server running on socket '${TMUX_NEW_SOCKET_FILE:-default}'"
   __tmux_apply_resurrect_dir
   if [ -x "$save_script" ]; then
-    "$save_script" >/dev/null 2>&1 && __tmux_cleanup_snapshots || printf_yellow "tmux-resurrect save failed"
+    local sockpath
+    sockpath="$(__tmux_resolve_sockpath)"
+    # tmux-resurrect's save.sh issues bare `tmux` calls with no -S/-L, which
+    # would silently fall through to the system default socket unless $TMUX
+    # is already set. A synthetic $TMUX pins it to our socket for this one
+    # invocation only, with no export pollution of the rest of the script.
+    TMUX="$sockpath,0,0" TMUX_NEW_SOCKET_FILE="${TMUX_NEW_SOCKET_FILE:-default}" \
+      "$save_script" >/dev/null 2>&1 && __tmux_cleanup_snapshots || printf_yellow "tmux-resurrect save failed"
   fi
   __tmux_save_state
   printf_green "Session state saved to $TMUX_NEW_RESURRECT_DIR"
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Kill any live session on this socket that tmux-new does not itself manage
+# (no matching $TMUX_NEW_FILE_CONF/<name> config file). tmux-resurrect's
+# restore.sh restores every session in its snapshot verbatim, including a
+# stray "default" plain-tmux session if one ever slipped into that snapshot -
+# this strips those back out so restore only ever leaves tmux-new-owned state.
+__tmux_prune_unmanaged_sessions() {
+  local sess
+  __tmux list-sessions -F "#{session_name}" 2>/dev/null | while IFS= read -r sess; do
+    [ -n "$sess" ] || continue
+    [ -f "$TMUX_NEW_FILE_CONF/$sess" ] && continue
+    __tmux kill-session -t "=$sess" 2>/dev/null
+  done
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Manual restore trigger. Uses a disposable bootstrap session if the server is not already running.
+# Prefers tmux-resurrect's own restore.sh (exact snapshot restore, correct order) when a snapshot
+# exists, falling back to the state.txt replay only when no snapshot is available or restore.sh fails.
 __tmux_restore() {
+  local restore_script="$TMUX_NEW_PLUGIN_DIR/tmux-resurrect/scripts/restore.sh"
   local state_file="$TMUX_NEW_RESURRECT_DIR/state.txt"
-  [ -f "$state_file" ] || printf_exit "No saved state found in $TMUX_NEW_RESURRECT_DIR"
+  local snapshot_file="$TMUX_NEW_RESURRECT_DIR/last"
+  [ -f "$state_file" ] || [ -f "$snapshot_file" ] || printf_exit "No saved state found in $TMUX_NEW_RESURRECT_DIR"
   local server_started="false"
   if ! __tmux list-sessions &>/dev/null; then
     # Start bootstrap server with the managed tmux.conf so bind-key R targets the correct per-session file.
@@ -1209,9 +1235,20 @@ __tmux_restore() {
     server_started="true"
   fi
   __tmux_apply_resurrect_dir
-  local restored="false"
-  __tmux_restore_from_state && restored="true" || true
+  local restored="false" sockpath
+  sockpath="$(__tmux_resolve_sockpath)"
+  if [ -x "$restore_script" ] && [ -f "$snapshot_file" ]; then
+    # Same synthetic-$TMUX pinning as __tmux_save - restore.sh's bare `tmux`
+    # calls (and its post-restore-all hook, which fires apply-state-cmds)
+    # must land on our socket, never the system default one.
+    TMUX="$sockpath,0,0" TMUX_NEW_SOCKET_FILE="${TMUX_NEW_SOCKET_FILE:-default}" \
+      "$restore_script" >/dev/null 2>&1 && restored="true"
+  fi
+  if [ "$restored" != "true" ]; then
+    __tmux_restore_from_state && restored="true" || true
+  fi
   [ "$server_started" = "true" ] && __tmux kill-session -t "_tmux_new_restore" 2>/dev/null || true
+  __tmux_prune_unmanaged_sessions
   if [ "$restored" = "true" ] || __tmux list-sessions &>/dev/null; then
     printf_green "Session state restored from $TMUX_NEW_RESURRECT_DIR"
     return 0
@@ -1723,7 +1760,6 @@ RUN_OPTIONS_LOGS_BUILDX="${RUN_OPTIONS_LOGS_BUILDX:-$HOME/.local/log/buildx}"
 TMUX_NEW_SOCKET_FILE="${TMUX_NEW_SOCKET_FILE:-tmux-new}"
 TMUX_NEW_SAVE_INTERVAL="${TMUX_NEW_SAVE_INTERVAL:-300}"
 TMUX_NEW_SNAPSHOT_KEEP="${TMUX_NEW_SNAPSHOT_KEEP:-30}"
-TMUX_NEW_RESURRECT_DIR="${TMUX_NEW_RESURRECT_DIR:-$TMUX_NEW_CONFIG_DIR/sessions}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -1733,7 +1769,7 @@ TMUX_NEW_RESURRECT_DIR="${TMUX_NEW_RESURRECT_DIR:-$TMUX_NEW_CONFIG_DIR/sessions}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure script-specific directories exist
 mkdir -p "$TMUX_NEW_LOG_DIR" "$TMUX_NEW_TEMP_DIR" "$TMUX_NEW_CACHE_DIR" \
-  "$TMUX_NEW_SOCKET_DIR" "$TMUX_NEW_RESURRECT_DIR" "$TMUX_NEW_TMUX_TMPDIR" 2>/dev/null
+  "$TMUX_NEW_SOCKET_DIR" "$TMUX_NEW_TMUX_TMPDIR" 2>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 TMUX_NEW_TEMP_FILE="${TMUX_NEW_TEMP_FILE:-$(mktemp "$TMUX_NEW_TEMP_DIR/XXXXXX" 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1804,7 +1840,7 @@ while :; do
     ICON_ERROR="[ error ]"
     ICON_QUESTION="[ ? ]"
     printf_column() { tee | grep -- '^'; }
-    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
     shift 1
@@ -1915,6 +1951,12 @@ while :; do
     ;;
   esac
 done
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Scope the resurrect dir to this socket so snapshots from different
+# tmux-new sockets never mix, dilute the snapshot keep window, or restore
+# each other's sessions
+TMUX_NEW_RESURRECT_DIR="${TMUX_NEW_RESURRECT_DIR:-$TMUX_NEW_CONFIG_DIR/sessions/${TMUX_NEW_SOCKET_FILE:-default}}"
+mkdir -p "$TMUX_NEW_RESURRECT_DIR" 2>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set working directory
 TMUX_NEW_CWD="$(realpath "${TMUX_NEW_CWD:-$PWD}" 2>/dev/null)"

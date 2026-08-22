@@ -44,3 +44,15 @@
   `setupmgr all` silently skips them. Found incidentally while auditing the
   dispatch-case gap above; not fixed since it's a separate mechanism from
   both `SETUPMGR_ALL_TOOLS` and the completions/man-page sync.
+
+- **`templates/scripts/functions/docker-entrypoint` lint findings** found
+  while porting hardening fixes from the deployed
+  `/usr/local/share/CasjaysDev/scripts` copy: (1) line 942 (`useradd`
+  command in `__create_service_user`) is 200 chars, over the 180-char
+  limit — needs breaking into a multi-line command; (2) many function-local
+  variables are assigned without a `local` declaration (e.g. `result` in
+  `__find()`, `ip4` in `__get_ip4()`, `pid` in `__get_pid()`, `var` in
+  `__clean_variables()`, `no_exit_pid`, and others throughout the file) —
+  needs an audit pass adding `local` to every bare in-function assignment.
+  Both are pre-existing, unrelated to the hardening fixes just ported; too
+  broad to fold into that commit.

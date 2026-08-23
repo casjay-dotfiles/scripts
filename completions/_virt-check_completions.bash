@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202606240003-git"
+VERSION="202608230004-git"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
@@ -10,7 +10,7 @@ SRC_DIR="${BASH_SOURCE%/*}"
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606240003-git
+##@Version           :  202608230004-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -37,7 +37,7 @@ _virt_check() {
   local OPTS=""
   local LONGOPTS="--completions --debug --no-color --options --config --version --help --silent --dir"
   local SHORTOPTS=""
-  local ARRAY=""
+  local ARRAY="check features bit aes virt test"
 
   _init_completion || return
 

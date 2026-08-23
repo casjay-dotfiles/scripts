@@ -56,3 +56,17 @@
   needs an audit pass adding `local` to every bare in-function assignment.
   Both are pre-existing, unrelated to the hardening fixes just ported; too
   broad to fold into that commit.
+
+## bin/virt-check lint findings — DONE (202608230004-git)
+
+All findings from the `script-lint` pass fixed: `requiresudo` renamed to
+`__requiresudo`, `local exitCode` added to `__devnull()`/`__devnull2()`,
+`local flags supports_v2 supports_v3 supports_v4` added to
+`__cpu_version_check()`, the inline comment on `__help()`'s def line moved
+above it, `--` added before every bare `grep`/`__grep` query across the
+file, the stray-space ANSI-strip `sed` regex fixed in both `--no-color`
+blocks, and the 3-line commented-out `requiresudo`/`cmd_exists`/
+`am_i_online` dead-code block removed. One reported finding (`exit 3` in
+`__cmd_exists`, line 92) was reviewed and found to be a false positive —
+AI.md's exit-code rule only forbids codes outside `0–78`/`128–143`, and 3
+is within that range, so no change was needed there.

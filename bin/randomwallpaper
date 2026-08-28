@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202608272241-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git.io/casjay
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 15, 2022 10:37 EDT
 # @@File             :  randomwallpaper
 # @@Description      :  Set a random wallpaper
-# @@Changelog        :  Fixed background job, grep logic, XFCE/Hyprland wallpaper handling
+# @@Changelog        :  Fix false-failure on XFCE 4.19+ when no external wallpaper tool is installed
 # @@TODO             :  N/A
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202605131500-git"
+VERSION="202608272241-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -943,19 +943,31 @@ __xfce_change_wp() {
   if [ "$_DEBUG" = "on" ]; then
     printf_cyan "XFCE: Detected xfdesktop version ${xfce_version:-unknown}"
   fi
-  # XFCE 4.19+ has a bug where xfconf changes aren't applied - use external tools
+  # XFCE 4.19+ has a bug where xfconf changes aren't reliably applied on some
+  # setups - try an external tool for immediate effect, but the xfconf write
+  # itself is what actually persists (and often applies) the change, so it
+  # is the source of truth for success/failure, not the external tool.
   if __xfce_version_ge "4.19"; then
     if [ "$_DEBUG" = "on" ]; then
       printf_cyan "XFCE 4.19+: Using external wallpaper tool (xfconf bug workaround)"
     fi
     # Store in xfconf for persistence across reboots
+    local prop="" prop_count=0
     while IFS= read -r prop; do
       [ -n "$prop" ] || continue
       xfconf-query --channel xfce4-desktop --property "$prop" --set "$wallpaper" 2>/dev/null
+      prop_count=$((prop_count + 1))
     done < <(xfconf-query --channel xfce4-desktop --list 2>/dev/null | grep -E 'image-path$|last-image$')
-    # Use external tool for immediate effect
-    __set_wallpaper_x11 "$wallpaper"
-    return $?
+    # Use external tool for immediate effect - best-effort only, its absence
+    # or failure does not mean the xfconf write above failed to apply
+    __set_wallpaper_x11 "$wallpaper" 2>/dev/null
+    if [ "$prop_count" -gt 0 ]; then
+      return 0
+    fi
+    if [ "$_DEBUG" = "on" ]; then
+      printf_red "XFCE: No backdrop properties found"
+    fi
+    return 1
   fi
   # XFCE < 4.19 - use xfconf-query directly
   local prop="" prop_count=0

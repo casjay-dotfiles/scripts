@@ -2,6 +2,19 @@
 
 ## bin/setupmgr / completions / man page
 
+- **`script-lint` findings, NOT fixed (all pre-existing, out of scope for
+  the small `wrk`-removal diff that triggered this lint pass — that diff
+  only touched the `SETUPMGR_ALL_TOOLS` line, version headers, and
+  changelog lines).** `bin/setupmgr`: 90 issues — 60 `grep` calls missing
+  the `--` separator before the query (lines include 90, 342, 407, 423,
+  569, 623, 625, 627, 633, 659-673, 732, 876-951, 1004, 1110, 1177,
+  1191-1560, 5599-5615) and 21 inline comments that should be moved above
+  the code they describe (lines 1212-1213, 1842, 1902-1904, 1954,
+  1996-1998, 2071-2076, 2133-2140, 2205-2206, 5510-5512, 6904, 6915).
+  `completions/_setupmgr_completions.bash`: 3 more `grep --` violations
+  (lines 32, 34, 37). Needs its own dedicated cleanup pass (large,
+  mechanical, file-wide — not folded into an unrelated commit).
+
 - **`script-lint` finding, NOT fixed (pre-existing, out of scope for this
   session's edit):** `SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-...}"`
   (currently line 6591) is a single line >180 chars (~1002 chars) — the
@@ -78,17 +91,15 @@
   `@continuedev/cli`'s actual shipped binary (per its npm `bin` field) is
   `cn`, not `continue` — corrected to check `cn`.
 
-  **`wrk` NOT fixed — needs a user decision, not a mechanical fix.**
-  Verified via GitHub API: `wrk/wrk`'s releases have **zero release
-  assets on any release** — it is source-build-only (no prebuilt
-  binaries ship at all), so it cannot get a real `__setup_wrk` via this
-  codebase's download-and-install mechanism. Same class of problem as
-  `tig`/`entr`/`podman`, which were removed from `SETUPMGR_ALL_TOOLS`
-  entirely (see Session History in AI.md) rather than given a fake
-  installer. `wrk` is still listed in `SETUPMGR_ALL_TOOLS`,
-  `completions/_setupmgr_completions.bash`, and `man/setupmgr.1` with no
-  working install path — decide: remove it (matching precedent) or add a
-  source-build helper (new capability, larger scope).
+  DONE (this session): `wrk` decided and resolved — user directive: never
+  source build, matching the `tig`/`entr`/`podman` precedent (see Session
+  History in AI.md). `wrk/wrk`'s releases have zero release assets on any
+  release (source-build-only, no prebuilt binaries), so it could never get
+  a real `__setup_wrk` via this codebase's download-and-install mechanism
+  and a source-build helper is explicitly off the table. Removed `wrk`
+  from `SETUPMGR_ALL_TOOLS` (`bin/setupmgr`),
+  `completions/_setupmgr_completions.bash`'s `ARRAY`, and
+  `man/setupmgr.1`'s HTTP/Load Testing Tools section.
 
   `antigravity` remains separately deferred (see above): has a function and
   could get a case arm mechanically, but the function itself needs a

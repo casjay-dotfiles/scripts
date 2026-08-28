@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608272117-git
+##@Version           :  202608281422-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Bash completion for setupmgr - cross-platform package manager
-# @@Changelog        :  Drop tig/entr/golang from completion list - not static-binary or superseded by go
+# @@Changelog        :  Drop wrk from completion list - no installable release assets, source-build never supported
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -60,7 +60,7 @@ _setupmgr_completion() {
   ARRAY+="kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua markdownlint mc miller minikube "
   ARRAY+="mise mods nix nodejs npm-check-updates nushell nvm oha ollama openclaw opencode opentofu packer pipx plandex powershell prettier "
   ARRAY+="procs rbenv remove ripgrep ruff rustfs rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task "
-  ARRAY+="terminal-browser tgpt tilt tldr tokei traefik trivy trufflehog uv vagrant vale vegeta vercel vfox viddy watchexec webhookd wrk xcaddy "
+  ARRAY+="terminal-browser tgpt tilt tldr tokei traefik trivy trufflehog uv vagrant vale vegeta vercel vfox viddy watchexec webhookd xcaddy "
   ARRAY+="xh xsv yq zed zellij zig zoxide"
   #####################################################################
   LIST=""

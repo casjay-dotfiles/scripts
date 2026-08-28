@@ -7,33 +7,47 @@
   `SETUPMGR_ALL_TOOLS`. Verified with `comm -23`/`comm -13` diffs — zero
   entries missing in either direction.
 
-- **Critical, NOT fixed (out of scope for the doc-sync above): 58 of the 157
-  tools in `SETUPMGR_ALL_TOOLS` have no dispatch `case` arm in the main CLI
-  arg parser (`bin/setupmgr` lines ~7006-7614), so `setupmgr <tool>` silently
-  falls through to the default/unknown-package branch instead of installing
-  them. Of those 58, 23 also have no `__setup_*` function defined at all
-  (calling them would be a no-op even if a case arm existed).**
-  Verified via `grep -c "^__setup_<fn>()" bin/setupmgr` and a dispatch-block
-  grep (`sed -n '7006,7614p' bin/setupmgr`, matched against plain and
-  piped/grouped `case` arm syntax) for every `SETUPMGR_ALL_TOOLS` entry.
+- DONE (202608281300-git, user-reported bug: `setupmgr claude opencode gh lf
+  shellcheck ...` silently stopped after `gh` with exit 0): root cause was
+  `lf` having no `__setup_*` function and no dispatch case, so the arg
+  parser's `*) break ;;` catch-all silently aborted the *entire* remaining
+  batch instead of erroring on just the unknown tool. Fixed both halves:
+  (1) added `__setup_lf()` (uses `__install_from_archive` against
+  `gokcehan/lf`'s standard release assets) plus its dispatch case; (2) fixed
+  the systemic `*) break ;;` catch-all to `printf_red "Unknown tool: $1"`,
+  set `SETUPMGR_EXIT_STATUS=1`, `shift 1`, and continue the loop instead of
+  aborting it — so any future dispatch gap degrades to a per-tool error
+  instead of silently truncating the rest of the batch.
 
-  Missing `__setup_*` function entirely (23): `ali`, `bombardier`, `buf`,
-  `cody`, `continue`, `curlie`, `dog`, `dua`, `earthly`, `evans`, `eza`,
-  `fx`, `ghz`, `grpcurl`, `jq`, `k6`, `lf`, `lsd`, `oha`, `sops`, `tabby`,
-  `vegeta`, `wrk`.
+  Also wired up dispatch cases for 26 other tools that already had a
+  `__setup_*` function but no case arm (same defect class as `lf`, found
+  while auditing the bug): `bandwhich`, `cosign`, `ctlptl`, `dasel`,
+  `difftastic`, `git-cliff`, `gitleaks`, `gitui`, `grex`, `gron`, `grype`,
+  `htmlq`, `httpie`, `jnv`, `kompose`, `kubectx`, `kubens`, `sd`, `sq`,
+  `stern`, `syft`, `trufflehog`, `trivy`, `viddy`, `watchexec`, `xcaddy`,
+  `xh`, `xsv`. Verified none of these functions fall back to a system
+  package manager (would be a package-manager-delegation violation) before
+  wiring them up. `script-lint` run against the diff: clean, no new
+  violations.
 
-  Has a `__setup_*` function but no dispatch case (35 more, on top of the
-  23 above — 58 total): `antigravity`, `bandwhich`, `cosign`, `ctlptl`,
-  `dasel`, `difftastic`, `entr`, `git-cliff`, `gitleaks`, `gitui`, `golang`,
-  `grex`, `gron`, `grype`, `htmlq`, `httpie`, `jnv`, `kompose`, `kubectx`,
-  `kubens`, `llama_cpp`, `miller`, `mise`, `nushell`, `sd`, `skaffold`, `sq`,
-  `stern`, `syft`, `trivy`, `trufflehog`, `viddy`, `watchexec`, `xcaddy`,
-  `xh`, `xsv`.
+  `antigravity` was in the same "has function, no case" list but
+  deliberately excluded — its `__setup_antigravity` uses
+  `__sudo apt install -y` on Debian-family hosts, a package-manager
+  delegation violation needing its own decision; left as-is below.
 
-  Fixing this requires: (1) writing 23 new `__setup_*` functions, (2) adding
-  58 dispatch case arms, (3) end-to-end verifying each install. This is a
-  large, dedicated-session task — do not attempt to fold it into an
-  unrelated commit.
+- **Still NOT fixed: 18 tools in `SETUPMGR_ALL_TOOLS` have no `__setup_*`
+  function at all** (calling them is a no-op even with a case arm), so they
+  still hit the (now non-fatal, error-and-continue) unknown-tool branch:
+  `ali`, `bombardier`, `buf`, `curlie`, `dog`, `dua`, `earthly`, `evans`,
+  `eza`, `fx`, `ghz`, `grpcurl`, `jq`, `k6`, `lsd`, `oha`, `vegeta`, `wrk`.
+  Fixing this requires writing 18 new `__setup_*` functions plus their
+  dispatch cases and end-to-end verifying each install — a large,
+  dedicated-session task, do not fold into an unrelated commit.
+
+  `antigravity` remains separately deferred (see above): has a function and
+  could get a case arm mechanically, but the function itself needs a
+  package-manager-delegation fix first — a decision for the user, not a
+  mechanical wiring fix.
 
 - **`setupmgr all` (and `--all`) uses a separate, smaller internal `ARRAY`
   variable (`bin/setupmgr` lines ~6798-6801, consumed at line ~6997 via

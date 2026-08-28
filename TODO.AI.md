@@ -48,12 +48,20 @@
   `__sudo apt install -y` on Debian-family hosts, a package-manager
   delegation violation needing its own decision; left as-is below.
 
-- **Still NOT fixed: 18 tools in `SETUPMGR_ALL_TOOLS` have no `__setup_*`
+- **Still NOT fixed: 22 tools in `SETUPMGR_ALL_TOOLS` have no `__setup_*`
   function at all** (calling them is a no-op even with a case arm), so they
   still hit the (now non-fatal, error-and-continue) unknown-tool branch:
   `ali`, `bombardier`, `buf`, `curlie`, `dog`, `dua`, `earthly`, `evans`,
-  `eza`, `fx`, `ghz`, `grpcurl`, `jq`, `k6`, `lsd`, `oha`, `vegeta`, `wrk`.
-  Fixing this requires writing 18 new `__setup_*` functions plus their
+  `eza`, `fx`, `ghz`, `grpcurl`, `jq`, `k6`, `lsd`, `oha`, `vegeta`, `wrk`,
+  `cody`, `continue`, `sops`, `tabby`.
+  Corrected count (202608281400-git): the earlier "18" count in this entry
+  was wrong — it dropped `cody`, `continue`, `sops`, `tabby` by mistake.
+  Those four DO have a matching case in `__configure_tool`'s `case` (line
+  ~1036), but `__configure_tool` is a separate post-install *configure*
+  dispatcher (`bin/setupmgr` line ~1033), not the main install dispatch
+  loop at line 6805 — they still have no `__setup_*` install function and
+  no case arm there, so `setupmgr tabby` (etc.) still can't install them.
+  Fixing this requires writing 22 new `__setup_*` functions plus their
   dispatch cases and end-to-end verifying each install — a large,
   dedicated-session task, do not fold into an unrelated commit.
 

@@ -193,6 +193,18 @@ fixed yet unless marked DONE.
   probably generating all four from one source list instead of four
   hand-maintained copies; too large to fold into this session.
 
+## bin/setupmgr line-length lint finding — NOT fixed
+
+`script-lint` pass (202608272121-git session) flagged `SETUPMGR_ALL_TOOLS`
+(`bin/setupmgr:6514`) at 1002 characters, exceeding the 180-char line limit.
+Pre-existing (the line was already this long before this session's edits
+— only tool names within it changed). Fix is to break it into `ARRAY+=`
+continuation lines the way `completions/_setupmgr_completions.bash`'s
+`ARRAY` does; deferred because it's a single mechanical restructuring with
+no behavior change, lower priority than the still-open dispatch-gap and
+doc-drift items above, and would touch the same variable multiple other
+open findings above also need to edit.
+
 ## bin/virt-check lint findings — DONE (202608230004-git)
 
 All findings from the `script-lint` pass fixed: `requiresudo` renamed to

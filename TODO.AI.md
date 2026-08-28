@@ -2,6 +2,19 @@
 
 ## bin/setupmgr / completions / man page
 
+- **`__setup_httpie` is broken — wrong distribution channel, NOT fixed.**
+  Verified via GitHub API: `httpie/cli`'s latest release (`3.2.4`) ships
+  **zero release assets** — HTTPie is distributed via PyPI (`pip install
+  httpie`), not GitHub binary releases, so `__install_from_archive` will
+  always fail with "Could not find latest release asset for linux/amd64".
+  Pre-existing bug (function predates this session); only just became
+  reachable when its dispatch case was wired up (202608281340-git). No
+  `__install_from_pip`/`__install_from_pipx` helper exists in this file, so
+  fixing this needs either a new pip-based install helper (raises the
+  static-binary-only design question the same way `antigravity`'s apt
+  fallback did) or dropping `httpie` from `SETUPMGR_ALL_TOOLS` — a decision
+  for the user, not a mechanical fix.
+
 - DONE (this session): `completions/_setupmgr_completions.bash`'s `ARRAY` and
   `man/setupmgr.1`'s package list now document all 157 entries in
   `SETUPMGR_ALL_TOOLS`. Verified with `comm -23`/`comm -13` diffs — zero

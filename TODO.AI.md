@@ -2,6 +2,14 @@
 
 ## bin/setupmgr / completions / man page
 
+- **`script-lint` finding, NOT fixed (pre-existing, out of scope for this
+  session's edit):** `SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-...}"`
+  (currently line 6591) is a single line >180 chars (~1002 chars) — the
+  AI.md line-length rule requires splitting. Predates this session; not
+  touched by the `__setup_*`-functions diff, so left alone per
+  working-set discipline. Needs its own mechanical fix (e.g. multi-line
+  `+=` continuation) in a dedicated commit.
+
 - **`__setup_httpie` is broken — wrong distribution channel, NOT fixed.**
   Verified via GitHub API: `httpie/cli`'s latest release (`3.2.4`) ships
   **zero release assets** — HTTPie is distributed via PyPI (`pip install
@@ -48,22 +56,39 @@
   `__sudo apt install -y` on Debian-family hosts, a package-manager
   delegation violation needing its own decision; left as-is below.
 
-- **Still NOT fixed: 22 tools in `SETUPMGR_ALL_TOOLS` have no `__setup_*`
-  function at all** (calling them is a no-op even with a case arm), so they
-  still hit the (now non-fatal, error-and-continue) unknown-tool branch:
-  `ali`, `bombardier`, `buf`, `curlie`, `dog`, `dua`, `earthly`, `evans`,
-  `eza`, `fx`, `ghz`, `grpcurl`, `jq`, `k6`, `lsd`, `oha`, `vegeta`, `wrk`,
-  `cody`, `continue`, `sops`, `tabby`.
-  Corrected count (202608281400-git): the earlier "18" count in this entry
-  was wrong — it dropped `cody`, `continue`, `sops`, `tabby` by mistake.
-  Those four DO have a matching case in `__configure_tool`'s `case` (line
-  ~1036), but `__configure_tool` is a separate post-install *configure*
-  dispatcher (`bin/setupmgr` line ~1033), not the main install dispatch
-  loop at line 6805 — they still have no `__setup_*` install function and
-  no case arm there, so `setupmgr tabby` (etc.) still can't install them.
-  Fixing this requires writing 22 new `__setup_*` functions plus their
-  dispatch cases and end-to-end verifying each install — a large,
-  dedicated-session task, do not fold into an unrelated commit.
+- DONE (this session): wrote 19 new `__setup_*` functions (`ali`,
+  `bombardier`, `buf`, `curlie`, `dog`, `dua`, `earthly`, `evans`, `eza`,
+  `fx`, `ghz`, `grpcurl`, `jq`, `k6`, `lsd`, `oha`, `vegeta`, `sops`,
+  `tabby`) plus their main-dispatch-loop case arms, and added direct
+  `__execute_npm`-based case arms (no wrapper function, matching the
+  `cortex`/`gemini` precedent) for `cody` (`@sourcegraph/cody`) and
+  `continue` (`@continuedev/cli`). Every GitHub repo/asset name/npm package
+  was verified directly against the GitHub releases API / npm registry, not
+  trusted from research-agent output. Six of the new functions needed a
+  custom arch-aware asset pattern (following the `__setup_fnm` precedent)
+  because the generic `__build_asset_pattern` os/arch matcher would have
+  been ambiguous or wrong: `buf` (sibling `protoc-gen-buf-*` assets share
+  the same `Linux-<arch>.tar.gz` substring), `eza`/`lsd` (musl-build
+  siblings share the same arch substring as the gnu build), `oha` (a
+  `-pgo` sibling build), `sops` (an `.spdx.sbom.json` sidecar), and
+  `tabby` (`manylinux` naming breaks the generic linux/gnu substring
+  match; only the verified x86_64 CPU build is supported, others error
+  clearly). Also fixed a real bug surfaced along the way:
+  `__configure_continue` checked `__cmd_exists continue`, but
+  `@continuedev/cli`'s actual shipped binary (per its npm `bin` field) is
+  `cn`, not `continue` — corrected to check `cn`.
+
+  **`wrk` NOT fixed — needs a user decision, not a mechanical fix.**
+  Verified via GitHub API: `wrk/wrk`'s releases have **zero release
+  assets on any release** — it is source-build-only (no prebuilt
+  binaries ship at all), so it cannot get a real `__setup_wrk` via this
+  codebase's download-and-install mechanism. Same class of problem as
+  `tig`/`entr`/`podman`, which were removed from `SETUPMGR_ALL_TOOLS`
+  entirely (see Session History in AI.md) rather than given a fake
+  installer. `wrk` is still listed in `SETUPMGR_ALL_TOOLS`,
+  `completions/_setupmgr_completions.bash`, and `man/setupmgr.1` with no
+  working install path — decide: remove it (matching precedent) or add a
+  source-build helper (new capability, larger scope).
 
   `antigravity` remains separately deferred (see above): has a function and
   could get a case arm mechanically, but the function itself needs a

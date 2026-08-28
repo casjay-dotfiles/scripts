@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608272020-git
+##@Version           :  202608272117-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Bash completion for setupmgr - cross-platform package manager
-# @@Changelog        :  Drop podman from completion list - not a static-binary install
+# @@Changelog        :  Drop tig/entr/golang from completion list - not static-binary or superseded by go
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -55,12 +55,12 @@ _setupmgr_completion() {
   #####################################################################
   ARRAY="act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy claude coder codex cody "
   ARRAY+="continue copilot cortex cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv distrobox dive dnsglobe dog dotnet droast dua "
-  ARRAY+="duf dust earthly entr eslint evans exa eza fabric fastfetch fd fnm fx fzf garage gemini gh ghz git-cliff gitleaks gitui glow go "
-  ARRAY+="gohttpserver golang gpt grex gron grpcurl grype gvm hadolint helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind "
+  ARRAY+="duf dust earthly eslint evans exa eza fabric fastfetch fd fnm fx fzf garage gemini gh ghz git-cliff gitleaks gitui glow go "
+  ARRAY+="gohttpserver gpt grex gron grpcurl grype gvm hadolint helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind "
   ARRAY+="kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua markdownlint mc miller minikube "
   ARRAY+="mise mods nix nodejs npm-check-updates nushell nvm oha ollama openclaw opencode opentofu packer pipx plandex powershell prettier "
   ARRAY+="procs rbenv remove ripgrep ruff rustfs rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task "
-  ARRAY+="terminal-browser tgpt tig tilt tldr tokei traefik trivy trufflehog uv vagrant vale vegeta vercel vfox viddy watchexec webhookd wrk xcaddy "
+  ARRAY+="terminal-browser tgpt tilt tldr tokei traefik trivy trufflehog uv vagrant vale vegeta vercel vfox viddy watchexec webhookd wrk xcaddy "
   ARRAY+="xh xsv yq zed zellij zig zoxide"
   #####################################################################
   LIST=""

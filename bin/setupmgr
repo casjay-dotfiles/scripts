@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608272020-git
+##@Version           :  202608272117-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  Remove podman - not a static-binary install, delegated to pkmgr/distro package manager
+# @@Changelog        :  Remove tig/entr (package-manager-only installs), dedup zed/lapce, prefer go over golang
 # @@TODO             :  Implement __setup_ functions for Priority 2-9 tools (63 tools pending implementation)
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608272020-git"
+VERSION="202608272117-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 # When invoked via sudo, $HOME points at /root by default. Re-anchor it on
@@ -2284,7 +2284,7 @@ __is_package_installed() {
   case "$name" in
   claude) [ -x "$HOME/.local/bin/claude" ] || [ -d "$HOME/.claude/bin" ] && return 0 ;;
   ollama) [ -d "/usr/local/share/ollama" ] || [ -f "/etc/systemd/system/ollama.service" ] && return 0 ;;
-  zed) [ -d "${ZED_INSTALL_DIR:-$SETUPMGR_DEFAULT_SHARE_DIR/zed_editor}" ] && return 0 ;;
+  zed) [ -d "$(__target_home)/.local/share/zed" ] && return 0 ;;
   golang | go) [ -d "${GO_INSTALL_DIR:-$SETUPMGR_DEFAULT_SHARE_DIR/go}" ] && return 0 ;;
   powershell) [ -d "${POWERSHELL_INSTALL_DIR}" ] && return 0 ;;
   esac
@@ -2463,8 +2463,8 @@ __remove_package() {
   zed)
     __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/zed"
     __remove_file "/usr/local/bin/zed"
-    local zed_dir="${ZED_INSTALL_DIR:-$SETUPMGR_DEFAULT_SHARE_DIR/zed_editor}"
-    [ -d "$zed_dir" ] && __sudo rm -rf "$zed_dir" && printf_green "Removed zed from $zed_dir"
+    local zed_dir="$(__target_home)/.local/share/zed"
+    [ -d "$zed_dir" ] && __run_as_user rm -rf "$zed_dir" && printf_green "Removed zed from $zed_dir"
     ;;
   golang | go)
     __remove_file "$SETUPMGR_DEFAULT_BIN_DIR/go"
@@ -4658,46 +4658,6 @@ EOF
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__setup_zed() {
-  local exitCode=0
-  local name="zed-editor"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local installDir="$ZED_INSTALL_DIR"
-  local release_url="https://zed.dev/api/releases/stable/latest"
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/zed"
-  tempBin="bin/zed"
-  if ! __check_for_vulkan_support; then
-    printf_red "Vulkan support check failed - vulkaninfo not found or no Vulkan devices detected"
-    printf_yellow "Zed editor requires Vulkan support. Install vulkan drivers and vulkan-tools package"
-    return 1
-  fi
-  case $arch in
-  x86_64) download_url="$release_url/zed-linux-x86_64.tar.gz" ;;
-  aarch64 | arm64) download_url="$release_url/zed-linux-aarch64.tar.gz" ;;
-  esac
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-
-  if __download_extract_install "$download_url" "$installDir" "$tempBin" "$binFile" && __is_installed "$name" "$binFile"; then
-    local zed_target_home="$(__target_home)"
-    local zed_apps_dir="$zed_target_home/.local/share/applications"
-    local zed_desktop="$zed_apps_dir/Zed-Editor.desktop"
-    __user_mkdir "$zed_apps_dir"
-    __run_as_user cp -Rf "$installDir/share/applications/zed.desktop" "$zed_desktop"
-    __run_as_user sed -i "s|Icon=zed|Icon=$installDir/share/icons/hicolor/512x512/apps/zed.png|g" "$zed_desktop"
-    __run_as_user sed -i "s|Exec=zed|Exec=$installDir/libexec/zed-editor|g" "$zed_desktop"
-    __message_installed_ok "$name"
-  else
-    exitCode=1
-    __message_installed_failed "$name"
-  fi
-  return $exitCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_golang() {
   local exitCode=0
   local name="go"
@@ -4843,34 +4803,6 @@ __setup_ctop() {
   __install_from_binary "ctop" "bcicen/ctop" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__setup_lapce() {
-  local exitCode=0
-  local name="lapce"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/lapce/lapce/releases/latest"
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  case $arch in
-  x86_64) download_url="https://github.com/lapce/lapce/releases/latest/download/lapce-linux-amd64.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/lapce/lapce/releases/latest/download/lapce-linux-arm64.tar.gz" ;;
-  esac
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
-  fi
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
-    __install_to_system_bin "$binFile"
-    __message_installed_ok "$name"
-    __gen_desktopfile "$name" "$binFile"
-  else
-    exitCode=1
-    __message_installed_failed "$name"
-  fi
-  return $exitCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-
 __setup_rustfs() {
   local exitCode=0
   local name="rustfs"
@@ -5755,61 +5687,6 @@ __setup_difftastic() {
   __install_from_archive "difftastic" "Wilfred/difftastic" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__setup_tig() {
-  local exitCode=0
-  local name="tig"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/jonas/tig/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  printf_yellow "tig requires compilation from source, installing via system package manager..."
-  if __cmd_exists pacman; then
-    __sudo pacman -S --noconfirm --needed tig 2>/dev/null && exitCode=0 || exitCode=1
-  elif __cmd_exists apt; then
-    __sudo apt-get install -y tig 2>/dev/null && exitCode=0 || exitCode=1
-  elif __cmd_exists dnf; then
-    __sudo dnf install -y tig 2>/dev/null && exitCode=0 || exitCode=1
-  elif __cmd_exists yum; then
-    __sudo yum install -y tig 2>/dev/null && exitCode=0 || exitCode=1
-  elif __cmd_exists apk; then
-    __sudo apk add --no-cache tig 2>/dev/null && exitCode=0 || exitCode=1
-  elif __cmd_exists brew; then
-    brew install tig 2>/dev/null && exitCode=0 || exitCode=1
-  else
-    printf_red "No supported package manager found for tig installation"
-    exitCode=1
-  fi
-  if [ $exitCode -eq 0 ]; then
-    __save_version "$name" "${version#v}"
-    __message_installed_ok "$name"
-  else
-    __message_installed_failed "$name"
-  fi
-  return $exitCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_kubectx() {
   __install_from_archive "kubectx" "ahmetb/kubectx" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
@@ -5992,61 +5869,6 @@ __setup_watchexec() {
     __message_installed_ok "$name" "$SETUPMGR_DEFAULT_BIN_DIR"
   else
     exitCode=1
-    __message_installed_failed "$name"
-  fi
-  return $exitCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__setup_entr() {
-  local exitCode=0
-  local name="entr"
-  local arch="$(uname -m)"
-  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/eradman/entr/releases/latest"
-  local version=""
-  local installed_version=""
-  [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
-  version="$(__get_release_info "$release_url" '"tag_name"')"
-  if [ -z "$version" ]; then
-    printf_red "Failed to determine latest version for $name"
-    return 1
-  fi
-  if __cmd_exists $name; then
-    installed_version="$(__get_installed_version "$name")"
-    if [ -n "$installed_version" ]; then
-      if __compare_versions "$installed_version" "$version"; then
-        printf_green "Updating $name from $installed_version to $version"
-      else
-        printf_cyan "$name is already up to date ($installed_version)"
-        return 0
-      fi
-    else
-      printf_green "Updating $name to $version"
-    fi
-  else
-    printf_green "Installing $name $version"
-  fi
-  printf_yellow "entr requires compilation from source, installing via system package manager..."
-  if __cmd_exists pacman; then
-    __sudo pacman -S --noconfirm --needed entr 2>/dev/null && exitCode=0 || exitCode=1
-  elif __cmd_exists apt; then
-    __sudo apt-get install -y entr 2>/dev/null && exitCode=0 || exitCode=1
-  elif __cmd_exists dnf; then
-    __sudo dnf install -y entr 2>/dev/null && exitCode=0 || exitCode=1
-  elif __cmd_exists yum; then
-    __sudo yum install -y entr 2>/dev/null && exitCode=0 || exitCode=1
-  elif __cmd_exists apk; then
-    __sudo apk add --no-cache entr 2>/dev/null && exitCode=0 || exitCode=1
-  elif __cmd_exists brew; then
-    brew install entr 2>/dev/null && exitCode=0 || exitCode=1
-  else
-    printf_red "No supported package manager found for entr installation"
-    exitCode=1
-  fi
-  if [ $exitCode -eq 0 ]; then
-    __save_version "$name" "${version#v}"
-    __message_installed_ok "$name"
-  else
     __message_installed_failed "$name"
   fi
   return $exitCode
@@ -6329,6 +6151,12 @@ __setup_zed() {
     printf_yellow "Skipping $name installation on headless system"
     return 1
   fi
+  local os_type="$(uname -s)"
+  if [ "$os_type" != "Darwin" ] && ! __check_for_vulkan_support; then
+    printf_red "Vulkan support check failed - vulkaninfo not found or no Vulkan devices detected"
+    printf_yellow "Zed editor requires Vulkan support. Install vulkan drivers and vulkan-tools package"
+    return 1
+  fi
   __user_mkdir "$install_dir"
   __user_mkdir "$target_home/.local/share/applications"
   if __cmd_exists zed; then
@@ -6341,7 +6169,6 @@ __setup_zed() {
   printf_green "Installing Zed editor..."
   printf_cyan "This is a GUI code editor"
   local download_url=""
-  local os_type="$(uname -s)"
   case $arch in
   x86_64)
     if [ "$os_type" = "Darwin" ]; then
@@ -6621,7 +6448,7 @@ if [ -z "$SETUPMGR_DEFAULT_SHARE_DIR" ]; then
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dnsglobe dog dotnet droast dua duf dust earthly entr evans exa eza fabric fastfetch fd fnm fzf fx garage gh ghz git-cliff gitleaks gitui glow golang gohttpserver gpt grex gron grype grpcurl gvm hadolint helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama_cpp llm localai lsd lua mc miller mise minikube mods nix nodejs nushell nvm oha ollama opencode opentofu packer pipx plandex powershell procs rbenv ripgrep ruff rustfs rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tig tilt tldr tokei traefik trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd wrk xcaddy xh xsv yq zed zellij zig zoxide}"
+SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dnsglobe dog dotnet droast dua duf dust earthly evans exa eza fabric fastfetch fd fnm fzf fx garage gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron grype grpcurl gvm hadolint helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua mc miller mise minikube mods nix nodejs nushell nvm oha ollama opencode opentofu packer pipx plandex powershell procs rbenv ripgrep ruff rustfs rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tilt tldr tokei traefik trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd wrk xcaddy xh xsv yq zed zellij zig zoxide}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LUA_JIT_VERSION="${LUA_JIT_VERSION:-2.0.5}"
 LUA_DEFAULT_VERSION="${LUA_DEFAULT_VERSION:-5.4.3}"
@@ -7176,7 +7003,7 @@ while [ $# -gt 0 ]; do
     __setup_gh
     SETUPMGR_EXIT_STATUS=$?
     ;;
-  go)
+  go | golang)
     shift 1
     __setup_golang
     SETUPMGR_EXIT_STATUS=$?
@@ -7444,11 +7271,6 @@ while [ $# -gt 0 ]; do
   tgpt)
     shift 1
     __setup_tgpt
-    SETUPMGR_EXIT_STATUS=$?
-    ;;
-  tig)
-    shift 1
-    __setup_tig
     SETUPMGR_EXIT_STATUS=$?
     ;;
   tilt)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608281422-git
+##@Version           :  202608281442-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  Remove wrk from SETUPMGR_ALL_TOOLS - no installable release assets, source-build never supported
+# @@Changelog        :  Fix script-lint violations - grep -- separators, comment placement, line length, __requiresudo rename
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608281422-git"
+VERSION="202608281442-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 # When invoked via sudo, $HOME points at /root by default. Re-anchor it on
@@ -87,7 +87,7 @@ __cmd_exists() {
 # Check for a valid internet connection
 __am_i_online() {
   local SETUPMGR_EXIT_STATUS=0
-  curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || SETUPMGR_EXIT_STATUS=4
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi -- 'server:.*cloudflare' || SETUPMGR_EXIT_STATUS=4
   return ${SETUPMGR_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -112,7 +112,7 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
   ICON_WARN="[ warn ]"
   ICON_ERROR="[ error ]"
   ICON_QUESTION="[ ? ]"
-  printf_column() { tee | grep '^'; }
+  printf_column() { tee | grep -- '^'; }
   printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
@@ -339,7 +339,7 @@ SETUPMGR_NOTIFY_CLIENT_ICON="${SETUPMGR_NOTIFY_CLIENT_ICON:-}"
 SETUPMGR_NOTIFY_CLIENT_URGENCY="${SETUPMGR_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
-  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if builtin type -t __gen_config_local | grep -q -- 'function'; then __gen_config_local; fi
   if [ -f "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE" ]; then
     [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
     . "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE"
@@ -404,7 +404,7 @@ __user_is_not_root() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if user is a member of sudo
 __sudo_group() {
-  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+  grep -sh -- "${1:-$USER}" "/etc/group" | grep -Eq -- 'wheel|adm|sudo' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # # Get sudo password
@@ -420,7 +420,7 @@ __sudorun() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Test if user has access to sudo
 __can_i_sudo() {
-  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq -- 'may not' >/dev/null && return 0
   __sudo_group "${1:-$USER}" || __sudoif || sudo true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -432,7 +432,7 @@ __sudoif() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
-requiresudo() {
+__requiresudo() {
   if [ "$SETUPMGR_REQUIRE_SUDO" = "yes" ] && [ -z "$SETUPMGR_REQUIRE_SUDO_RUN" ]; then
     export SETUPMGR_REQUIRE_SUDO="no"
     export SETUPMGR_REQUIRE_SUDO_RUN="true"
@@ -480,7 +480,8 @@ __target_home() {
 
   if [ -z "$target_user" ]; then
     printf '%s' "$HOME"
-    return
+    # No target user resolved — nothing left to look up, exit early.
+    return 0
   fi
   if __cmd_exists id; then
     target_uid="$(id -u "$target_user" 2>/dev/null)"
@@ -488,7 +489,8 @@ __target_home() {
   # Same uid as us → $HOME is correct (we are that user).
   if [ -n "$target_uid" ] && [ "$target_uid" = "$current_uid" ]; then
     printf '%s' "$HOME"
-    return
+    # Already the target user — skip the passwd lookup below.
+    return 0
   fi
   if __cmd_exists getent; then
     home="$(getent passwd "$target_user" 2>/dev/null | cut -d: -f6)"
@@ -566,7 +568,7 @@ __trap_exit() {
   [ -n "$SETUPMGR_TEMP_FILE" ] && [ -f "$SETUPMGR_TEMP_FILE" ] && rm -Rf "$SETUPMGR_TEMP_FILE" &>/dev/null
   [ -n "$SETUPMGR_TEMP_EXTRACT_FILE" ] && [ -e "$SETUPMGR_TEMP_EXTRACT_FILE" ] && rm -Rf "$SETUPMGR_TEMP_EXTRACT_FILE"
   #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
-  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  if builtin type -t __trap_exit_local | grep -q -- 'function'; then __trap_exit_local; fi
   return $SETUPMGR_EXIT_STATUS
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -620,17 +622,21 @@ trap '__trap_exit' EXIT
 # User defined functions
 __output_status() { tee /dev/null &>/dev/null; }
 __curl() { curl -q -LSsf "$@" 2>/dev/null || return 1; }
-__get_releases() { __curl "$1" | jq -r '.[].name' | grep -vE 'beta|dev' | sort -rV | head -n1 || return 1; }
-__get_release_info() { __curl "$1" | grep "$2" 2>/dev/null | cut -d '"' -f 4 2>/dev/null | grep "${3:-^}" 2>/dev/null; }
-__is_dir_empty() { if [ "$(find "$1" -maxdepth 1 -type f 2>/dev/null | grep -v '^$' | wc -l)" != 0 ]; then return 1; fi; }
+__get_releases() { __curl "$1" | jq -r '.[].name' | grep -vE -- 'beta|dev' | sort -rV | head -n1 || return 1; }
+__get_release_info() { __curl "$1" | grep -- "$2" 2>/dev/null | cut -d '"' -f 4 2>/dev/null | grep -- "${3:-^}" 2>/dev/null; }
+__is_dir_empty() { if [ "$(find "$1" -maxdepth 1 -type f 2>/dev/null | grep -v -- '^$' | wc -l)" != 0 ]; then return 1; fi; }
 __dir_has_content() { [ "$(ls -A "$1" 2>/dev/null | head -1)" ] && return 0 || return 1; }
-__dir_has_one_folder() { if [ "$(find "$1" -maxdepth 1 -type d 2>/dev/null | grep -v '^$' | wc -l)" != 1 ]; then return 1; fi; }
+__dir_has_one_folder() { if [ "$(find "$1" -maxdepth 1 -type d 2>/dev/null | grep -v -- '^$' | wc -l)" != 1 ]; then return 1; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __rm() { [ -n "$1" ] && [ -e "$1" ] && \rm -Rf "$@"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_for_vulkan_support() { if __check_for_vulkan_info; then __check_for_vulkan_error; else return 1; fi; }
 __check_for_vulkan_error() { if [ $? -eq 2 ]; then printf_red "This system doesn't seem to have vulkan support: Try installing vulkan drivers" && return 1; else return 0; fi; }
-__check_for_vulkan_info() { __cmd_exists vulkaninfo && { vulkaninfo 2>/dev/null | grep 'Devices: count = ' | awk -F '=' '{print $2}' | sed 's| ||g' | grep -qv '0' || return 2; } || return 1; }
+__check_for_vulkan_info() {
+  __cmd_exists vulkaninfo && {
+    vulkaninfo 2>/dev/null | grep -- 'Devices: count = ' | awk -F '=' '{print $2}' | sed 's| ||g' | grep -qv -- '0' || return 2
+  } || return 1
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Update an existing repo. Always run as the target user so commits, refs,
 # and worktree files stay user-owned even when setupmgr is invoked under sudo.
@@ -656,8 +662,8 @@ __npm_install_global() {
   if [ "$install_mode" = "global" ]; then
     printf_blue "Installing npm package globally: $package"
     __sudo "$npm_bin" install "$package" -g --silent --no-progress 2>/dev/null || return 1
-    __sudo "$npm_bin" list -g --depth=0 2>/dev/null | grep "$package" | awk -F '/' '{print $2}' | sed 's|@.*||g' | grep -q '^' ||
-      __sudo "$npm_bin" list -g --depth=0 2>/dev/null | grep "$package" | sed 's|.* ||g;s|@.*||g' | grep -q '^' || return 1
+    __sudo "$npm_bin" list -g --depth=0 2>/dev/null | grep -- "$package" | awk -F '/' '{print $2}' | sed 's|@.*||g' | grep -q -- '^' ||
+      __sudo "$npm_bin" list -g --depth=0 2>/dev/null | grep -- "$package" | sed 's|.* ||g;s|@.*||g' | grep -q -- '^' || return 1
   else
     printf_blue "Installing npm package locally: $package"
     if [ -n "$npm_prefix" ]; then
@@ -665,12 +671,12 @@ __npm_install_global() {
       [ -d "$npm_prefix/bin" ] || mkdir -p "$npm_prefix/bin"
       [ -d "$npm_prefix/lib" ] || mkdir -p "$npm_prefix/lib"
       NPM_CONFIG_PREFIX="$npm_prefix" "$npm_bin" install "$package" -g --silent --no-progress 2>/dev/null || return 1
-      NPM_CONFIG_PREFIX="$npm_prefix" "$npm_bin" list -g --depth=0 2>/dev/null | grep "$package" | awk -F '/' '{print $2}' | sed 's|@.*||g' | grep -q '^' ||
-        NPM_CONFIG_PREFIX="$npm_prefix" "$npm_bin" list -g --depth=0 2>/dev/null | grep "$package" | sed 's|.* ||g;s|@.*||g' | grep -q '^' || return 1
+      NPM_CONFIG_PREFIX="$npm_prefix" "$npm_bin" list -g --depth=0 2>/dev/null | grep -- "$package" | awk -F '/' '{print $2}' | sed 's|@.*||g' | grep -q -- '^' ||
+        NPM_CONFIG_PREFIX="$npm_prefix" "$npm_bin" list -g --depth=0 2>/dev/null | grep -- "$package" | sed 's|.* ||g;s|@.*||g' | grep -q -- '^' || return 1
     else
       "$npm_bin" install "$package" -g --silent --no-progress 2>/dev/null || return 1
-      "$npm_bin" list -g --depth=0 2>/dev/null | grep "$package" | awk -F '/' '{print $2}' | sed 's|@.*||g' | grep -q '^' ||
-        "$npm_bin" list -g --depth=0 2>/dev/null | grep "$package" | sed 's|.* ||g;s|@.*||g' | grep -q '^' || return 1
+      "$npm_bin" list -g --depth=0 2>/dev/null | grep -- "$package" | awk -F '/' '{print $2}' | sed 's|@.*||g' | grep -q -- '^' ||
+        "$npm_bin" list -g --depth=0 2>/dev/null | grep -- "$package" | sed 's|.* ||g;s|@.*||g' | grep -q -- '^' || return 1
     fi
   fi
 }
@@ -729,7 +735,7 @@ __execute_npm() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_npm_package() {
   local pkg="$1"
-  echo " $NODE_NPM_PACKAGES " | grep -q " $pkg "
+  echo " $NODE_NPM_PACKAGES " | grep -q -- " $pkg "
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Uninstall a globally-installed npm package by name. Returns 0 on success.
@@ -873,9 +879,9 @@ __get_installed_version() {
   local version=""
   version="$(__get_saved_version "$name")"
   if [ -z "$version" ] && __cmd_exists "$name"; then
-    version="$($name --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?|^r[0-9]+$' | head -1)"
+    version="$($name --version 2>/dev/null | head -1 | grep -oE -- '[0-9]+\.[0-9]+(\.[0-9]+)?|^r[0-9]+$' | head -1)"
     if [ -z "$version" ]; then
-      version="$($name -v 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?|^r[0-9]+$' | head -1)"
+      version="$($name -v 2>/dev/null | head -1 | grep -oE -- '[0-9]+\.[0-9]+(\.[0-9]+)?|^r[0-9]+$' | head -1)"
     fi
     # Bare "version" positional tried last: on tools like lf (a file manager)
     # a bare word argument is a cd/select path, not a version subcommand, so
@@ -883,7 +889,7 @@ __get_installed_version() {
     # "version" instead of printing a version - only try it once flag-style
     # probes are exhausted.
     if [ -z "$version" ]; then
-      version="$($name version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?|^r[0-9]+$' | head -1)"
+      version="$($name version 2>/dev/null | head -1 | grep -oE -- '[0-9]+\.[0-9]+(\.[0-9]+)?|^r[0-9]+$' | head -1)"
     fi
     [ -n "$version" ] && __save_version "$name" "$version"
   fi
@@ -894,7 +900,7 @@ __get_saved_version() {
   local name="$1"
   local version=""
   if [ -f "$SETUPMGR_VERSIONS_FILE" ]; then
-    version="$(grep "^${name}=" "$SETUPMGR_VERSIONS_FILE" 2>/dev/null | cut -d'=' -f2)"
+    version="$(grep -- "^${name}=" "$SETUPMGR_VERSIONS_FILE" 2>/dev/null | cut -d'=' -f2)"
   fi
   printf '%s' "$version"
 }
@@ -904,7 +910,7 @@ __save_version() {
   local version="$2"
   [ -d "$SETUPMGR_CONFIG_DIR" ] || mkdir -p "$SETUPMGR_CONFIG_DIR" 2>/dev/null
   if [ -f "$SETUPMGR_VERSIONS_FILE" ]; then
-    if grep -q "^${name}=" "$SETUPMGR_VERSIONS_FILE" 2>/dev/null; then
+    if grep -q -- "^${name}=" "$SETUPMGR_VERSIONS_FILE" 2>/dev/null; then
       sed -i "s|^${name}=.*|${name}=${version}|g" "$SETUPMGR_VERSIONS_FILE"
     else
       echo "${name}=${version}" >>"$SETUPMGR_VERSIONS_FILE"
@@ -933,22 +939,22 @@ __detect_gpu() {
     fi
   fi
   if [ "$has_gpu" = "false" ] && __cmd_exists lspci; then
-    if lspci | grep -iE 'vga|3d|display' | grep -iq 'nvidia'; then
+    if lspci | grep -iE -- 'vga|3d|display' | grep -iq -- 'nvidia'; then
       has_gpu="true"
       gpu_type="nvidia"
-      gpu_info="$(lspci | grep -iE 'vga|3d|display' | grep -i 'nvidia' | head -1 | sed 's/.*: //')"
-    elif lspci | grep -iE 'vga|3d|display' | grep -iq 'amd'; then
+      gpu_info="$(lspci | grep -iE -- 'vga|3d|display' | grep -i -- 'nvidia' | head -1 | sed 's/.*: //')"
+    elif lspci | grep -iE -- 'vga|3d|display' | grep -iq -- 'amd'; then
       has_gpu="true"
       gpu_type="amd"
-      gpu_info="$(lspci | grep -iE 'vga|3d|display' | grep -i 'amd' | head -1 | sed 's/.*: //')"
-    elif lspci | grep -iE 'vga|3d|display' | grep -iq 'intel'; then
+      gpu_info="$(lspci | grep -iE -- 'vga|3d|display' | grep -i -- 'amd' | head -1 | sed 's/.*: //')"
+    elif lspci | grep -iE -- 'vga|3d|display' | grep -iq -- 'intel'; then
       has_gpu="true"
       gpu_type="intel"
-      gpu_info="$(lspci | grep -iE 'vga|3d|display' | grep -i 'intel' | head -1 | sed 's/.*: //')"
+      gpu_info="$(lspci | grep -iE -- 'vga|3d|display' | grep -i -- 'intel' | head -1 | sed 's/.*: //')"
     fi
   fi
   if [ "$has_gpu" = "false" ] && [ -d "/sys/class/drm" ]; then
-    if ls /sys/class/drm/card*/device/driver 2>/dev/null | grep -q .; then
+    if ls /sys/class/drm/card*/device/driver 2>/dev/null | grep -q -- .; then
       has_gpu="true"
       gpu_type="generic"
       gpu_info="$(ls -l /sys/class/drm/card*/device/driver 2>/dev/null | head -1 | awk '{print $NF}' | xargs basename)"
@@ -1001,9 +1007,9 @@ __detect_desktop() {
       desktop_info="Session type: $XDG_SESSION_TYPE"
     fi
   elif __cmd_exists loginctl; then
-    if loginctl show-session "$(loginctl | grep "$USER" | awk '{print $1}' | head -1)" 2>/dev/null | grep -q "Type=wayland\|Type=x11"; then
+    if loginctl show-session "$(loginctl | grep -- "$USER" | awk '{print $1}' | head -1)" 2>/dev/null | grep -q -- "Type=wayland\|Type=x11"; then
       has_desktop="true"
-      desktop_type="$(loginctl show-session "$(loginctl | grep "$USER" | awk '{print $1}' | head -1)" 2>/dev/null | grep "Type=" | cut -d= -f2)"
+      desktop_type="$(loginctl show-session "$(loginctl | grep -- "$USER" | awk '{print $1}' | head -1)" 2>/dev/null | grep -- "Type=" | cut -d= -f2)"
       desktop_info="Session type: $desktop_type"
     fi
   fi
@@ -1107,7 +1113,7 @@ root_domain = ".web.garage.localhost"
 api_bind_addr = "127.0.0.1:3903"
 GARAGECFG
     sed -i "s|\$HOME|$HOME|g" "$config_dir/garage.toml"
-    if ! grep -q "rpc_secret" "$config_dir/garage.toml"; then
+    if ! grep -q -- "rpc_secret" "$config_dir/garage.toml"; then
       if __cmd_exists openssl; then
         echo "rpc_secret = \"$(openssl rand -hex 32)\"" | sed -i "/rpc_public_addr/a $(cat)" "$config_dir/garage.toml"
       fi
@@ -1174,7 +1180,7 @@ __configure_ollama() {
   fi
   if __user_is_root && __cmd_exists systemctl; then
     if ! systemctl is-active --quiet ollama 2>/dev/null; then
-      if systemctl list-unit-files 2>/dev/null | grep -q ollama.service; then
+      if systemctl list-unit-files 2>/dev/null | grep -q -- ollama.service; then
         printf_cyan "Starting ollama service..."
         __sudo systemctl start ollama
         __sudo systemctl enable ollama
@@ -1311,7 +1317,7 @@ __configure_age() {
       chmod 600 "$key_dir/key.txt"
       printf_green "Age key generated at $key_dir/key.txt"
       printf_yellow "Save your public key:"
-      grep "public key:" "$key_dir/key.txt"
+      grep -- "public key:" "$key_dir/key.txt"
     fi
   else
     printf_green "Age key already exists at $key_dir/key.txt"
@@ -1604,14 +1610,54 @@ __extract() {
     if [ -f "$tmpFile" ]; then
       case "$tmpFile" in
       *.Z) uncompress "$tmpFile" >/dev/null 2>&1 || exitEXCode=1 ;;
-      *.zip) [ "$extract_cmd" = "do_not_strip_components" ] && unzip -j "$tmpFile" -d "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || unzip "$tmpFile" -d "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
-      *.tar) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
-      *.tgz) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
-      *.tbz | *.tbz2) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
-      *.tar.gz) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
-      *.tar.xz) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xJf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
-      *.tar.bz2) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
-      *.tar.zst | *.tzst) [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" || { _tar_zst_extract "$tmpFile" "$PACKAGE_TMP_DIR" "--strip-components=1" && __dir_has_content "$PACKAGE_TMP_DIR"; } || _tar_zst_extract "$tmpFile" "$PACKAGE_TMP_DIR" "" || exitEXCode=1 ;;
+      *.zip)
+        [ "$extract_cmd" = "do_not_strip_components" ] &&
+          unzip -j "$tmpFile" -d "$PACKAGE_TMP_DIR" >/dev/null 2>&1 ||
+          unzip "$tmpFile" -d "$PACKAGE_TMP_DIR" >/dev/null 2>&1 ||
+          exitEXCode=1
+        ;;
+      *.tar)
+        [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" ||
+          { tar xf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } ||
+          _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" ||
+          exitEXCode=1
+        ;;
+      *.tgz)
+        [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" ||
+          { tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } ||
+          _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" ||
+          exitEXCode=1
+        ;;
+      *.tbz | *.tbz2)
+        [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" ||
+          { tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } ||
+          _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" ||
+          exitEXCode=1
+        ;;
+      *.tar.gz)
+        [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" ||
+          { tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } ||
+          _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" ||
+          exitEXCode=1
+        ;;
+      *.tar.xz)
+        [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" ||
+          { tar xJf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } ||
+          _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" ||
+          exitEXCode=1
+        ;;
+      *.tar.bz2)
+        [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" ||
+          { tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 && __dir_has_content "$PACKAGE_TMP_DIR"; } ||
+          _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" ||
+          exitEXCode=1
+        ;;
+      *.tar.zst | *.tzst)
+        [ "$extract_cmd" = "do_not_strip_components" ] && _tar_extract "$tmpFile" ||
+          { _tar_zst_extract "$tmpFile" "$PACKAGE_TMP_DIR" "--strip-components=1" && __dir_has_content "$PACKAGE_TMP_DIR"; } ||
+          _tar_zst_extract "$tmpFile" "$PACKAGE_TMP_DIR" "" ||
+          exitEXCode=1
+        ;;
       *) printf_red "$tmpFile is not a valid archive file" && exitEXCode=1 ;;
       esac
       if [ $exitEXCode = 0 ]; then
@@ -1647,7 +1693,7 @@ __extract() {
           elif [ -f "$PACKAGE_TMP_DIR/$1" ]; then
             find_extracted="$PACKAGE_TMP_DIR/$1"
           else
-            find_extracted="$(find "$PACKAGE_TMP_DIR" -name "$1" -type f 2>/dev/null | grep -E "^$1$|/$1$" | head -n1)"
+            find_extracted="$(find "$PACKAGE_TMP_DIR" -name "$1" -type f 2>/dev/null | grep -E -- "^$1$|/$1$" | head -n1)"
           fi
           # Ensure file is executable before moving
           [ -f "$find_extracted" ] && chmod +x "$find_extracted" 2>/dev/null
@@ -1757,7 +1803,11 @@ __move_extracted_file() {
   case "$directory" in
   /usr/local/bin | /usr/bin | /usr/sbin | /usr/local/sbin | /bin | /sbin) prefix="sudo" ;;
   esac
-  [ -f "$PACKAGE_TMP_DIR/$binFile" ] && tempBin="$PACKAGE_TMP_DIR/$binFile" || tempBin="$(ls "$PACKAGE_TMP_DIR" | grep "$binFile$" || find "$PACKAGE_TMP_DIR" -type f -iname "$binFile" 2>/dev/null)"
+  if [ -f "$PACKAGE_TMP_DIR/$binFile" ]; then
+    tempBin="$PACKAGE_TMP_DIR/$binFile"
+  else
+    tempBin="$(ls "$PACKAGE_TMP_DIR" | grep -- "$binFile$" || find "$PACKAGE_TMP_DIR" -type f -iname "$binFile" 2>/dev/null)"
+  fi
   if [ -f "$1" ]; then
     installFrom="$1"
   elif [ -f "$PACKAGE_TMP_DIR/$binFile" ]; then
@@ -1839,7 +1889,8 @@ __get_system_os() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - -
 __validate_binary_arch() {
   local binary_path="$1"
-  local expected_arch="$2" # amd64, arm64, arm, armv6
+  # expected_arch values: amd64, arm64, arm, armv6
+  local expected_arch="$2"
 
   # Check if file exists and is executable
   if [ ! -f "$binary_path" ]; then
@@ -1852,16 +1903,16 @@ __validate_binary_arch() {
   # Validate architecture matches
   case "$expected_arch" in
   amd64)
-    echo "$file_output" | grep -qE "(x86-64|x86_64|amd64)" && return 0
+    echo "$file_output" | grep -qE -- "(x86-64|x86_64|amd64)" && return 0
     ;;
   arm64)
-    echo "$file_output" | grep -qE "(aarch64|ARM aarch64)" && return 0
+    echo "$file_output" | grep -qE -- "(aarch64|ARM aarch64)" && return 0
     ;;
   arm)
-    echo "$file_output" | grep -qE "(ARM|armv7)" && ! echo "$file_output" | grep -qE "(aarch64|arm64)" && return 0
+    echo "$file_output" | grep -qE -- "(ARM|armv7)" && ! echo "$file_output" | grep -qE -- "(aarch64|arm64)" && return 0
     ;;
   armv6)
-    echo "$file_output" | grep -qE "armv6" && return 0
+    echo "$file_output" | grep -qE -- "armv6" && return 0
     ;;
   esac
 
@@ -1876,6 +1927,8 @@ __get_version() {
   local name="$1"
   local version=""
   local raw_output=""
+  # version_regex matches: 1.2.3, 1.2, v1.2.3, 1.2.3-beta, 1.2.3-rc1, etc.
+  local version_regex='(v?[0-9]+\.){1,}[0-9]+([.-][a-zA-Z0-9]+)?|^r[0-9]+$'
 
   # Return empty if command doesn't exist
   if ! command -v "$name" &>/dev/null; then
@@ -1883,25 +1936,41 @@ __get_version() {
   fi
 
   # Try common version flags and extract ONLY version number
-  # Pattern matches: 1.2.3, 1.2, v1.2.3, 1.2.3-beta, 1.2.3-rc1, etc.
-  raw_output="$($name --version 2>/dev/null)" && [ -n "$raw_output" ] && version="$(echo "$raw_output" | grep -oE '(v?[0-9]+\.){1,}[0-9]+([.-][a-zA-Z0-9]+)?|^r[0-9]+$' | head -n1)" && [ -n "$version" ] && echo "$version" && return 0
-  raw_output="$($name -version 2>/dev/null)" && [ -n "$raw_output" ] && version="$(echo "$raw_output" | grep -oE '(v?[0-9]+\.){1,}[0-9]+([.-][a-zA-Z0-9]+)?|^r[0-9]+$' | head -n1)" && [ -n "$version" ] && echo "$version" && return 0
-  raw_output="$($name -v 2>/dev/null)" && [ -n "$raw_output" ] && version="$(echo "$raw_output" | grep -oE '(v?[0-9]+\.){1,}[0-9]+([.-][a-zA-Z0-9]+)?|^r[0-9]+$' | head -n1)" && [ -n "$version" ] && echo "$version" && return 0
-  raw_output="$($name -V 2>/dev/null)" && [ -n "$raw_output" ] && version="$(echo "$raw_output" | grep -oE '(v?[0-9]+\.){1,}[0-9]+([.-][a-zA-Z0-9]+)?|^r[0-9]+$' | head -n1)" && [ -n "$version" ] && echo "$version" && return 0
-  raw_output="$($name version 2>/dev/null)" && [ -n "$raw_output" ] && version="$(echo "$raw_output" | grep -oE '(v?[0-9]+\.){1,}[0-9]+([.-][a-zA-Z0-9]+)?|^r[0-9]+$' | head -n1)" && [ -n "$version" ] && echo "$version" && return 0
+  raw_output="$($name --version 2>/dev/null)" && [ -n "$raw_output" ] &&
+    version="$(echo "$raw_output" | grep -oE -- "$version_regex" | head -n1)" &&
+    [ -n "$version" ] && echo "$version" && return 0
+  raw_output="$($name -version 2>/dev/null)" && [ -n "$raw_output" ] &&
+    version="$(echo "$raw_output" | grep -oE -- "$version_regex" | head -n1)" &&
+    [ -n "$version" ] && echo "$version" && return 0
+  raw_output="$($name -v 2>/dev/null)" && [ -n "$raw_output" ] &&
+    version="$(echo "$raw_output" | grep -oE -- "$version_regex" | head -n1)" &&
+    [ -n "$version" ] && echo "$version" && return 0
+  raw_output="$($name -V 2>/dev/null)" && [ -n "$raw_output" ] &&
+    version="$(echo "$raw_output" | grep -oE -- "$version_regex" | head -n1)" &&
+    [ -n "$version" ] && echo "$version" && return 0
+  raw_output="$($name version 2>/dev/null)" && [ -n "$raw_output" ] &&
+    version="$(echo "$raw_output" | grep -oE -- "$version_regex" | head -n1)" &&
+    [ -n "$version" ] && echo "$version" && return 0
 
   # Some tools output version to stderr or need help flag
-  raw_output="$($name --help 2>&1 | grep -i version)" && [ -n "$raw_output" ] && version="$(echo "$raw_output" | grep -oE '(v?[0-9]+\.){1,}[0-9]+([.-][a-zA-Z0-9]+)?|^r[0-9]+$' | head -n1)" && [ -n "$version" ] && echo "$version" && return 0
-  raw_output="$($name -h 2>&1 | grep -i version)" && [ -n "$raw_output" ] && version="$(echo "$raw_output" | grep -oE '(v?[0-9]+\.){1,}[0-9]+([.-][a-zA-Z0-9]+)?|^r[0-9]+$' | head -n1)" && [ -n "$version" ] && echo "$version" && return 0
+  raw_output="$($name --help 2>&1 | grep -i -- version)" && [ -n "$raw_output" ] &&
+    version="$(echo "$raw_output" | grep -oE -- "$version_regex" | head -n1)" &&
+    [ -n "$version" ] && echo "$version" && return 0
+  raw_output="$($name -h 2>&1 | grep -i -- version)" && [ -n "$raw_output" ] &&
+    version="$(echo "$raw_output" | grep -oE -- "$version_regex" | head -n1)" &&
+    [ -n "$version" ] && echo "$version" && return 0
 
   # If all else fails, return empty (no error)
   return 1
 }
 
 __get_release_api_url() {
-  local repo="$1"               # format: owner/repo or full URL
-  local platform="${2:-github}" # github, gitlab, gitea, gitea.com, codeberg, sourcehut, bitbucket
-  local custom_host="$3"        # Optional: custom host for self-hosted instances
+  # repo format: owner/repo or full URL
+  local repo="$1"
+  # platform values: github, gitlab, gitea, gitea.com, codeberg, sourcehut, bitbucket
+  local platform="${2:-github}"
+  # custom_host: optional custom host for self-hosted instances
+  local custom_host="$3"
 
   # If already a full URL, return it
   if [[ "$repo" =~ ^https?:// ]]; then
@@ -1951,18 +2020,19 @@ __get_release_api_url() {
 
 __find_release_asset() {
   local api_url="$1"
-  local pattern="$2" # Pattern to match in asset name
+  # pattern: pattern to match in asset name
+  local pattern="$2"
   local platform="${3:-github}"
 
   case "$platform" in
   github)
     # GitHub: Try /releases/latest first
-    local download_url="$(__curl "$api_url" | grep '"browser_download_url"' | cut -d '"' -f 4 | grep -iE "$pattern" | head -n1)"
+    local download_url="$(__curl "$api_url" | grep -- '"browser_download_url"' | cut -d '"' -f 4 | grep -iE -- "$pattern" | head -n1)"
     
     # If no assets found in latest, try recent releases (scan up to 10)
     if [ -z "$download_url" ]; then
       local releases_url="${api_url%/latest}"
-      download_url="$(__curl "$releases_url" | grep '"browser_download_url"' | cut -d '"' -f 4 | grep -iE "$pattern" | head -n1)"
+      download_url="$(__curl "$releases_url" | grep -- '"browser_download_url"' | cut -d '"' -f 4 | grep -iE -- "$pattern" | head -n1)"
     fi
     
     echo "$download_url"
@@ -1993,9 +2063,12 @@ __find_release_asset() {
 }
 
 __build_asset_pattern() {
-  local arch="$1"  # amd64, arm64, arm, armv6
-  local os="${2}"  # linux, darwin, freebsd, etc. (auto-detect if empty)
-  local ext="${3}" # Optional: tar.gz, zip, etc.
+  # arch values: amd64, arm64, arm, armv6
+  local arch="$1"
+  # os values: linux, darwin, freebsd, etc. (auto-detect if empty)
+  local os="${2}"
+  # ext: optional, e.g. tar.gz, zip, etc.
+  local ext="${3}"
 
   # Auto-detect OS if not provided
   if [ -z "$os" ]; then
@@ -2068,12 +2141,18 @@ __build_asset_pattern() {
 }
 
 __install_from_binary() {
-  local name="$1"               # Binary name (e.g., "shfmt")
-  local repo="$2"               # Repo (e.g., "mvdan/sh" or full URL)
-  local bin_dir="$3"            # Installation directory
-  local pattern="$4"            # Optional: custom asset pattern
-  local platform="${5:-github}" # github, gitlab, gitea, codeberg, sourcehut, bitbucket
-  local custom_host="$6"        # Optional: custom host for self-hosted instances
+  # name: binary name (e.g., "shfmt")
+  local name="$1"
+  # repo: e.g., "mvdan/sh" or full URL
+  local repo="$2"
+  # bin_dir: installation directory
+  local bin_dir="$3"
+  # pattern: optional custom asset pattern
+  local pattern="$4"
+  # platform values: github, gitlab, gitea, codeberg, sourcehut, bitbucket
+  local platform="${5:-github}"
+  # custom_host: optional custom host for self-hosted instances
+  local custom_host="$6"
 
   local exitCode=0
   local arch="$(__get_system_arch)"
@@ -2130,14 +2209,22 @@ __install_from_binary() {
 }
 
 __install_from_archive() {
-  local name="$1"               # Binary name to extract
-  local repo="$2"               # Repo (e.g., "koalaman/shellcheck")
-  local bin_dir="$3"            # Installation directory
-  local pattern="$4"            # Optional: custom asset pattern
-  local platform="${5:-github}" # github, gitlab, gitea, codeberg, sourcehut, bitbucket
-  local extract_path="${6}"     # Optional: path within archive (e.g., "bin/shellcheck")
-  local custom_host="$7"        # Optional: custom host for self-hosted instances
-  local strip_mode="$8"         # Optional: "do_not_strip_components" for flat archives
+  # name: binary name to extract
+  local name="$1"
+  # repo: e.g., "koalaman/shellcheck"
+  local repo="$2"
+  # bin_dir: installation directory
+  local bin_dir="$3"
+  # pattern: optional custom asset pattern
+  local pattern="$4"
+  # platform values: github, gitlab, gitea, codeberg, sourcehut, bitbucket
+  local platform="${5:-github}"
+  # extract_path: optional path within archive (e.g., "bin/shellcheck")
+  local extract_path="${6}"
+  # custom_host: optional custom host for self-hosted instances
+  local custom_host="$7"
+  # strip_mode: optional "do_not_strip_components" for flat archives
+  local strip_mode="$8"
                                  # (binary sits at the archive's true top level, alongside
                                  # other top-level files, with no wrapping directory —
                                  # tar --strip-components=1 would silently drop it)
@@ -2202,8 +2289,10 @@ __install_from_archive() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_from_npm() {
-  local name="$1"               # Binary name (e.g., "prettier")
-  local package="${2:-$name}"   # NPM package name (defaults to binary name)
+  # name: binary name (e.g., "prettier")
+  local name="$1"
+  # package: NPM package name (defaults to binary name)
+  local package="${2:-$name}"
   
   local exitCode=0
   
@@ -2353,7 +2442,7 @@ __remove_package() {
     "$SETUPMGR_DEFAULT_SYSTEM_BIN_DIR/$probe" \
     "$(command -v "$probe" 2>/dev/null)"; do
     [ -x "$_probe_path" ] || continue
-    version="$("$_probe_path" --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+    version="$("$_probe_path" --version 2>/dev/null | head -1 | grep -oE -- '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
     break
   done
 
@@ -2645,7 +2734,7 @@ __setup_claude() {
 
   # Check for musl on Linux
   if [ "$os" = "linux" ]; then
-    if [ -f /lib/libc.musl-x86_64.so.1 ] || [ -f /lib/libc.musl-aarch64.so.1 ] || ldd /bin/ls 2>&1 | grep -q musl; then
+    if [ -f /lib/libc.musl-x86_64.so.1 ] || [ -f /lib/libc.musl-aarch64.so.1 ] || ldd /bin/ls 2>&1 | grep -q -- musl; then
       platform="linux-${arch}-musl"
     else
       platform="linux-${arch}"
@@ -3099,8 +3188,8 @@ __setup_lua() {
     else
       error="true"
     fi
-    get_ver="$(luaver current | grep 'lua' | grep '^')"
-    get_rver="$(luaver set-default-luarocks 3.8.0 2>&1 | tr ' ' '\n' | grep '[0-9].[0-9]' | grep '^')"
+    get_ver="$(luaver current | grep -- 'lua' | grep -- '^')"
+    get_rver="$(luaver set-default-luarocks 3.8.0 2>&1 | tr ' ' '\n' | grep -- '[0-9].[0-9]' | grep -- '^')"
     if [ -n "$get_ver" ] && [ -n "$get_rver" ] && [ -z "$error" ]; then
       printf_green "Finished installing lua! $get_ver"
       [ -f "$logFile" ] && __rm "$logFile"
@@ -3178,10 +3267,10 @@ __setup_deno() {
   fi
   if __download_extract_move "$deno_uri" "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
-    version=$(eval $name --version 2>/dev/null | head -n1 | sed 's|deno ||g;s| .*||g' | grep '[0-9]')
+    version=$(eval $name --version 2>/dev/null | head -n1 | sed 's|deno ||g;s| .*||g' | grep -- '[0-9]')
   fi
   if [ -n "$version" ] && [ -n "$(type -P $name 2>/dev/null)" ]; then
-    if $name --help 2>&1 | grep -q 'execute binary file'; then
+    if $name --help 2>&1 | grep -q -- 'execute binary file'; then
       printf_red "Unsupported architecture detected"
       __rm "$binFile"
       exitCode=1
@@ -3221,12 +3310,12 @@ __setup_bun() {
   fi
   if __download_extract_move "$bun_url" "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
-    version=$(eval $name --version 2>/dev/null | head -n1 | sed 's|bun ||g;s| .*||g' | grep '[0-9]')
+    version=$(eval $name --version 2>/dev/null | head -n1 | sed 's|bun ||g;s| .*||g' | grep -- '[0-9]')
   else
     printf_exit "Failed to download $bun_url"
   fi
   if [ -n "$version" ] && [ -n "$(type -P $name 2>/dev/null)" ]; then
-    if $name --help 2>&1 | grep -q 'execute binary file'; then
+    if $name --help 2>&1 | grep -q -- 'execute binary file'; then
       printf_red "Unsupported architecture detected"
       __rm "$binFile"
       exitCode=1
@@ -3452,7 +3541,7 @@ __setup_fnm() {
   if __cmd_exists fnm; then
     printf_blue "installing nodejs"
     __run_as_user env FNM_DIR="$FNM_DIR" fnm install "$node_version" >/dev/null 2>&1
-    if __run_as_user env FNM_DIR="$FNM_DIR" fnm ls 2>&1 | grep -q "$node_version"; then
+    if __run_as_user env FNM_DIR="$FNM_DIR" fnm ls 2>&1 | grep -q -- "$node_version"; then
       __run_as_user env FNM_DIR="$FNM_DIR" fnm use "$node_version" >/dev/null 2>&1
       __run_as_user env FNM_DIR="$FNM_DIR" fnm default "$node_version" >/dev/null 2>&1
     fi
@@ -3485,7 +3574,7 @@ __setup_nvm() {
   [ -f "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
   if [ -f "$HOME/.npmrc" ]; then
     nvm use --delete-prefix v20.18.0 --silent
-    grep -sq 'prefix=' "$HOME/.npmrc" && sed -i "s|prefix=.*||g" "$HOME/.npmrc"
+    grep -sq -- 'prefix=' "$HOME/.npmrc" && sed -i "s|prefix=.*||g" "$HOME/.npmrc"
   fi
   if builtin type nvm >/dev/null 2>&1; then
     printf_cyan "Configuring NVM to use $node_version"
@@ -3568,10 +3657,10 @@ __setup_powershell() {
   else
     printf_green "Installing $name"
   fi
-  if echo "$arch" | grep -q '.*86_64.*' || [ "$arch" = "amd64" ]; then
+  if echo "$arch" | grep -q -- '.*86_64.*' || [ "$arch" = "amd64" ]; then
     arch="x64"
     posh_arch="amd64"
-  elif echo "$arch" | grep -q '.*aarch64.*' || [ "$arch" = "arm64" ]; then
+  elif echo "$arch" | grep -q -- '.*aarch64.*' || [ "$arch" = "arm64" ]; then
     arch="arm64"
     posh_arch="arm64"
   else
@@ -3589,7 +3678,16 @@ __setup_powershell() {
     return 1
   fi
   [ -d "$PACKAGE_TMP_DIR" ] || mkdir -p "$PACKAGE_TMP_DIR"
-  local get_release_url="$(__curl -H "Accept: application/vnd.github+json" "$latest_url" 2>/dev/null | jq -r '.assets[].browser_download_url' 2>/dev/null | grep -v 'fxdependent' | grep "$os-$arch" | grep -E '.tar.gz|.zip' | head -n1 | grep '^' || false)"
+  local get_release_url
+  get_release_url="$(
+    __curl -H "Accept: application/vnd.github+json" "$latest_url" 2>/dev/null |
+      jq -r '.assets[].browser_download_url' 2>/dev/null |
+      grep -v -- 'fxdependent' |
+      grep -- "$os-$arch" |
+      grep -E -- '.tar.gz|.zip' |
+      head -n1 |
+      grep -- '^' || false
+  )"
   local get_release_name="$(__basename "$get_release_url")"
   local get_release_file="$PACKAGE_TMP_DIR/$get_release_name"
   local get_release_version="$(echo "$get_release_name" | awk -F '.' '{print $1}' | sed 's|.*-||g')"
@@ -3615,7 +3713,12 @@ __setup_powershell() {
         command -v brew >/dev/null 2>&1 && brew install jandedobbeleer/oh-my-posh/oh-my-posh >/dev/null 2>&1
       elif [ "$os" = "linux" ]; then
         if [ -n "$posh_arch" ]; then
-          install_posh="$(__curl -H "Accept: application/vnd.github+json" "$POWERSHELL_OMP_GITREPO" | jq -r '.assets[].browser_download_url' | grep "$os" | grep "$posh_arch$" || false)"
+          install_posh="$(
+            __curl -H "Accept: application/vnd.github+json" "$POWERSHELL_OMP_GITREPO" |
+              jq -r '.assets[].browser_download_url' |
+              grep -- "$os" |
+              grep -- "$posh_arch$" || false
+          )"
           if [ -n "$install_posh" ]; then
             printf_purple "Installing oh-my-posh"
             local omp_stage=""
@@ -3674,7 +3777,7 @@ __setup_jekyll() {
   if __cmd_exists rbenv; then
     eval "$(rbenv init -)"
     if ! __cmd_exists "ruby"; then
-      if ! ruby --version | grep -q "$rubyV"; then
+      if ! ruby --version | grep -q -- "$rubyV"; then
         rbenv install $rubyV >"/dev/null" 2>&1
       fi
     fi
@@ -3682,7 +3785,7 @@ __setup_jekyll() {
   elif __cmd_exists rvm; then
     rvm reload >"/dev/null" >"/dev/null" 2>&1
     if ! __cmd_exists "ruby"; then
-      if ! ruby --version | grep -q "$rubyV"; then
+      if ! ruby --version | grep -q -- "$rubyV"; then
         rvm install $rubyV >"/dev/null" 2>&1
       fi
     fi
@@ -3703,7 +3806,7 @@ __setup_jekyll() {
     gem install --force github-pages >"/dev/null" 2>&1 || sudo gem install --force github-pages >"/dev/null" 2>&1
     jekyll_bin="$(type -P jekyll)"
     if [ -n "$jekyll_bin" ]; then
-      version="$(jekyll -v 2>/dev/null | grep '[0-9]' | sed 's|[jJ]ekyll ||g')"
+      version="$(jekyll -v 2>/dev/null | grep -- '[0-9]' | sed 's|[jJ]ekyll ||g')"
       __user_mkdir "$HOME/.local/bin"
       __run_as_user ln -sf "$jekyll_bin" "$HOME/.local/bin/jekyll"
       printf_green "Finished installing jekyll $version"
@@ -4057,7 +4160,7 @@ __setup_incus() {
   # Install using custom pattern
   if __install_from_binary "incus" "lxc/incus" "$SETUPMGR_DEFAULT_BIN_DIR" "$pattern"; then
     # Post-install: Create incus-admin group if needed
-    if ! grep -qs 'incus-admin' '/etc/group'; then
+    if ! grep -qs -- 'incus-admin' '/etc/group'; then
       __sudo groupadd --system incus-admin >/dev/null 2>&1
       __sudo usermod -a -G incus-admin $USER >/dev/null 2>&1
     fi
@@ -4077,8 +4180,8 @@ __setup_gohttpserver() {
   extract_cmd="do_not_strip_components"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
-  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux_amd64.tar.gz\$")" ;;
-  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux_arm64.tar.gz\$")" ;;
+  x86_64) download_url="$(__curl "$release_url" | grep -- browser_download_url | cut -d '"' -f 4 | grep -- "linux_amd64.tar.gz\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep -- browser_download_url | cut -d '"' -f 4 | grep -- "linux_arm64.tar.gz\$")" ;;
   esac
   if __cmd_exists $name; then
     printf_green "Updating $name"
@@ -4311,8 +4414,8 @@ __setup_bob() {
   local release_url="https://api.github.com/repos/MordechaiHadad/bob/releases/latest"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
-  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux-x86_64-openssl.zip\$")" ;;
-  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux-aarch64-openssl.zip\$")" ;;
+  x86_64) download_url="$(__curl "$release_url" | grep -- browser_download_url | cut -d '"' -f 4 | grep -- "linux-x86_64-openssl.zip\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep -- browser_download_url | cut -d '"' -f 4 | grep -- "linux-aarch64-openssl.zip\$")" ;;
   esac
   if __cmd_exists $name; then
     printf_green "Updating $name"
@@ -4539,8 +4642,8 @@ __setup_lima() {
   SYMLINK_FILES_TO="$SETUPMGR_DEFAULT_BIN_DIR"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
-  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "Linux-x86_64.tar.gz\$")" ;;
-  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "Linux-aarch64.tar.gz\$")" ;;
+  x86_64) download_url="$(__curl "$release_url" | grep -- browser_download_url | cut -d '"' -f 4 | grep -- "Linux-x86_64.tar.gz\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep -- browser_download_url | cut -d '"' -f 4 | grep -- "Linux-aarch64.tar.gz\$")" ;;
   esac
   if __cmd_exists $name; then
     printf_green "Updating $name"
@@ -4674,7 +4777,7 @@ __setup_golang() {
   local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
   local installDir="$SETUPMGR_DEFAULT_SHARE_DIR/go"
   local release_base_url="https://go.dev/VERSION?m=text"
-  local latest_version="${GO_VERSION:-$(curl -q -LSsf "$release_base_url" | grep go[0-9])}"
+  local latest_version="${GO_VERSION:-$(curl -q -LSsf "$release_base_url" | grep -- go[0-9])}"
   local tempBin="bin/go"
   #extract_cmd="do_not_strip_components"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
@@ -4711,9 +4814,9 @@ __setup_ollama() {
   aarch64 | arm64) asset_arch="arm64" ;;
   esac
   if [ -n "$asset_arch" ]; then
-    release_assets="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4)"
-    download_url="$(echo "$release_assets" | grep -E "/ollama-linux-${asset_arch}\.tar\.zst$" | head -n1)"
-    [ -n "$download_url" ] || download_url="$(echo "$release_assets" | grep -E "/ollama-linux-${asset_arch}\.tgz$" | head -n1)"
+    release_assets="$(__curl "$release_url" | grep -- browser_download_url | cut -d '"' -f 4)"
+    download_url="$(echo "$release_assets" | grep -E -- "/ollama-linux-${asset_arch}\.tar\.zst$" | head -n1)"
+    [ -n "$download_url" ] || download_url="$(echo "$release_assets" | grep -E -- "/ollama-linux-${asset_arch}\.tgz$" | head -n1)"
   fi
   if __cmd_exists $name; then
     printf_green "Updating $name to latest release"
@@ -6588,7 +6691,15 @@ if [ -z "$SETUPMGR_DEFAULT_SHARE_DIR" ]; then
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dnsglobe dog dotnet droast dua duf dust earthly evans exa eza fabric fastfetch fd fnm fzf fx garage gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron grype grpcurl gvm hadolint helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua mc miller mise minikube mods nix nodejs nushell nvm oha ollama opencode opentofu packer pipx plandex powershell procs rbenv ripgrep ruff rustfs rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tilt tldr tokei traefik trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd xcaddy xh xsv yq zed zellij zig zoxide}"
+SETUPMGR_ALL_TOOLS_DEFAULT=""
+SETUPMGR_ALL_TOOLS_DEFAULT+="act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign ctlptl "
+SETUPMGR_ALL_TOOLS_DEFAULT+="ctop curlie dasel delta deno devbox difftastic direnv dive dnsglobe dog dotnet droast dua duf dust earthly evans exa eza fabric fastfetch fd fnm "
+SETUPMGR_ALL_TOOLS_DEFAULT+="fzf fx garage gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron grype grpcurl gvm hadolint helix helm htmlq httpie hyperfine "
+SETUPMGR_ALL_TOOLS_DEFAULT+="incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua mc "
+SETUPMGR_ALL_TOOLS_DEFAULT+="miller mise minikube mods nix nodejs nushell nvm oha ollama opencode opentofu packer pipx plandex powershell procs rbenv ripgrep ruff rustfs "
+SETUPMGR_ALL_TOOLS_DEFAULT+="rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tilt tldr tokei traefik "
+SETUPMGR_ALL_TOOLS_DEFAULT+="trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd xcaddy xh xsv yq zed zellij zig zoxide"
+SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-$SETUPMGR_ALL_TOOLS_DEFAULT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LUA_JIT_VERSION="${LUA_JIT_VERSION:-2.0.5}"
 LUA_DEFAULT_VERSION="${LUA_DEFAULT_VERSION:-5.4.3}"
@@ -6765,7 +6876,7 @@ while :; do
     ICON_WARN="[ warn ]"
     ICON_ERROR="[ error ]"
     ICON_QUESTION="[ ? ]"
-    printf_column() { tee | grep '^'; }
+    printf_column() { tee | grep -- '^'; }
     printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
@@ -7761,7 +7872,7 @@ while [ $# -gt 0 ]; do
       for tool in $SETUPMGR_ALL_TOOLS; do
         if __cmd_exists "$tool"; then
           printf_blue "Checking $tool..."
-          "$0" "$tool" 2>&1 | grep -v "^$"
+          "$0" "$tool" 2>&1 | grep -v -- "^$"
         fi
       done
     else

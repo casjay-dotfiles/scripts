@@ -264,17 +264,22 @@ fixed yet unless marked DONE.
   probably generating all four from one source list instead of four
   hand-maintained copies; too large to fold into this session.
 
-## bin/setupmgr line-length lint finding — NOT fixed
+## bin/setupmgr line-length lint finding — DONE
 
 `script-lint` pass (202608272121-git session) flagged `SETUPMGR_ALL_TOOLS`
 (`bin/setupmgr:6514`) at 1002 characters, exceeding the 180-char line limit.
-Pre-existing (the line was already this long before this session's edits
-— only tool names within it changed). Fix is to break it into `ARRAY+=`
-continuation lines the way `completions/_setupmgr_completions.bash`'s
-`ARRAY` does; deferred because it's a single mechanical restructuring with
-no behavior change, lower priority than the still-open dispatch-gap and
-doc-drift items above, and would touch the same variable multiple other
-open findings above also need to edit.
+Fixed by rebuilding it as `SETUPMGR_ALL_TOOLS_DEFAULT=""` plus chunked
+`SETUPMGR_ALL_TOOLS_DEFAULT+="..."` continuation lines (each ≤180 chars),
+matching the pattern already used by `completions/_setupmgr_completions.bash`'s
+`ARRAY`/`LONGOPTS`. Verified byte-for-word identical to the original list:
+153/153 tool names, same order. This same cleanup pass also fixed all other
+real `script-lint` findings across `bin/setupmgr` and
+`completions/_setupmgr_completions.bash`: missing `grep -- ` separators,
+inline trailing comments moved above their code, bare `return` statements
+in `__target_home()` given explicit `return 0` codes, remaining >180-char
+lines split (archive-extraction `case` arms, `__get_version` probes,
+GitHub-release URL pipelines), and `requiresudo` renamed to
+`__requiresudo` for the missing `__` prefix.
 
 ## bin/virt-check lint findings — DONE (202608230004-git)
 

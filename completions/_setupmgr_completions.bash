@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608281422-git
+##@Version           :  202608281436-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Bash completion for setupmgr - cross-platform package manager
-# @@Changelog        :  Drop wrk from completion list - no installable release assets, source-build never supported
+# @@Changelog        :  Add missing grep -- separators for script-lint compliance
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -29,12 +29,12 @@ _setupmgr_completion() {
   #####################################################################
   ___jq() { jq -rc "$@" 2>/dev/null; }
   ___sed_env() { sed 's|"||g;s|.*=||g' 2>/dev/null || false; }
-  ___ls() { ls -A "$1" 2>/dev/null | grep -v '^$' | grep '^' || false; }
+  ___ls() { ls -A "$1" 2>/dev/null | grep -v -- '^$' | grep -- '^' || false; }
   ___curl() { curl -q -LSsf --max-time 1 --retry 0 "$@" 2>/dev/null || return 1; }
-  ___grep_file() { grep --no-filename -vsR '#' "$@" 2>/dev/null | grep '^' || return 1; }
-  ___find_cmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | grep '^' || return 1; }
-  ___find_rel() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} -printf "%P\n" 2>/dev/null | grep '^' || return 1; }
-  ___grep_env() { GREP_COLORS="" grep -shE '^.*=*..*$' "$1" 2>/dev/null | grep -v '^#' | grep "${2:-^}" | sed 's|"||g' 2>/dev/null | grep '^' || false; }
+  ___grep_file() { grep --no-filename -vsR -- '#' "$@" 2>/dev/null | grep -- '^' || return 1; }
+  ___find_cmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | grep -- '^' || return 1; }
+  ___find_rel() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} -printf "%P\n" 2>/dev/null | grep -- '^' || return 1; }
+  ___grep_env() { GREP_COLORS="" grep -shE -- '^.*=*..*$' "$1" 2>/dev/null | grep -v -- '^#' | grep -- "${2:-^}" | sed 's|"||g' 2>/dev/null | grep -- '^' || false; }
   #####################################################################
   cur="${COMP_WORDS[$COMP_CWORD]}"
   prev="${COMP_WORDS[$COMP_CWORD - 1]}"

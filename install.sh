@@ -191,7 +191,7 @@ run_postinst() {
   done
   for user in root apache nginx www-user daemon nobody $USER; do
     if grep -qs "^$user:" /etc/passwd; then
-      for d in composemgr docker public; do
+      for d in compose docker public; do
         mkdir -p "/srv/$USER/$d"
         chmod -f 777 "/srv/$USER/$d"
         chown -f $user "/srv/$USER/$d"

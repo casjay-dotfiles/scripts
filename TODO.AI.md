@@ -294,3 +294,58 @@ blocks, and the 3-line commented-out `requiresudo`/`cmd_exists`/
 `__cmd_exists`, line 92) was reviewed and found to be a false positive —
 AI.md's exit-code rule only forbids codes outside `0–78`/`128–143`, and 3
 is within that range, so no change was needed there.
+
+## cp_rf / __cp_rf inconsistency audit (this session) — NOT fixed
+
+User asked to check for cp/rsync usage inconsistencies after discussing
+`cp -Rfa` vs `rsync` for `cp_rf`. Full survey via researcher agent found the
+helper is defined **13 times across 12 files, in 2 name variants, with 4
+divergent flag/behavior combinations** — no single canonical version:
+
+- `cp -Rfa` + `[ -e "$1" ]` guard + `"$@"` + `return 1` on failure:
+  `templates/scripts/installers/{desktopmgr,devenvmgr,dfmgr,hakmgr,systemmgr}.sh:110`
+  (all identical — the "canonical" one).
+- `cp -Rf` (no `-a`) + `"$@"`, no existence guard: `bin/latest-releases:327`,
+  `bin/randomwallpaper:232-235`.
+- `cp -Rf` (no `-a`) + guard, but hardcoded `"$1" "$2"` instead of `"$@"`
+  (breaks on 3+ args): `functions/minimal.bash:916-920`,
+  `functions/global/os.bash:293-297` — both also swallow cp failure as
+  `return 0` instead of propagating it.
+- `sudo cp -Rf "$@"`, no guard, no output redirect: `bin/pkmgr:576`.
+- Unprefixed `cp_rf` (no `__`) using `cp -Rfa` + `devnull` wrapper:
+  `functions/mgr-installers.bash:595`, `functions/app-installer.bash:614`
+  (both `else return 0` on missing source), `functions/system-installer.bash:295`
+  (same but missing the `else return 0` arm). Root `install.sh` calls bare
+  `cp_rf` (lines 178, 183) and depends on one of these three unprefixed
+  definitions being sourced in — it defines none of its own.
+
+Also found:
+- **Raw `cp` bypassing the helper convention:** `install.sh:190` —
+  `cp -Rf "$f" "/root/.local/backups/systemmgr/installer/pam/...bak"` in
+  the same file that otherwise routes through `cp_rf`.
+- **No shared `rsync_*` wrapper exists anywhere.** Raw, ad hoc `rsync`
+  calls with inconsistent flags (`-a`, `-avhP`, `-aq`,
+  `-ah --delete-after`, `--partial --inplace`, `--list-only`, etc.) appear
+  directly in `bin/composemgr`, `bin/dockermgr`, `bin/virtmgr`,
+  `bin/acme-cli`, `bin/update-lecerts`, `bin/latest-iso`,
+  `bin/latest-releases`, `bin/gen-script`, `bin/config`, `bin/setupmgr`,
+  `templates/scripts/other/docker-entrypoint`,
+  `templates/scripts/installers/{personal,dockermgr}.sh`.
+  `bin/latest-iso`'s `__rsync_list`/`__rsync_find_latest_version`/
+  `__rsync_get_filesize`/`__rsync_download` are ISO-mirror-specific
+  listing/download utilities, not a generic copy helper — not reusable
+  as-is for a general `rsync_update`.
+- Sibling `~/Projects/github/*/*/install.sh` templates (`dockermgr`,
+  `templatemgr`, `casjay-dotfiles/server`, `casjay-dotfiles/minimal`, etc.)
+  don't use any `cp_rf` helper at all — raw, inconsistent `cp -Rf`/
+  `cp -Rfa` calls inlined directly, mixed within the same file in two
+  cases (`casjay-dotfiles/server/install.sh`, `casjay-dotfiles/minimal/install.sh`).
+
+**Per-user instruction: do NOT rename any of these functions** (`cp_rf`,
+`__cp_rf`, or any other) — renaming would break every script/project in
+`~/Projects/github/**` that calls them by their current name. Any future
+fix must converge behavior (flags, guard, `"$@"` support, failure
+semantics) without changing any existing function name. Not fixed this
+session — flagged only, per user's read-only request. Decision on adding
+a shared `rsync_update` function is still open (see conversation).
+

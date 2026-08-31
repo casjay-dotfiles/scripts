@@ -369,3 +369,24 @@ of these were introduced by that removal):
 
 Not fixed this session — out of scope for the credential-helper warning
 removal the user actually asked for.
+
+## bin/sshto + bin/myssh review findings (202608311102-git) — NOT fixed
+
+code-reviewer review of both scripts, prompted by the user; the HIGH and
+MEDIUM findings (eval injection, path traversal, config typo, unquoted
+vars, retry-loop busy-wait, arg-parsing bug) plus the AI.md-documented
+printf_color regex bug were fixed and committed (`5fe3c3f2a7ed`,
+`901bf9e5122d`). These LOW/convention/dead-code findings were out of the
+approved fix scope and remain outstanding in both files:
+
+- Naming: several helper functions missing the required `__` prefix
+- Missing `--` before the query on some `grep` calls
+- `bin/sshto`: dead `__devnull2` function, never called
+- `bin/sshto`: dead duplicated sudo subsystem block
+- `bin/sshto`: dead commented-out "directory from args" block
+- Trailing inline comments in both files (project convention requires
+  comments above the line, never inline)
+- One line exceeding the 180-char limit
+
+Not fixed this session — out of scope for the approved HIGH/MEDIUM fix
+list.

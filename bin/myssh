@@ -122,7 +122,7 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
   ICON_ERROR="[ error ]"
   ICON_QUESTION="[ ? ]"
   printf_column() { tee | grep '^'; }
-  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
@@ -298,9 +298,10 @@ __ssh_retry() {
     ping -c 1 "$hostname" &>/dev/null && break
     exitCode=$?
     count=$((1 + count))
+    sleep 2
   done
   printf '\033[2J\033[H'
-  eval $MYSSH_SSH_BIN_FILE $connection 2>"$MYSSH_TEMP_FILE"
+  "$MYSSH_SSH_BIN_FILE" "$connection" 2>"$MYSSH_TEMP_FILE"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -322,11 +323,11 @@ __ssh_cli() {
   fi
   if [ "$MYSSH_RETRY" = "true" ]; then
     __notifications "$connect_notify"
-    __ssh_retry ${connection}
+    __ssh_retry "$connection"
     MYSSH_MESSAGE="false"
   else
     __notifications "$connect_notify"
-    $MYSSH_SSH_BIN_FILE ${connection} || {
+    "$MYSSH_SSH_BIN_FILE" "$connection" || {
       exitCode=1
       __notifications "$failed_notify"
       printf_pause "Press any key to continue"
@@ -531,12 +532,19 @@ __term() {
       [ -d "$HOME/.ssh/known_hosts.d" ] || mkdir -p "$HOME/.ssh/known_hosts.d"
       find -L "$HOME/.ssh/known_hosts.d" -type f -printf '%P\n' | printf_column 2>/dev/null
       printf_read_input "5" "Enter filename" "180" "file" "-e"
-      if [ -f "$HOME/.ssh/known_hosts.d/$file" ]; then
-        rm -f "$HOME/.ssh/known_hosts.d/$file" &&
-          printf_green "Removed $file" || printf_return "Failed to remove $file"
-      else
-        printf_return "$HOME/.ssh/known_hosts.d/$file doesn't exist"
-      fi
+      case "$file" in
+      */* | . | .. | '')
+        printf_return "Invalid filename: $file"
+        ;;
+      *)
+        if [ -f "$HOME/.ssh/known_hosts.d/$file" ]; then
+          rm -f "$HOME/.ssh/known_hosts.d/$file" &&
+            printf_green "Removed $file" || printf_return "Failed to remove $file"
+        else
+          printf_return "$HOME/.ssh/known_hosts.d/$file doesn't exist"
+        fi
+        ;;
+      esac
       printf_pause "Press any key to continue"
       ;;
     s)
@@ -571,8 +579,8 @@ __term() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_myssh() {
   if echo "$1" | grep -q '@'; then
-    username="$(echo $1 | awk -F'@' '{print $1}' | grep '^' || false)"
-    hostname="$(echo ${2:-$1} | awk -F'@' '{print $2}' | grep '^' || false)"
+    username="$(echo "$1" | awk -F'@' '{print $1}' | grep -- '^' || false)"
+    hostname="$(echo "$1" | awk -F'@' '{print $2}' | grep -- '^' || false)"
   else
     hostname="${1:-}"
     username="${2:-}"
@@ -585,7 +593,7 @@ __execute_myssh() {
       __notifications "Attempting to connect to $hostname"
       myterminal -e "$MYSSH_SSH_BIN_FILE $username@$hostname" || __notifications "Failed to connect to $hostname"
     else
-      __ssh_cli $hostname $username
+      __ssh_cli "$hostname" "$username"
     fi
   else
     __notifications "No host was provided for me to connect to"
@@ -701,7 +709,7 @@ while :; do
     ICON_ERROR="[ error ]"
     ICON_QUESTION="[ ? ]"
     printf_column() { tee | grep '^'; }
-    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
     shift 1

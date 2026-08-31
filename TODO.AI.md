@@ -390,3 +390,18 @@ approved fix scope and remain outstanding in both files:
 
 Not fixed this session — out of scope for the approved HIGH/MEDIUM fix
 list.
+
+## bin/cloudflare script-lint findings (202608311331-git) — NOT fixed
+
+script-lint review after fixing the confirmed `__devnull2` eval hang and
+the ip.ifcfg.us HTML-response validation bug; out of scope for those
+fixes:
+
+- line 1293: bare `exit` with no code — use `exit 0`, `exit 1`, or
+  `exit "$?"` to be explicit
+- Interactive script (has `__help()` function) must support `-h` and
+  `-v` short flags — add both to argument parser (currently only
+  `--help`/`--version`; SHORTOPTS is empty on line 1024)
+
+Not fixed this session — pre-existing, out of scope for the approved
+hang-fix.

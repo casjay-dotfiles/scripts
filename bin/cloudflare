@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606171400-git
+##@Version           :  202608311331-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202606171400-git"
+VERSION="202608311331-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -68,7 +68,7 @@ __devnull() {
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
-  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  "$cmd" "$@" 2>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -342,8 +342,20 @@ __trap_exit() {
 # User defined functions
 __jq() { \jq "$@" 2>/dev/null; }
 __rm_rf() { rm -Rf "$@" 2>/dev/null; }
-__curl_ip4() { curl -q -LSsf -4 --connect-timeout "${CLOUDFLARE_IP_CONNECT_TIMEOUT:-2}" --max-time "${CLOUDFLARE_IP_TIMEOUT:-3}" "$1" 2>/dev/null || return 1; }
-__curl_ip6() { curl -q -LSsf -6 --connect-timeout "${CLOUDFLARE_IP_CONNECT_TIMEOUT:-2}" --max-time "${CLOUDFLARE_IP_TIMEOUT:-3}" "$1" 2>/dev/null || return 1; }
+# Validates curl's response looks like a bare IP before accepting it; a 200-status HTML error page
+# (e.g. a broken vhost) must not be mistaken for a valid address.
+__curl_ip4() {
+  local out
+  out="$(curl -q -LSsf -4 --connect-timeout "${CLOUDFLARE_IP_CONNECT_TIMEOUT:-2}" --max-time "${CLOUDFLARE_IP_TIMEOUT:-3}" "$1" 2>/dev/null)" || return 1
+  [[ "$out" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  printf '%s' "$out"
+}
+__curl_ip6() {
+  local out
+  out="$(curl -q -LSsf -6 --connect-timeout "${CLOUDFLARE_IP_CONNECT_TIMEOUT:-2}" --max-time "${CLOUDFLARE_IP_TIMEOUT:-3}" "$1" 2>/dev/null)" || return 1
+  [[ "$out" =~ ^[0-9a-fA-F:]+$ && "$out" == *:* ]] || return 1
+  printf '%s' "$out"
+}
 # Returns 0 iff host has a publicly-routable IPv6 (2000::/3, scope=global). Skips link-local/ULA/loopback.
 # Linux: reads /proc/net/if_inet6 (always available). Other OS: returns 0 so curl can probe and fail fast.
 __has_ipv6() {
@@ -354,8 +366,22 @@ __has_ipv6() {
   return 0
 }
 # Startup IP probes: ifcfg.us first, ifconfig.co fallback. Each curl capped at 3s so script load can never block.
-__curl_get_ip4() { curl -q -LSsf -4 --max-time 3 --retry 0 "https://ifcfg.us" 2>/dev/null || curl -q -LSsf -4 --max-time 3 --retry 0 "https://ifconfig.co" 2>/dev/null || return 1; }
-__curl_get_ip6() { __has_ipv6 || return 1; curl -q -LSsf -6 --max-time 3 --retry 0 "https://ifcfg.us" 2>/dev/null || curl -q -LSsf -6 --max-time 3 --retry 0 "https://ifconfig.co" 2>/dev/null || return 1; }
+# Validates the response is a bare IP before accepting it; a 200-status HTML error page must not pass through.
+__curl_get_ip4() {
+  local out
+  out="$(curl -q -LSsf -4 --max-time 3 --retry 0 "https://ifcfg.us" 2>/dev/null)"
+  [[ "$out" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || out="$(curl -q -LSsf -4 --max-time 3 --retry 0 "https://ifconfig.co" 2>/dev/null)"
+  [[ "$out" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  printf '%s' "$out"
+}
+__curl_get_ip6() {
+  __has_ipv6 || return 1
+  local out
+  out="$(curl -q -LSsf -6 --max-time 3 --retry 0 "https://ifcfg.us" 2>/dev/null)"
+  [[ "$out" =~ ^[0-9a-fA-F:]+$ && "$out" == *:* ]] || out="$(curl -q -LSsf -6 --max-time 3 --retry 0 "https://ifconfig.co" 2>/dev/null)"
+  [[ "$out" =~ ^[0-9a-fA-F:]+$ && "$out" == *:* ]] || return 1
+  printf '%s' "$out"
+}
 # Wrapper for Cloudflare API curl: pins connect/max timeouts and standard auth/content headers; aborts if creds unset.
 __cf_curl() {
   if [ -z "$CLOUDFLARE_EMAIL" ] || [ -z "$CLOUDFLARE_API_KEY" ]; then return 1; fi
@@ -1069,7 +1095,7 @@ while :; do
     export SCRIPT_OPTS="--debug"
     export _DEBUG="on"
     __devnull() { tee || return 1; }
-    __devnull2() { eval "$@" |& tee -p || return 1; }
+    __devnull2() { "$@" |& tee -p || return 1; }
     ;;
   --completions)
     if [ "$2" = "short" ]; then

@@ -349,3 +349,23 @@ semantics) without changing any existing function name. Not fixed this
 session — flagged only, per user's read-only request. Decision on adding
 a shared `rsync_update` function is still open (see conversation).
 
+## bin/buildx lint findings (202608301128-git) — NOT fixed
+
+script-lint found 13 pre-existing convention violations in `bin/buildx`,
+discovered while removing an unrelated credential-helper warning (none
+of these were introduced by that removal):
+
+- Naming: `printf_column` (line 131) and `printf_color` (lines 132, 134)
+  missing required `__` prefix
+- Missing `--` before the query on 4 `grep` calls: line 106
+  (`grep -qi 'server:.*cloudflare'`), line 701 (`grep '^Error log: '`),
+  line 810 (`grep -E 'latest|edge|rolling'`), line 811
+  (`grep -Ev 'latest|edge|rolling|[0-9]'`)
+- Bare `return` (no explicit code) at lines 476, 491, 502, 667 — should
+  be `return 0` for clarity
+- Triple-sync gap: `man/buildx.1` and
+  `completions/_buildx_completions.bash` do not exist for this
+  bin-installed script
+
+Not fixed this session — out of scope for the credential-helper warning
+removal the user actually asked for.

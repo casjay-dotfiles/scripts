@@ -25,10 +25,10 @@ _zellij-new() {
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
   local OPTS=""
-  local LONGOPTS="--completions --config --debug --dir --help --options --no-color --version --silent --kill --name"
+  local LONGOPTS="--completions --config --debug --dir --help --options --no-color --version --silent --kill --name --exec"
   local SHORTOPTS=""
-  local ARRAY="kill clean list attach switch rename status clone nested single shell server web docker dev go rust python devops monitoring database rpm node bun deno build ssh productivity test default edit create update"
-  local LAUNCH="nested single shell server web docker dev go rust python devops monitoring database rpm node bun deno build ssh productivity test default"
+  local ARRAY="kill clean list attach switch rename status clone nested ai single shell server web docker dev go rust python devops monitoring database rpm node bun deno build ssh productivity test default edit create update"
+  local LAUNCH="nested ai single shell server web docker dev go rust python devops monitoring database rpm node bun deno build ssh productivity test default"
   local zellij_sessions="$(zellij list-sessions 2>/dev/null | awk '{print $1}' | grep -vE '^$' || echo '')"
   _init_completion || return
 

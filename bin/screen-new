@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608311420-git
+##@Version           :  202609031820-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -9,11 +9,11 @@
 # @@Copyright        :  Copyright: (c) 2026 Jason Hempstead, Casjays Developments
 # @@Created          :  Friday, Feb 06, 2026 09:24 EST
 # @@File             :  screen-new
-# @@Description      :  Manage persistent screen sessions for commands
-# @@Changelog        :  PREFIX Tab now opens interactive window list
+# @@Description      :  Manage persistent screen sessions for commands (tmux-new parity)
+# @@Changelog        :  Self-contained rewrite - inlined helpers, 19 presets, create/update/switch/rename/clone/status/show
 # @@TODO             :  Better documentation
-# @@Other            :  
-# @@Resource         :  
+# @@Other            :
+# @@Resource         :
 # @@Terminal App     :  no
 # @@sudo/root        :  no
 # @@Template         :  bash/system
@@ -21,20 +21,13 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608311420-git"
+VERSION="202609031820-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
-SCREEN_NEW_REQUIRE_SUDO="${SCREEN_NEW_REQUIRE_SUDO:-no}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Reopen in a terminal
-#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set script title
-#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD/#$HOME/~} - $APPNAME"
-#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
-#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]0;%s\007' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
 export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initial debugging
@@ -46,54 +39,45 @@ export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$
 # pipes fail
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import functions
+# Self-contained script - no external functions file is sourced
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
-SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
-SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
-  . "$PWD/$SCRIPTSFUNCTFILE"
-elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
-  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
-else
-  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 1
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Options are: *_install
-# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
-user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send all output to /dev/null
 __devnull() {
-  tee &>/dev/null && SCREEN_NEW_EXIT_STATUS=0 || SCREEN_NEW_EXIT_STATUS=1
-  return ${SCREEN_NEW_EXIT_STATUS:-0}
+  local exitCode=0
+  tee &>/dev/null || exitCode=1
+  return $exitCode
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send errors to /dev/null
 __devnull2() {
-  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
-  "$cmd" "$@" 2>/dev/null && SCREEN_NEW_EXIT_STATUS=0 || SCREEN_NEW_EXIT_STATUS=1
-  return ${SCREEN_NEW_EXIT_STATUS:-0}
+  local exitCode=0
+  [ -n "$1" ] || return 1
+  local cmd="$1" && shift 1
+  "$cmd" "$@" 2>/dev/null || exitCode=1
+  return $exitCode
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # See if the executable exists
 __cmd_exists() {
-  SCREEN_NEW_EXIT_STATUS=0
-  [ -n "$1" ] && local SCREEN_NEW_EXIT_STATUS="" || return 0
+  local exitCode=0
+  [ -n "$1" ] || return 0
   for cmd in "$@"; do
-    builtin command -v "$cmd" &>/dev/null && SCREEN_NEW_EXIT_STATUS+=$(($SCREEN_NEW_EXIT_STATUS + 0)) || SCREEN_NEW_EXIT_STATUS+=$(($SCREEN_NEW_EXIT_STATUS + 1))
+    if builtin command -v "$cmd" &>/dev/null; then
+      exitCode=$((exitCode + 0))
+    else
+      exitCode=$((exitCode + 1))
+    fi
   done
-  [ $SCREEN_NEW_EXIT_STATUS -eq 0 ] || SCREEN_NEW_EXIT_STATUS=3
-  return ${SCREEN_NEW_EXIT_STATUS:-0}
+  [ $exitCode -eq 0 ] || exitCode=1
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
 __am_i_online() {
-  local SCREEN_NEW_EXIT_STATUS=0
-  curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || SCREEN_NEW_EXIT_STATUS=4
-  return ${SCREEN_NEW_EXIT_STATUS:-0}
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi -- 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
@@ -117,36 +101,62 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
   ICON_WARN="[ warn ]"
   ICON_ERROR="[ error ]"
   ICON_QUESTION="[ ? ]"
-  printf_column() { tee | grep '^'; }
-  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+  printf_column() { tee | grep -- '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
 else
+  printf_column() { column -t 2>/dev/null; }
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# printf_* function suite
+__printf_newline() { [ -n "$1" ] && printf '%b\n' "${*:-}" || printf '\n'; }
+__printf_green() { printf_color "$1\n" 2; }
+__printf_red() { printf_color "$1\n" 208; }
+__printf_purple() { printf_color "$1\n" 5; }
+__printf_yellow() { printf_color "$1\n" 3; }
+__printf_blue() { printf_color "$1\n" 33; }
+__printf_cyan() { printf_color "$1\n" 6; }
+__printf_exit() {
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="208"
+  test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
+  printf_color "$*" "$color" 1>&2
+  printf '\n'
+  exit "$exitCode"
+}
+__printf_return() {
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="208"
+  test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
+  printf_color "$*" "$color" 1>&2
+  printf '\n'
+  return "$exitCode"
+}
+__printf_readline() {
+  while IFS= read -r _line; do __printf_cyan "$_line"; done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional printf_ colors
-__printf_head() { printf_blue "$1"; }
-__printf_opts() { printf_purple "$1"; }
-__printf_line() { printf_cyan "$1"; }
+__printf_head() { __printf_blue "$1"; }
+__printf_opts() { __printf_purple "$1"; }
+__printf_line() { __printf_cyan "$1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # output version
-__version() { printf_cyan "$VERSION"; }
+__version() { __printf_cyan "$VERSION"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
-  printf_color "$1: " "$5"
-  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
-  printf_newline
+  local label="$1" opts="$2" sep="$3" repl="$4" color="$5"
+  printf_color "$label: " "$color"
+  printf '%s\n' "${opts//$sep/ $repl}" | sed 's|:||g'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # create the config file
 __gen_config() {
-  local NOTIFY_CLIENT_NAME="$APPNAME"
+  local exitCode=0
   if [ "$INIT_CONFIG" != "TRUE" ]; then
-    printf_blue "Generating the config file in"
-    printf_cyan "$SCREEN_NEW_CONFIG_DIR/$SCREEN_NEW_CONFIG_FILE"
+    __printf_blue "Generating the config file in"
+    __printf_cyan "$SCREEN_NEW_CONFIG_DIR/$SCREEN_NEW_CONFIG_FILE"
   fi
-  [ -d "$SCREEN_NEW_CONFIG_DIR" ] || mkdir -p "$SCREEN_NEW_CONFIG_DIR"
-  [ -d "$SCREEN_NEW_CONFIG_BACKUP_DIR" ] || mkdir -p "$SCREEN_NEW_CONFIG_BACKUP_DIR"
+  mkdir -p "$SCREEN_NEW_CONFIG_DIR" "$SCREEN_NEW_CONFIG_BACKUP_DIR" 2>/dev/null
   [ -f "$SCREEN_NEW_CONFIG_DIR/$SCREEN_NEW_CONFIG_FILE" ] &&
     cp -Rf "$SCREEN_NEW_CONFIG_DIR/$SCREEN_NEW_CONFIG_FILE" "$SCREEN_NEW_CONFIG_BACKUP_DIR/$SCREEN_NEW_CONFIG_FILE.$$"
   cat <<EOF >"$SCREEN_NEW_CONFIG_DIR/$SCREEN_NEW_CONFIG_FILE"
@@ -168,18 +178,24 @@ SCREEN_NEW_ERROR_MESSAGE="${SCREEN_NEW_ERROR_MESSAGE:-}"
 SCREEN_NEW_NOTIFY_CLIENT_NAME="${SCREEN_NEW_NOTIFY_CLIENT_NAME:-}"
 SCREEN_NEW_NOTIFY_CLIENT_ICON="${SCREEN_NEW_NOTIFY_CLIENT_ICON:-}"
 SCREEN_NEW_NOTIFY_CLIENT_URGENCY="${SCREEN_NEW_NOTIFY_CLIENT_URGENCY:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Exec widget intervals (seconds)
+SCREEN_NEW_GIT_INTERVAL="${SCREEN_NEW_GIT_INTERVAL:-15}"
+SCREEN_NEW_UPTIME_INTERVAL="${SCREEN_NEW_UPTIME_INTERVAL:-15}"
+SCREEN_NEW_WEATHER_INTERVAL="${SCREEN_NEW_WEATHER_INTERVAL:-600}"
+SCREEN_NEW_WEATHER_SERVER="${SCREEN_NEW_WEATHER_SERVER:-wttr.in}"
+SCREEN_NEW_WEATHER_LOCATION="${SCREEN_NEW_WEATHER_LOCATION:-}"
 
 EOF
-  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if builtin type -t __gen_config_local | grep -q -- 'function'; then __gen_config_local; fi
   if [ -f "$SCREEN_NEW_CONFIG_DIR/$SCREEN_NEW_CONFIG_FILE" ]; then
-    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || __printf_green "Your config file for $APPNAME has been created"
     . "$SCREEN_NEW_CONFIG_DIR/$SCREEN_NEW_CONFIG_FILE"
-    SCREEN_NEW_EXIT_STATUS=0
   else
-    printf_red "Failed to create the config file"
-    SCREEN_NEW_EXIT_STATUS=1
+    __printf_red "Failed to create the config file"
+    exitCode=1
   fi
-  return ${SCREEN_NEW_EXIT_STATUS:-0}
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Help function - Align to 50
@@ -192,7 +208,7 @@ __help() {
   __printf_line "Supports binaries, shell aliases, and functions"
   __printf_line "PREFIX: Ctrl+n (default)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "Commands"
+  __printf_opts "Session Management"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "(no args) | . | <dir>                  - Shell session named after directory"
   __printf_line "<cmd> [args]                           - Create or attach (shorthand)"
@@ -200,28 +216,35 @@ __help() {
   __printf_line "ls|list                                - List active sessions"
   __printf_line "kill [name|all]                        - Kill a session, all, or list"
   __printf_line "d|detach [name]                        - Detach a session or list"
+  __printf_line "switch|sw <name>                       - Detach current, attach target"
+  __printf_line "rename|mv <old> <new>                  - Rename a session"
+  __printf_line "clone|copy <src> <dst>                 - Clone a session config (config only)"
+  __printf_line "status|info                             - Show all active screen-new sessions"
+  __printf_line "show                                    - Show current session info"
   __printf_line "edit [name]                            - Edit session config or main config"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "Key Bindings (inside session)"
+  __printf_opts "Development Environments"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "PREFIX d                               - Detach from session"
-  __printf_line "PREFIX @                               - Kill current window"
-  __printf_line "PREFIX PREFIX                          - Send literal prefix key"
-  __printf_line "PREFIX ?                               - Show screen help"
+  __printf_line "ai|single|shell|dev                    - Generic environment presets"
+  __printf_line "go|rust|python|node|bun|deno            - Language dev presets"
+  __printf_line "devops|monitoring|database|docker        - Infra presets"
+  __printf_line "rpm|build|test|default                  - Build/test presets"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "Examples"
+  __printf_opts "Other Environments"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "screen-new                             - Launch a login shell session"
-  __printf_line "screen-new .                           - Shell session in current dir"
-  __printf_line "screen-new /tmp                        - Shell session in /tmp"
-  __printf_line "screen-new htop                        - Launch or attach to htop"
-  __printf_line "screen-new htop -d 5                   - Launch htop with arguments"
-  __printf_line "screen-new ls                          - List all sessions"
-  __printf_line "screen-new kill htop                   - Kill the htop session"
-  __printf_line "screen-new kill all                    - Kill all sessions"
-  __printf_line "screen-new d htop                      - Detach the htop session"
-  __printf_line "screen-new edit htop                   - Edit htop session config"
-  __printf_line "screen-new edit                        - Edit main config"
+  __printf_line "ssh|productivity                       - SSH panes / productivity preset"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Configuration"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "create <name> [win:cmd] ...             - Create a custom named session"
+  __printf_line "update template|sessions|all            - Refresh template/session configs"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Exec Commands"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--exec git                              - Print git branch/status widget"
+  __printf_line "--exec weather                          - Print weather widget"
+  __printf_line "--exec uptime                           - Print uptime widget"
+  __printf_line "--exec keybindings                      - Show full keybinding reference"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -239,114 +262,79 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Key Bindings (tmux-compatible, PREFIX = Ctrl+n)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "PREFIX t                               - New window (login shell)"
+  __printf_line "PREFIX t / c                           - New window (login shell)"
   __printf_line "PREFIX n / p                           - Next / previous window"
   __printf_line "PREFIX d                               - Detach from session"
   __printf_line "PREFIX \\                              - Split vertically"
   __printf_line "PREFIX /                               - Split horizontally"
-  __printf_line "PREFIX x                               - Remove split region"
+  __printf_line "PREFIX -k arrows                       - Focus adjacent region"
+  __printf_line "PREFIX h/j/k/l                         - Resize current region"
+  __printf_line "PREFIX +                               - Zoom region (one-way, PREFIX Q to undo)"
+  __printf_line "PREFIX \`                               - Send literal backtick / other region"
+  __printf_line "PREFIX [ / ]                            - Copy mode / paste buffer"
+  __printf_line "PREFIX Y                               - Copy buffer to system clipboard"
+  __printf_line "PREFIX Ctrl+v                          - Paste from system clipboard"
+  __printf_line "PREFIX m / M                           - Mouse tracking on / off"
+  __printf_line "PREFIX R                               - Reload session config"
   __printf_line "PREFIX ?                               - Show full keybindings"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Known limitations vs tmux-new (GNU Screen has no plugin system)"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "No save/restore/apply-state-cmds/boot/cleanup - no session-state persistence"
+  __printf_line "No tmux-resurrect/continuum or any TPM plugin equivalent"
+  __printf_line "No pane sync (broadcast input to every pane)"
+  __printf_line "No join/break pane<->window"
+  __printf_line "No send-command-to-every-pane"
+  __printf_line "No choose-layout"
+  __printf_line "No sidebar file tree"
+  __printf_line "No mouse click/drag/dblclick/rightclick/resize - scroll-only mouse survives"
+  __printf_line "zoom (+) is one-way - no toggle back, use PREFIX Q to restore layout"
+  __printf_line "clone copies config only - does NOT clone live window/pane state"
+  __printf_line "status/show parse 'screen -ls' text output - no multi-socket scoping"
+  __printf_line "nested sessions are not a separate subcommand - use escape ^N^N passthrough"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__grep() { grep "$@" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
 __is_an_option() { if [[ "$ARRAY" == *"${1:-^}"* ]]; then return 1; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Is current user root
-__user_is_root() {
-  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return 0
+  [ "$SCREEN_NEW_SYSTEM_NOTIFY_ENABLED" = "yes" ] || return 0
+  [ "$SEND_NOTIFICATION" = "no" ] && return 0
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$SCREEN_NEW_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$SCREEN_NEW_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SCREEN_NEW_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$SCREEN_NEW_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$SCREEN_NEW_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+  disown $! 2>/dev/null || true
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Is current user not root
-__user_is_not_root() {
-  if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Check if user is a member of sudo
-__sudo_group() {
-  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# # Get sudo password
-__sudoask() {
-  ask_for_password sudo true && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Run sudo
-__sudorun() {
-  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Test if user has access to sudo
-__can_i_sudo() {
-  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# User can run sudo
-__sudoif() {
-  __user_is_root && return 0
-  __can_i_sudo "${RUN_USER:-$USER}" && return 0
-  __user_is_not_root && __sudoask && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Run command as root
-requiresudo() {
-  if [ "$SCREEN_NEW_REQUIRE_SUDO" = "yes" ] && [ -z "$SCREEN_NEW_REQUIRE_SUDO_RUN" ]; then
-    export SCREEN_NEW_REQUIRE_SUDO="no"
-    export SCREEN_NEW_REQUIRE_SUDO_RUN="true"
-    __sudo "$@"
-    exit $?
-  else
-    return 0
+__notify_remote() {
+  local cmd="${SCREEN_NEW_REMOTE_NOTIFY_COMMAND%% *}"
+  if [ "$SCREEN_NEW_REMOTE_NOTIFY_ENABLED" = "yes" ]; then
+    if [ -n "$(command -v "$cmd")" ]; then
+      $SCREEN_NEW_REMOTE_NOTIFY_COMMAND "$@"
+    fi
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Execute sudo
-__sudo() {
-  CMD="${1:-echo}" && shift 1
-  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
-  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "${SUDO##*/}" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
-  if __sudoif; then
-    export PATH="$PATH"
-    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
-    SCREEN_NEW_EXIT_STATUS=$?
-  else
-    printf '%s\n' "This requires root to run"
-    SCREEN_NEW_EXIT_STATUS=1
-  fi
-  return ${SCREEN_NEW_EXIT_STATUS:-0}
-}
-# End of sudo functions
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__how_long_did_it_take() {
-  local retprev=$?
-  local retval=${1:-$retprev}
-  __cmd_exists bc || return $retval
-  [ -n "$SCREEN_NEW_START_TIMER" ] || return 0
-  local stop_time="$(date +%s.%N)"
-  local dt=$(echo "$stop_time - $SCREEN_NEW_START_TIMER" | bc)
-  local dd=$(echo "$dt/86400" | bc)
-  local dt2=$(echo "$dt-86400*$dd" | bc)
-  local dh=$(echo "$dt2/3600" | bc)
-  local dt3=$(echo "$dt2-3600*$dh" | bc)
-  local dm=$(echo "$dt3/60" | bc)
-  local ds=$(echo "$dt3-60*$dm" | bc)
-  printf_purple "$(LC_NUMERIC=C printf "Total runtime: %d Days, %02d Hours, %02d Minutes, %02.4f Seconds\n" $dd $dh $dm $ds)"
-  return $retval
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
 __trap_exit_screen_new() {
-  SCREEN_NEW_EXIT_STATUS=${SCREEN_NEW_EXIT_STATUS:-0}
+  local exitCode=$?
   [ -f "$SCREEN_NEW_TEMP_FILE" ] && rm -Rf "$SCREEN_NEW_TEMP_FILE" &>/dev/null
-  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
-  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
-  return $SCREEN_NEW_EXIT_STATUS
+  if builtin type -t __trap_exit_local | grep -q -- 'function'; then __trap_exit_local; fi
+  return $exitCode
 }
+trap '__trap_exit_screen_new' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# start timer
+SCREEN_NEW_START_TIMER="${SCREEN_NEW_START_TIMER:-$(date +%s.%N)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create a --no-* options function
 __options_function_no() {
@@ -366,39 +354,6 @@ __options_function_yes() {
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup notification function
-__notifications() {
-  __cmd_exists notifications || return
-  [ "$SCREEN_NEW_SYSTEM_NOTIFY_ENABLED" = "yes" ] || return
-  [ "$SEND_NOTIFICATION" = "no" ] && return
-  (
-    export SCRIPT_OPTS="" _DEBUG=""
-    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$SCREEN_NEW_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$SCREEN_NEW_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SCREEN_NEW_NOTIFY_CLIENT_ICON}"
-    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$SCREEN_NEW_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$SCREEN_NEW_NOTIFY_CLIENT_URGENCY}"
-    notifications "$@"
-  ) |& __devnull &
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__notify_remote() {
-  local cmd="$(echo "$SCREEN_NEW_REMOTE_NOTIFY_COMMAND" | awk -F ' ' '{print $1}')"
-  if [ "$SCREEN_NEW_REMOTE_NOTIFY_ENABLED" = "yes" ]; then
-    if [ -n "$(command -v "$cmd")" ]; then
-      eval $SCREEN_NEW_REMOTE_NOTIFY_COMMAND "$@"
-    fi
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup trap to remove temp file
-trap '__trap_exit_screen_new' EXIT
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# start timer
-SCREEN_NEW_START_TIMER="${SCREEN_NEW_START_TIMER:-$(date +%s.%N)}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# User defined functions
-
 # Check if command is an alias or function (not a binary in PATH)
 __is_shell_construct() {
   local cmd_type
@@ -408,58 +363,87 @@ __is_shell_construct() {
   *) return 1 ;;
   esac
 }
-
-# Launch a login shell in a screen session
-# Session named after directory basename (sn-scripts, sn-tmp, etc.)
-# Usage: __screen_shell [directory]
-__screen_shell() {
-  local dir="${1:-$SCREEN_NEW_CWD}"
-  dir="$(realpath "$dir" 2>/dev/null)"
-  if [ ! -d "$dir" ]; then
-    printf_exit "$dir: not a directory"
-  fi
-  local dir_name
-  dir_name="$(basename -- "$dir")"
-  local session_name="sn-${dir_name}"
-  local user_shell="${SHELL:-bash}"
-  local screenrc="$(__ensure_screenrc "$session_name" "$user_shell" -l)"
-  screen -wipe &>/dev/null
-  if screen -ls 2>/dev/null | grep -q "\.${session_name}[[:space:]]"; then
-    printf_cyan "Attaching to existing session: $session_name"
-    exec screen -x "$session_name"
-  else
-    cd "$dir"
-    exec screen -c "$screenrc" -S "$session_name" "$user_shell" -l
-  fi
-}
-
-# Build screen exec arguments
-# For binaries: exec screen -c rc -S name cmd args
-# For aliases/functions: exec screen -c rc -S name $SHELL -lic 'cmd args'
-__screen_exec() {
-  local rc="$1" name="$2" cmd="$3" && shift 3
-  if __is_shell_construct "$cmd"; then
-    local shell_cmd="$cmd"
-    if [ $# -gt 0 ]; then
-      shell_cmd="$cmd $(printf '%q ' "$@")"
-    fi
-    exec screen -c "$rc" -S "$name" "${SHELL:-bash}" -lic "$shell_cmd"
-  else
-    exec screen -c "$rc" -S "$name" "$cmd" "$@"
-  fi
-}
-
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Default exit code
-SCREEN_NEW_EXIT_STATUS=0
+# Cache helper - is $SCREEN_NEW_CACHE_DIR/<key> younger than <ttl> seconds
+__cache_valid() {
+  local key="$1" ttl="${2:-60}"
+  local file="$SCREEN_NEW_CACHE_DIR/$key"
+  [ -f "$file" ] || return 1
+  local mtime
+  mtime="$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null || echo 0)"
+  local age=$(($(date +%s) - mtime))
+  [ "$age" -lt "$ttl" ]
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# hardstatus widget - git branch/status for the current directory
+__exec_git() {
+  local topdir
+  topdir="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
+  local key="git_$(printf '%s' "$topdir" | tr '/' '_')"
+  local ttl="${SCREEN_NEW_GIT_INTERVAL:-15}"
+  if __cache_valid "$key" "$ttl"; then
+    cat "$SCREEN_NEW_CACHE_DIR/$key" 2>/dev/null
+    return 0
+  fi
+  local branch
+  branch="$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)"
+  [ -n "$branch" ] || return 0
+  local flags=""
+  git diff --quiet 2>/dev/null || flags="${flags}*"
+  git diff --cached --quiet 2>/dev/null || flags="${flags}+"
+  [ -z "$(git ls-files --others --exclude-standard 2>/dev/null)" ] || flags="${flags}?"
+  printf '%s%s' "$branch" "$flags" | tee "$SCREEN_NEW_CACHE_DIR/$key" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# hardstatus widget - system uptime
+__exec_uptime() {
+  local ttl="${SCREEN_NEW_UPTIME_INTERVAL:-15}"
+  if __cache_valid "uptime" "$ttl"; then
+    cat "$SCREEN_NEW_CACHE_DIR/uptime" 2>/dev/null
+    return 0
+  fi
+  local secs
+  secs="$(awk '{print int($1)}' /proc/uptime 2>/dev/null)"
+  [ -n "$secs" ] || return 0
+  local d=$((secs / 86400)) h=$(((secs % 86400) / 3600)) m=$(((secs % 3600) / 60))
+  local out
+  if [ "$d" -gt 0 ]; then
+    out="${d}d ${h}h ${m}m"
+  elif [ "$h" -gt 0 ]; then
+    out="${h}h ${m}m"
+  else
+    out="${m}m"
+  fi
+  printf '%s' "$out" | tee "$SCREEN_NEW_CACHE_DIR/uptime" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# hardstatus widget - current weather
+__exec_weather() {
+  local ttl="${SCREEN_NEW_WEATHER_INTERVAL:-600}"
+  if __cache_valid "weather" "$ttl"; then
+    cat "$SCREEN_NEW_CACHE_DIR/weather" 2>/dev/null
+    return 0
+  fi
+  __cmd_exists curl || return 0
+  local server="${SCREEN_NEW_WEATHER_SERVER:-wttr.in}"
+  local location="${SCREEN_NEW_WEATHER_LOCATION:-${MYLOCATION_NAME:-}}"
+  local out
+  out="$(curl -s -m 2 "https://${server}/${location}?format=%c%t" 2>/dev/null)"
+  [ -n "$out" ] || return 0
+  printf '%s' "$out" | tee "$SCREEN_NEW_CACHE_DIR/weather" 2>/dev/null
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 SCREEN_NEW_CONFIG_DIR="${SCREEN_NEW_CONFIG_DIR:-$HOME/.config/myscripts/screen-new}"
 SCREEN_NEW_CONFIG_BACKUP_DIR="${SCREEN_NEW_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/screen-new/backups}"
 SCREEN_NEW_LOG_DIR="${SCREEN_NEW_LOG_DIR:-$HOME/.local/log/screen-new}"
-SCREEN_NEW_RUN_DIR="${SCREEN_NEW_RUN_DIR:-$HOME/.local/run/system_scripts/$SCREEN_NEW_SCRIPTS_PREFIX}"
+SCREEN_NEW_RUN_DIR="${SCREEN_NEW_RUN_DIR:-$HOME/.local/run/system_scripts/screen-new}"
 SCREEN_NEW_TEMP_DIR="${SCREEN_NEW_TEMP_DIR:-$HOME/.local/tmp/system_scripts/screen-new}"
 SCREEN_NEW_CACHE_DIR="${SCREEN_NEW_CACHE_DIR:-$HOME/.cache/screen-new}"
+SCREEN_NEW_FILE_CONF="${SCREEN_NEW_CONFIG_DIR}/conf"
+SCREEN_NEW_FILE_WINDOWS="${SCREEN_NEW_CONFIG_DIR}/windows"
+SCREEN_NEW_FILE_CONF_LOCAL="${SCREEN_NEW_CONFIG_DIR}/local"
+SCREEN_NEW_SESSION_DIR="${SCREEN_NEW_CONFIG_DIR}/sessions"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # File settings
 SCREEN_NEW_CONFIG_FILE="${SCREEN_NEW_CONFIG_FILE:-settings.conf}"
@@ -474,7 +458,6 @@ SCREEN_NEW_OUTPUT_COLOR_ERROR="${SCREEN_NEW_OUTPUT_COLOR_ERROR:-1}"
 # Notification Settings
 SCREEN_NEW_REMOTE_NOTIFY_ENABLED="${SCREEN_NEW_REMOTE_NOTIFY_ENABLED:-yes}"
 SCREEN_NEW_REMOTE_NOTIFY_COMMAND="${SCREEN_NEW_REMOTE_NOTIFY_COMMAND:-web-notify telegram}"
-# System
 SCREEN_NEW_SYSTEM_NOTIFY_ENABLED="${SCREEN_NEW_SYSTEM_NOTIFY_ENABLED:-yes}"
 SCREEN_NEW_GOOD_NAME="${SCREEN_NEW_GOOD_NAME:-Great:}"
 SCREEN_NEW_ERROR_NAME="${SCREEN_NEW_ERROR_NAME:-Error:}"
@@ -483,9 +466,6 @@ SCREEN_NEW_ERROR_MESSAGE="${SCREEN_NEW_ERROR_MESSAGE:-Errors were reported}"
 SCREEN_NEW_NOTIFY_CLIENT_NAME="${SCREEN_NEW_NOTIFY_CLIENT_NAME:-$APPNAME}"
 SCREEN_NEW_NOTIFY_CLIENT_ICON="${SCREEN_NEW_NOTIFY_CLIENT_ICON:-notification-new}"
 SCREEN_NEW_NOTIFY_CLIENT_URGENCY="${SCREEN_NEW_NOTIFY_CLIENT_URGENCY:-normal}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional Variables
-
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$SCREEN_NEW_CONFIG_DIR/$SCREEN_NEW_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -498,25 +478,27 @@ SCREEN_NEW_NOTIFY_CLIENT_URGENCY="${SCREEN_NEW_NOTIFY_CLIENT_URGENCY:-normal}"
 [ -d "$SCREEN_NEW_LOG_DIR" ] || mkdir -p "$SCREEN_NEW_LOG_DIR" |& __devnull
 [ -d "$SCREEN_NEW_TEMP_DIR" ] || mkdir -p "$SCREEN_NEW_TEMP_DIR" |& __devnull
 [ -d "$SCREEN_NEW_CACHE_DIR" ] || mkdir -p "$SCREEN_NEW_CACHE_DIR" |& __devnull
+[ -d "$SCREEN_NEW_SESSION_DIR" ] || mkdir -p "$SCREEN_NEW_SESSION_DIR" |& __devnull
+[ -d "$SCREEN_NEW_FILE_CONF" ] || mkdir -p "$SCREEN_NEW_FILE_CONF" |& __devnull
+[ -d "$SCREEN_NEW_FILE_WINDOWS" ] || mkdir -p "$SCREEN_NEW_FILE_WINDOWS" |& __devnull
+[ -d "$SCREEN_NEW_FILE_CONF_LOCAL" ] || mkdir -p "$SCREEN_NEW_FILE_CONF_LOCAL" |& __devnull
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 SCREEN_NEW_TEMP_FILE="${SCREEN_NEW_TEMP_FILE:-$(mktemp $SCREEN_NEW_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set custom actions
-__cmd_exists screen || printf_exit "screen is not installed"
+# Check for required applications
+__cmd_exists screen || __printf_exit "screen is not installed"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
 SETARGS=("$@")
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-SHORTOPTS=""
+SHORTOPTS="hv"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-GET_OPTIONS_NO="no-*"
-GET_OPTIONS_YES="yes-*"
-LONGOPTS="completions:,config,reset,debug,dir:,help,name:,options,no-color,version,silent,force,"
+LONGOPTS="completions:,config,reset,debug,dir:,exec:,help,name:,options,color,no-color,version,silent,force,"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="a,attach,ls,list,kill,d,detach,edit"
-ARRAY+=""
+ARRAY="a,attach,ls,list,kill,d,detach,edit,switch,sw,rename,mv,clone,copy,status,info,show,update,create"
+ARRAY+=",ai,single,shell,dev,go,rust,python,devops,monitoring,database,docker,rpm,node,bun,deno,build,ssh,productivity,test,default"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""
@@ -548,8 +530,8 @@ while :; do
     ICON_WARN="[ warn ]"
     ICON_ERROR="[ error ]"
     ICON_QUESTION="[ ? ]"
-    printf_column() { tee | grep '^'; }
-    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    printf_column() { tee | grep -- '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
     shift 1
@@ -574,24 +556,38 @@ while :; do
     shift 2
     exit $?
     ;;
+  --exec)
+    case "$2" in
+    weather) __exec_weather ;;
+    uptime) __exec_uptime ;;
+    git) __exec_git ;;
+    keybindings) cat "$SCREEN_NEW_CONFIG_DIR/keybindings.txt" 2>/dev/null ;;
+    esac
+    shift 2
+    exit $?
+    ;;
   --options)
     shift 1
-    printf_blue "Current options for ${PROG:-$APPNAME}"
+    __printf_blue "Current options for ${PROG:-$APPNAME}"
     [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
     [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
     [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
     exit $?
     ;;
-  --version)
+  -v | --version)
     shift 1
     __version
     exit $?
     ;;
-  --help)
+  -h | --help)
     shift 1
     __help
     exit $?
+    ;;
+  --color)
+    shift 1
+    unset SHOW_RAW
     ;;
   --config)
     shift 1
@@ -638,58 +634,289 @@ while :; do
   esac
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Get directory from args
-# set -- "$@"
-# for arg in "$@"; do
-# if [ -d "$arg" ]; then
-# SCREEN_NEW_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
-# elif [ -f "$arg" ]; then
-# SCREEN_NEW_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
-# else
-# SET_NEW_ARGS+=("$arg")
-# fi
-# done
-# set -- "${SET_NEW_ARGS[@]}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set directory to first argument
-# [ -d "$1" ] && __is_an_option "$1" && SCREEN_NEW_CWD="$1" && shift 1 || SCREEN_NEW_CWD="${SCREEN_NEW_CWD:-$PWD}"
+# Set directory to current working directory (or --dir override)
 SCREEN_NEW_CWD="$(realpath "${SCREEN_NEW_CWD:-$PWD}" 2>/dev/null)"
 if [ -d "$SCREEN_NEW_CWD" ]; then
   cd "$SCREEN_NEW_CWD"
 else
-  printf_exit "💔 $SCREEN_NEW_CWD does not exist 💔"
+  __printf_exit "$SCREEN_NEW_CWD does not exist"
 fi
 export SCREEN_NEW_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set actions based on variables
+# Ensure the master template exists (copy from source on first run)
+__create_screen_conf() {
+  mkdir -p "$SCREEN_NEW_CONFIG_DIR" 2>/dev/null
+  if [ ! -f "$SCREEN_NEW_CONFIG_DIR/template" ]; then
+    if [ -f "$CASJAYSDEVDIR/templates/screen/new.conf" ]; then
+      cp -Rf "$CASJAYSDEVDIR/templates/screen/new.conf" "$SCREEN_NEW_CONFIG_DIR/template" 2>/dev/null
+    else
+      touch "$SCREEN_NEW_CONFIG_DIR/template" 2>/dev/null
+    fi
+  fi
+  [ -f "$SCREEN_NEW_CONFIG_DIR/template" ]
+}
+[ -f "$SCREEN_NEW_CONFIG_DIR/template" ] || __create_screen_conf
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Build screen exec arguments
+# For binaries: exec screen -c rc -S name cmd args
+# For aliases/functions: exec screen -c rc -S name $SHELL -lic 'cmd args'
+__screen_exec() {
+  local rc="$1" name="$2" cmd="$3" && shift 3
+  if __is_shell_construct "$cmd"; then
+    local shell_cmd="$cmd"
+    if [ $# -gt 0 ]; then
+      shell_cmd="$cmd $(printf '%q ' "$@")"
+    fi
+    exec screen -c "$rc" -S "$name" "${SHELL:-bash}" -lic "$shell_cmd"
+  else
+    exec screen -c "$rc" -S "$name" "$cmd" "$@"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Materialize the per-session main conf file for <name> from the template
+# Mirrors tmux-new's __tmux_conf - placeholder tokens are replaced in-place
+__screen_conf() {
+  local name="${1:-${SCREEN_NEW_NAME:-default}}"
+  SCREEN_NEW_NAME="$name"
+  mkdir -p "$SCREEN_NEW_FILE_CONF" "$SCREEN_NEW_FILE_WINDOWS" "$SCREEN_NEW_FILE_CONF_LOCAL" 2>/dev/null
+  [ -f "$SCREEN_NEW_FILE_CONF_LOCAL/$name" ] || : >"$SCREEN_NEW_FILE_CONF_LOCAL/$name"
+  if [ -f "$SCREEN_NEW_FILE_CONF/$name" ]; then
+    return 0
+  fi
+  if [ -f "$SCREEN_NEW_CONFIG_DIR/template" ]; then
+    __printf_cyan "Creating $SCREEN_NEW_FILE_CONF/$name"
+    cp -Rf "$SCREEN_NEW_CONFIG_DIR/template" "$SCREEN_NEW_FILE_CONF/$name"
+    sed -i \
+      -e "s|SCREEN_NEW_CONF_FILE_MAIN|${SCREEN_NEW_FILE_CONF}/${name}|g" \
+      -e "s|SCREEN_NEW_CONF_FILE_WINDOWS|${SCREEN_NEW_FILE_WINDOWS}/${name}|g" \
+      -e "s|SCREEN_NEW_CONF_FILE_LOCAL|${SCREEN_NEW_FILE_CONF_LOCAL}/${name}|g" \
+      -e "s|SCREEN_NEW_CONF_BUFFERFILE|${SCREEN_NEW_CACHE_DIR}/${name}.buffer|g" \
+      "$SCREEN_NEW_FILE_CONF/$name" 2>/dev/null
+  else
+    __printf_exit "Can not find $SCREEN_NEW_CONFIG_DIR/template"
+  fi
+  [ -f "$SCREEN_NEW_FILE_CONF/$name" ] && __printf_blue "config file has been created" || __printf_exit "Failed to create config file"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate the per-session windows file: screen -t <name> <idx> <cmd>
+__create_screen_windows() {
+  local name="$1" && shift 1
+  if [ ! -f "$SCREEN_NEW_FILE_WINDOWS/$name" ]; then
+    local wname="" wcmd="" wnum="0" add_windows=""
+    if [ $# -ne 0 ]; then
+      for window in "$@"; do
+        [ -n "$window" ] || continue
+        if [[ "$window" == *":"* ]]; then
+          wname="${window%%:*}"
+          wcmd="${window#*:}"
+          [ -n "$wname" ] || wname="${wnum}"
+          [ -n "$wcmd" ] || wcmd="${SHELL:-bash}"
+        else
+          wname="${window:-$wnum}"
+          wcmd="${SHELL:-bash}"
+        fi
+        add_windows="$(printf '%s\nscreen -t %s %s %s\n' "$add_windows" "$wname" "$wnum" "$wcmd")"
+        wnum=$((wnum + 1))
+      done
+    fi
+    __printf_green "Creating screen windows file"
+    cat <<EOF >"$SCREEN_NEW_FILE_WINDOWS/$name"
+# Window config for $name
+$(printf '%s\n' "$add_windows" | grep -v -- '^$')
 
+select 0
+EOF
+    [ -f "$SCREEN_NEW_FILE_WINDOWS/$name" ] && __printf_blue "screen windows config file has been created" || __printf_exit "Failed to create screen windows config file"
+  fi
+  return
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Check for required applications/Network check
-#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
-cmd_exists --error --ask bash || exit 3 # exit 3 if not found
-#am_i_online --error || exit 4           # exit 4 if no internet
+# Ensure an ad-hoc (single command) session config exists, return its path
+__ensure_screenrc() {
+  local name="$1" && shift
+  __screen_conf "$name" |& __devnull
+  [ -f "$SCREEN_NEW_FILE_WINDOWS/$name" ] || printf '%s\n' "# no additional windows (ad-hoc session)" >"$SCREEN_NEW_FILE_WINDOWS/$name"
+  printf '%s' "$SCREEN_NEW_FILE_CONF/$name"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# APP Variables overrides
-
+# Launch (or attach to) a preset/custom named session
+__launch_screen() {
+  local name="${1:-${SCREEN_NEW_NAME:-default}}"
+  [ -f "$SCREEN_NEW_FILE_CONF/$name" ] || __printf_exit "No config file found for $name"
+  [ -f "$SCREEN_NEW_FILE_WINDOWS/$name" ] || __printf_exit "No windows config file found for $name"
+  screen -wipe &>/dev/null
+  if screen -ls 2>/dev/null | grep -q -- "\.scn-${name}[[:space:]]"; then
+    __printf_cyan "Attaching to existing session: scn-$name"
+    exec screen -x "scn-$name"
+  else
+    __printf_cyan "Starting new screen environment for $name"
+    cd "$SCREEN_NEW_CWD" 2>/dev/null || true
+    exec screen -c "$SCREEN_NEW_FILE_CONF/$name" -S "scn-$name"
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
-
+# Shared preset launcher - name, then window specs ("name:cmd" ...)
+__screen_preset() {
+  local preset="$1" && shift
+  local name="${SCREEN_NEW_CUSTOM_NAME:-${preset}-${SCREEN_NEW_CWD##*/}}"
+  __screen_conf "$name" |& __devnull
+  __create_screen_windows "$name" "$@" |& __devnull
+  __launch_screen "$name"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Export variables
-
+# Refresh the master template from source
+__update_screen_template() {
+  if [ -f "$CASJAYSDEVDIR/templates/screen/new.conf" ]; then
+    __printf_cyan "Updating template from source..."
+    cp -f "$CASJAYSDEVDIR/templates/screen/new.conf" "$SCREEN_NEW_CONFIG_DIR/template"
+    if [ -f "$SCREEN_NEW_CONFIG_DIR/template" ]; then
+      __printf_green "Template updated successfully"
+      return 0
+    else
+      __printf_red "Failed to update template"
+      return 1
+    fi
+  else
+    __printf_red "Source template not found: $CASJAYSDEVDIR/templates/screen/new.conf"
+    return 1
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Execute functions
-
+# Refresh every existing session's main conf file from the current template
+__update_all_screen_configs() {
+  local updated=0 failed=0
+  if [ ! -f "$SCREEN_NEW_CONFIG_DIR/template" ]; then
+    __printf_red "Template not found. Run 'screen-new update template' first"
+    return 1
+  fi
+  __printf_cyan "Updating all session configs from template..."
+  if [ -d "$SCREEN_NEW_FILE_CONF" ]; then
+    for config_file in "$SCREEN_NEW_FILE_CONF"/*; do
+      [ -f "$config_file" ] || continue
+      local session_name="${config_file##*/}"
+      __printf_blue "Updating config for session: $session_name"
+      if cp -f "$SCREEN_NEW_CONFIG_DIR/template" "$config_file" 2>/dev/null; then
+        sed -i \
+          -e "s|SCREEN_NEW_CONF_FILE_MAIN|${SCREEN_NEW_FILE_CONF}/${session_name}|g" \
+          -e "s|SCREEN_NEW_CONF_FILE_WINDOWS|${SCREEN_NEW_FILE_WINDOWS}/${session_name}|g" \
+          -e "s|SCREEN_NEW_CONF_FILE_LOCAL|${SCREEN_NEW_FILE_CONF_LOCAL}/${session_name}|g" \
+          -e "s|SCREEN_NEW_CONF_BUFFERFILE|${SCREEN_NEW_CACHE_DIR}/${session_name}.buffer|g" \
+          "$config_file"
+        __printf_green "Updated: $session_name"
+        updated=$((updated + 1))
+      else
+        __printf_red "Failed: $session_name"
+        failed=$((failed + 1))
+      fi
+    done
+  fi
+  __printf_cyan "Update complete: $updated updated, $failed failed"
+  [ "$failed" -eq 0 ]
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Execute commands
-
+# Detach current session (if attached) and attach to the target session
+__screen_switch() {
+  local target="${1:-}"
+  [ -n "$target" ] || { __printf_red "Usage: $APPNAME switch <name>"; return 1; }
+  local label="scn-${target}"
+  screen -ls 2>/dev/null | grep -q -- "\.${label}[[:space:]]" || { __printf_red "Session '$target' does not exist"; return 1; }
+  [ -z "$STY" ] || screen -X detach
+  exec screen -x "$label"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Session directory
-SCREEN_NEW_SESSION_DIR="$SCREEN_NEW_CONFIG_DIR/sessions"
-[ -d "$SCREEN_NEW_SESSION_DIR" ] || mkdir -p "$SCREEN_NEW_SESSION_DIR"
+# Rename a live session via screen -X sessionname
+__screen_rename() {
+  local old="${1:-}" new="${2:-}"
+  [ -n "$old" ] && [ -n "$new" ] || { __printf_red "Usage: $APPNAME rename <old_name> <new_name>"; return 1; }
+  local old_label="scn-${old}" new_label="scn-${new}"
+  screen -ls 2>/dev/null | grep -q -- "\.${old_label}[[:space:]]" || { __printf_red "Session '$old' does not exist"; return 1; }
+  if screen -S "$old_label" -X sessionname "$new_label"; then
+    __printf_green "Session '$old' renamed to '$new'"
+  else
+    __printf_red "Failed to rename session"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Clone a session's config files only - degraded, does NOT clone live window/pane state
+__screen_clone() {
+  local source="${1:-}" target="${2:-}"
+  [ -n "$source" ] && [ -n "$target" ] || { __printf_red "Usage: $APPNAME clone <source> <target>"; return 1; }
+  if [ ! -f "$SCREEN_NEW_FILE_CONF/$source" ] || [ ! -f "$SCREEN_NEW_FILE_WINDOWS/$source" ]; then
+    __printf_red "Cannot clone - config files not found for '$source'"
+    return 1
+  fi
+  if [ -f "$SCREEN_NEW_FILE_CONF/$target" ]; then
+    __printf_red "Target '$target' config already exists"
+    return 1
+  fi
+  __printf_yellow "Note: clone copies config only - it does NOT clone live window/pane state"
+  cp "$SCREEN_NEW_FILE_CONF/$source" "$SCREEN_NEW_FILE_CONF/$target"
+  cp "$SCREEN_NEW_FILE_WINDOWS/$source" "$SCREEN_NEW_FILE_WINDOWS/$target"
+  sed -i \
+    -e "s|${SCREEN_NEW_FILE_CONF}/${source}|${SCREEN_NEW_FILE_CONF}/${target}|g" \
+    -e "s|${SCREEN_NEW_FILE_WINDOWS}/${source}|${SCREEN_NEW_FILE_WINDOWS}/${target}|g" \
+    -e "s|${SCREEN_NEW_FILE_CONF_LOCAL}/${source}|${SCREEN_NEW_FILE_CONF_LOCAL}/${target}|g" \
+    -e "s|${SCREEN_NEW_CACHE_DIR}/${source}.buffer|${SCREEN_NEW_CACHE_DIR}/${target}.buffer|g" \
+    "$SCREEN_NEW_FILE_CONF/$target" 2>/dev/null
+  [ -f "$SCREEN_NEW_FILE_CONF_LOCAL/$target" ] || : >"$SCREEN_NEW_FILE_CONF_LOCAL/$target"
+  __printf_green "Session '$source' cloned to '$target'"
+  __launch_screen "$target"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# List every active screen-new session (preset "scn-" and ad-hoc "sn-")
+__screen_status() {
+  local sessions
+  sessions="$(screen -ls 2>/dev/null | grep -- '\.scn-\|\.sn-' | sed 's/^[[:space:]]*//')"
+  if [ -n "$sessions" ]; then
+    __printf_blue "Active screen-new sessions:"
+    printf '%s\n' "$sessions" | while IFS= read -r line; do
+      __printf_green "  $line"
+    done
+  else
+    __printf_yellow "No active screen-new sessions"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show info for the session this shell is currently attached to
+__screen_show() {
+  if [ -n "$STY" ]; then
+    __printf_blue "Current session: $STY"
+    screen -ls 2>/dev/null | grep -- "$STY" | sed 's/^[[:space:]]*//'
+  else
+    __printf_yellow "Not currently inside a screen session"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Launch a login shell in a screen session
+# Session named after directory basename (sn-scripts, sn-tmp, etc.)
+# Usage: __screen_shell [directory]
+__screen_shell() {
+  local dir="${1:-$SCREEN_NEW_CWD}"
+  dir="$(realpath "$dir" 2>/dev/null)"
+  if [ ! -d "$dir" ]; then
+    __printf_exit "$dir: not a directory"
+  fi
+  local dir_name
+  dir_name="$(basename -- "$dir")"
+  local session_name="sn-${dir_name}"
+  local user_shell="${SHELL:-bash}"
+  local screenrc="$(__ensure_screenrc "$session_name" "$user_shell" -l)"
+  screen -wipe &>/dev/null
+  if screen -ls 2>/dev/null | grep -q -- "\\.${session_name}[[:space:]]"; then
+    __printf_cyan "Attaching to existing session: $session_name"
+    exec screen -x "$session_name"
+  else
+    cd "$dir"
+    exec screen -c "$screenrc" -S "$session_name" "$user_shell" -l
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Write keybindings reference file
-__screen-new_keybindings() {
+__screen_new_keybindings() {
   [ -n "$1" ] || return 1
   cat <<'KEYBINDINGS' >"$1"
 screen-new keybindings (tmux-compatible)
@@ -723,19 +950,29 @@ Split / Layout
   PREFIX x           Remove current region
   PREFIX Q           Remove all regions except current
 
-Region Resize
+Region Resize / Focus
   PREFIX h           Resize region smaller
   PREFIX j           Resize region larger
   PREFIX k           Resize region smaller
   PREFIX l           Resize region larger
+  PREFIX Left/Right/Up/Down   Focus adjacent region (no resize conflict)
+  PREFIX +           Zoom region to full size (one-way, PREFIX Q to undo)
 
-Scrollback / Copy
+Clipboard / Copy
   PREFIX [           Enter copy/scrollback mode
                      (navigate with arrows, PgUp/PgDn)
                      (press <space> to start selection, <space> again to copy)
   PREFIX ]           Paste from copy buffer
+  PREFIX Y           Copy buffer to system clipboard (wl-copy/xclip/pbcopy)
+  PREFIX Ctrl+v      Paste from system clipboard (wl-paste/xclip/pbpaste)
+
+Mouse
+  PREFIX m           Enable mouse tracking (scroll only)
+  PREFIX M           Disable mouse tracking
 
 Misc
+  PREFIX `           Send literal backtick / switch to other region
+  PREFIX R           Reload this session's config
   PREFIX ?           Show this help
   PREFIX i           Show window info
 
@@ -744,110 +981,24 @@ Process Exit (zombie mode - on error only)
   k                  Kill the window
   r                  Restart the process
 
+Known limitations vs tmux-new (GNU Screen has no plugin system):
+  No save/restore/apply-state-cmds/boot/cleanup, no resurrect/continuum,
+  no pane sync, no join/break pane<->window, no send-to-every-pane,
+  no choose-layout, no sidebar, no click/drag/dblclick/rightclick mouse,
+  zoom is one-way, clone is config-only, status/show parse 'screen -ls' text.
+
 Press q to exit this help.
 KEYBINDINGS
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Write default screenrc to a file
-# Usage: __screen-new_filerc <file> <session_name> [command] [args...]
-__screen-new_filerc() {
-  [ -n "$1" ] || return 1
-  [ -s "$1" ] && return 0
-  local rc="$1" name="$2" && shift 2
-  local SCREEN_NEW_KEYBINDINGS_FILE="$SCREEN_NEW_CONFIG_DIR/keybindings.txt"
-  __screen-new_keybindings "$SCREEN_NEW_KEYBINDINGS_FILE"
-  cat <<SCREENRC >"$rc"
-# screen-new session config: ${name:-unknown}
-# Command: ${*:-unknown}
-#
-# PREFIX = Ctrl+n (tmux-compatible bindings)
-# PREFIX PREFIX sends literal prefix key to the application
-# Process exit: press k to kill window, r to restart
-
-# Escape / prefix key (default: Ctrl+n, PREFIX PREFIX sends literal)
-escape ^N^N
-
-# Display
-hardstatus off
-caption splitonly
-startup_message off
-
-# Keep window open on error exit only (k=kill, r=restart)
-zombie kr onerror
-
-# Use alternate screen buffer (for curses apps like htop, vim)
-altscreen on
-
-# Color and emoji support
-term xterm-256color
-defutf8 on
-utf8 on on
-truecolor on
-defencoding UTF-8
-encoding UTF-8
-
-# Mouse scrollback support
-termcapinfo xterm* ti@:te@
-mousetrack off
-defscrollback 10000
-
-# SIGWINCH / terminal resize support
-termcapinfo xterm* 'is=\E[r\E[m\E[2J\E[H\E[?7h\E[?1;4;6l'
-termcapinfo xterm* OL=10000
-defnonblock on
-nonblock on
-
-# Window management (tmux-compatible)
-bind t screen ${SHELL:-bash} -l
-bind c screen ${SHELL:-bash} -l
-bind n next
-bind p prev
-bind , title
-bind w windowlist -b
-bind @ kill
-
-# Split management (tmux-compatible)
-bind \\\\ split -v
-bind / split
-bind x remove
-bind Q only
-
-# Pane/region resize (tmux-compatible: h/j/k/l)
-bind h resize -5
-bind j resize +5
-bind k resize -5
-bind l resize +5
-
-# Copy mode
-bind [ copy
-bind ] paste .
-
-# Interactive window list (Tab) - like tmux choose-tree
-bind ^I windowlist
-
-# Shift+arrow without prefix
-bindkey "\033[1;2D" prev
-bindkey "\033[1;2C" next
-
-# Show keybindings with PREFIX ?
-bind ? exec less $SCREEN_NEW_KEYBINDINGS_FILE
-SCREENRC
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure screenrc exists for a session, return its path
-# Usage: __ensure_screenrc <session_name> [command] [args...]
-__ensure_screenrc() {
-  local name="$1" && shift
-  local rc="$SCREEN_NEW_SESSION_DIR/${name}.conf"
-  __screen-new_filerc "$rc" "$name" "$@"
-  printf '%s' "$rc"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Helper: list sn-* sessions
 __list_sessions() {
   screen -wipe &>/dev/null
-  screen -ls 2>/dev/null | grep '\.sn-' | sed 's/^[[:space:]]*//'
+  screen -ls 2>/dev/null | grep -- '\.sn-' | sed 's/^[[:space:]]*//'
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Keybindings reference file used by PREFIX ? in templates/screen/new.conf
+[ -f "$SCREEN_NEW_CONFIG_DIR/keybindings.txt" ] || __screen_new_keybindings "$SCREEN_NEW_CONFIG_DIR/keybindings.txt"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 SCREEN_NEW_SUBCMD="${1:-}"
@@ -855,23 +1006,177 @@ SCREEN_NEW_SUBCMD="${1:-}"
 case "$SCREEN_NEW_SUBCMD" in
 a | attach)
   SCREEN_NEW_CMD="${1:-}"
-  # No arg: use directory basename (same as screen-new with no args)
   if [ -z "$SCREEN_NEW_CMD" ]; then
     __screen_shell
     exit $?
   fi
   shift 1
-  # Skip validation - aliases/functions only exist in interactive shells
-  # Screen will fail naturally if the command doesn't exist
   SCREEN_NEW_SESSION_NAME="sn-${SCREEN_NEW_CUSTOM_NAME:-$(basename -- "$SCREEN_NEW_CMD")}"
   SCREEN_NEW_SCREENRC="$(__ensure_screenrc "$SCREEN_NEW_SESSION_NAME" "$SCREEN_NEW_CMD" "$@")"
   screen -wipe &>/dev/null
-  if screen -ls 2>/dev/null | grep -q "\.${SCREEN_NEW_SESSION_NAME}[[:space:]]"; then
-    printf_cyan "Attaching to existing session: $SCREEN_NEW_SESSION_NAME"
+  if screen -ls 2>/dev/null | grep -q -- "\\.${SCREEN_NEW_SESSION_NAME}[[:space:]]"; then
+    __printf_cyan "Attaching to existing session: $SCREEN_NEW_SESSION_NAME"
     exec screen -x "$SCREEN_NEW_SESSION_NAME"
   else
     __screen_exec "$SCREEN_NEW_SCREENRC" "$SCREEN_NEW_SESSION_NAME" "$SCREEN_NEW_CMD" "$@"
   fi
+  ;;
+switch | sw)
+  __screen_switch "$1"
+  exit $?
+  ;;
+rename | mv)
+  __screen_rename "$1" "$2"
+  exit $?
+  ;;
+clone | copy)
+  __screen_clone "$1" "$2"
+  exit $?
+  ;;
+status | info)
+  __screen_status
+  exit $?
+  ;;
+show)
+  __screen_show
+  exit $?
+  ;;
+update)
+  case "${1:-all}" in
+  template)
+    __update_screen_template
+    exit $?
+    ;;
+  sessions)
+    __update_all_screen_configs
+    exit $?
+    ;;
+  all | *)
+    __update_screen_template && __update_all_screen_configs
+    exit $?
+    ;;
+  esac
+  ;;
+create)
+  shift 1
+  if [ $# -lt 1 ]; then
+    __printf_red "Usage: $APPNAME create <name> [win1_name:command] [win2_name:command] ..."
+    exit 1
+  fi
+  SCREEN_NEW_CREATE_NAME="$1" && shift 1
+  __screen_conf "$SCREEN_NEW_CREATE_NAME" |& __devnull
+  __create_screen_windows "$SCREEN_NEW_CREATE_NAME" "$@" |& __devnull
+  __launch_screen "$SCREEN_NEW_CREATE_NAME"
+  exit $?
+  ;;
+ai)
+  shift 1
+  __screen_preset "ai" "${1:-ai:${SHELL:-bash}}" ${2:-} ${3:-} ${4:-} ${5:-} ${6:-} ${7:-} ${8:-} ${9:-}
+  exit $?
+  ;;
+single)
+  shift 1
+  __screen_preset "single" "${1:-main:${SHELL:-bash}}" ${2:-} ${3:-} ${4:-} ${5:-} ${6:-} ${7:-} ${8:-} ${9:-}
+  exit $?
+  ;;
+shell)
+  shift 1
+  __screen_preset "shell" "${1:-main:${SHELL:-bash}}" ${2:-} ${3:-} ${4:-} ${5:-} ${6:-} ${7:-} ${8:-} ${9:-}
+  exit $?
+  ;;
+dev)
+  shift 1
+  __screen_preset "dev" "${1:-dev:${SHELL:-bash}}" "${2:-editor:${SHELL:-bash}}" "${3:-logging:${SHELL:-bash}}" "${4:-server:${SHELL:-bash}}" ${5:-} ${6:-} ${7:-} ${8:-} ${9:-}
+  exit $?
+  ;;
+go)
+  shift 1
+  __screen_preset "go" "${1:-main:go run .}" "${2:-test:go test ./...}" "${3:-mod:go mod tidy}" "${4:-editor:${SHELL:-bash}}" "${5:-docs:go doc}"
+  exit $?
+  ;;
+rust)
+  shift 1
+  __screen_preset "rust" "${1:-build:cargo build}" "${2:-run:cargo run}" "${3:-test:cargo test}" "${4:-editor:${SHELL:-bash}}" "${5:-clippy:cargo clippy}" "${6:-fmt:cargo fmt}"
+  exit $?
+  ;;
+python)
+  shift 1
+  __screen_preset "python" "${1:-main:python main.py}" "${2:-test:python -m pytest}" "${3:-venv:python -m venv venv}" "${4:-editor:${SHELL:-bash}}" "${5:-jupyter:jupyter notebook}"
+  exit $?
+  ;;
+devops)
+  shift 1
+  __screen_preset "devops" "${1:-kubectl:kubectl get pods}" "${2:-docker:docker ps}" \
+    "${3:-terraform:terraform plan}" "${4:-ansible:${SHELL:-bash}}" "${5:-monitoring:htop}" "${6:-logs:journalctl -f}"
+  exit $?
+  ;;
+monitoring)
+  shift 1
+  __screen_preset "monitoring" "${1:-htop:htop}" "${2:-logs:journalctl -f}" "${3:-docker:docker stats}" "${4:-network:watch ss -tuln}" "${5:-disk:watch df -h}"
+  exit $?
+  ;;
+database)
+  shift 1
+  __screen_preset "database" "${1:-mysql:mysql -u root}" "${2:-postgres:psql}" "${3:-redis:redis-cli}" "${4:-mongo:mongosh}" "${5:-editor:${SHELL:-bash}}"
+  exit $?
+  ;;
+docker)
+  shift 1
+  __screen_preset "docker" "${1:-shell:${SHELL:-bash}}" "${2:-mgr:${SHELL:-bash}}" "${3:-devel:${SHELL:-bash}}" \
+    "${4:-editor:${SHELL:-bash}}" "${5:-build:${SHELL:-bash}}" "${6:-testing:${SHELL:-bash}}" \
+    "${7:-docker:${SHELL:-bash}}" "${8:-logging:${SHELL:-bash}}" "${9:-remote:${SHELL:-bash}}"
+  exit $?
+  ;;
+rpm)
+  shift 1
+  __screen_preset "rpm" "main:${SHELL:-bash}" "tools:${SHELL:-bash}" "edit:${SHELL:-bash}" \
+    "8-arm64:${SHELL:-bash}" "8-amd64:${SHELL:-bash}" "9-arm64:${SHELL:-bash}" \
+    "9-amd64:${SHELL:-bash}" "git:${SHELL:-bash}" "logs:${SHELL:-bash}"
+  exit $?
+  ;;
+node)
+  shift 1
+  __screen_preset "node" "${1:-devel:${SHELL:-bash}}" "${2:-editor:${SHELL:-bash}}" "${3:-client:${SHELL:-bash}}" \
+    "${4:-server:${SHELL:-bash}}" "${5:-database:${SHELL:-bash}}" ${6:-} ${7:-} ${8:-} ${9:-}
+  exit $?
+  ;;
+bun)
+  shift 1
+  __screen_preset "bun" "${1:-devel:${SHELL:-bash}}" "${2:-editor:${SHELL:-bash}}" "${3:-server:${SHELL:-bash}}" "${4:-database:${SHELL:-bash}}" ${5:-} ${6:-} ${7:-} ${8:-} ${9:-}
+  exit $?
+  ;;
+deno)
+  shift 1
+  __screen_preset "deno" "${1:-devel:${SHELL:-bash}}" "${2:-editor:${SHELL:-bash}}" "${3:-server:${SHELL:-bash}}" "${4:-database:${SHELL:-bash}}" ${5:-} ${6:-} ${7:-} ${8:-} ${9:-}
+  exit $?
+  ;;
+build)
+  shift 1
+  __screen_preset "build" "${1:-build:${SHELL:-bash}}" "${2:-edit:${SHELL:-bash}}" "${3:-test:${SHELL:-bash}}" "${4:-log:${SHELL:-bash}}" ${5:-} ${6:-} ${7:-} ${8:-} ${9:-}
+  exit $?
+  ;;
+ssh)
+  shift 1
+  __screen_preset "ssh" "${1:-1:${SHELL:-bash}}" "${2:-2:${SHELL:-bash}}" "${3:-3:${SHELL:-bash}}" \
+    "${4:-4:${SHELL:-bash}}" "${5:-5:${SHELL:-bash}}" "${6:-6:${SHELL:-bash}}" "${7:-7:${SHELL:-bash}}"
+  exit $?
+  ;;
+productivity)
+  shift 1
+  SCREEN_NEW_CUSTOM_NAME="${SCREEN_NEW_CUSTOM_NAME:-productivity}"
+  __screen_preset "productivity" "todo:${SHELL:-bash}" "notes:${SHELL:-bash}" "scratchpad:${SHELL:-bash}" \
+    "tasks:${SHELL:-bash}" "blog:${SHELL:-bash}" "tools:${SHELL:-bash}" "weather:${SHELL:-bash}"
+  exit $?
+  ;;
+test)
+  shift 1
+  __screen_preset "test" "${1:-1:${SHELL:-bash}}" "${2:-2:${SHELL:-bash}}" ${3:-} ${4:-} ${5:-} ${6:-} ${7:-} ${8:-} ${9:-}
+  exit $?
+  ;;
+default)
+  shift 1
+  __screen_preset "default" "${1:-1:${SHELL:-bash}}" "${2:-2:${SHELL:-bash}}" "${3:-3:${SHELL:-bash}}" ${4:-} ${5:-} ${6:-} ${7:-} ${8:-} ${9:-}
+  exit $?
   ;;
 edit)
   SCREEN_NEW_EDIT_TARGET="${1:-}"
@@ -894,7 +1199,7 @@ ls | list)
       __printf_line "  $line"
     done
   else
-    printf_cyan "No active sessions"
+    __printf_cyan "No active sessions"
   fi
   ;;
 kill)
@@ -902,18 +1207,18 @@ kill)
   if [ "$SCREEN_NEW_KILL_TARGET" = "all" ]; then
     SCREEN_NEW_SESSIONS="$(__list_sessions)"
     if [ -z "$SCREEN_NEW_SESSIONS" ]; then
-      printf_cyan "No active sessions"
+      __printf_cyan "No active sessions"
     else
       printf '%s\n' "$SCREEN_NEW_SESSIONS" | awk '{print $1}' | while IFS= read -r s; do
-        screen -S "$s" -X quit && printf_green "Killed: $s" || printf_red "Failed to kill: $s"
+        screen -S "$s" -X quit && __printf_green "Killed: $s" || __printf_red "Failed to kill: $s"
       done
     fi
   elif [ -n "$SCREEN_NEW_KILL_TARGET" ]; then
     SCREEN_NEW_SESSION_NAME="sn-$(basename -- "$SCREEN_NEW_KILL_TARGET")"
-    if screen -ls 2>/dev/null | grep -q "\.${SCREEN_NEW_SESSION_NAME}[[:space:]]"; then
-      screen -S "$SCREEN_NEW_SESSION_NAME" -X quit && printf_green "Killed: $SCREEN_NEW_SESSION_NAME" || printf_red "Failed to kill: $SCREEN_NEW_SESSION_NAME"
+    if screen -ls 2>/dev/null | grep -q -- "\\.${SCREEN_NEW_SESSION_NAME}[[:space:]]"; then
+      screen -S "$SCREEN_NEW_SESSION_NAME" -X quit && __printf_green "Killed: $SCREEN_NEW_SESSION_NAME" || __printf_red "Failed to kill: $SCREEN_NEW_SESSION_NAME"
     else
-      printf_red "Session not found: $SCREEN_NEW_SESSION_NAME"
+      __printf_red "Session not found: $SCREEN_NEW_SESSION_NAME"
     fi
   else
     SCREEN_NEW_SESSIONS="$(__list_sessions)"
@@ -923,7 +1228,7 @@ kill)
         __printf_line "  $line"
       done
     else
-      printf_cyan "No active sessions"
+      __printf_cyan "No active sessions"
     fi
   fi
   ;;
@@ -931,10 +1236,10 @@ d | detach)
   SCREEN_NEW_DETACH_TARGET="${1:-}"
   if [ -n "$SCREEN_NEW_DETACH_TARGET" ]; then
     SCREEN_NEW_SESSION_NAME="sn-$(basename -- "$SCREEN_NEW_DETACH_TARGET")"
-    if screen -ls 2>/dev/null | grep -q "\.${SCREEN_NEW_SESSION_NAME}[[:space:]]"; then
-      screen -S "$SCREEN_NEW_SESSION_NAME" -X detach && printf_green "Detached: $SCREEN_NEW_SESSION_NAME" || printf_red "Failed to detach: $SCREEN_NEW_SESSION_NAME"
+    if screen -ls 2>/dev/null | grep -q -- "\\.${SCREEN_NEW_SESSION_NAME}[[:space:]]"; then
+      screen -S "$SCREEN_NEW_SESSION_NAME" -X detach && __printf_green "Detached: $SCREEN_NEW_SESSION_NAME" || __printf_red "Failed to detach: $SCREEN_NEW_SESSION_NAME"
     else
-      printf_red "Session not found: $SCREEN_NEW_SESSION_NAME"
+      __printf_red "Session not found: $SCREEN_NEW_SESSION_NAME"
     fi
   else
     SCREEN_NEW_SESSIONS="$(__list_sessions)"
@@ -944,7 +1249,7 @@ d | detach)
         __printf_line "  $line"
       done
     else
-      printf_cyan "No active sessions"
+      __printf_cyan "No active sessions"
     fi
   fi
   ;;
@@ -952,33 +1257,29 @@ d | detach)
   __screen_shell
   ;;
 *)
-  # If argument is a directory, launch a shell there
   if [ -d "$SCREEN_NEW_SUBCMD" ]; then
     __screen_shell "$SCREEN_NEW_SUBCMD"
   fi
-  # Default: treat as a command to attach to
   SCREEN_NEW_CMD="$SCREEN_NEW_SUBCMD"
-  # Skip validation - aliases/functions only exist in interactive shells
-  # Screen will fail naturally if the command doesn't exist
   SCREEN_NEW_SESSION_NAME="sn-${SCREEN_NEW_CUSTOM_NAME:-$(basename -- "$SCREEN_NEW_CMD")}"
   SCREEN_NEW_SCREENRC="$(__ensure_screenrc "$SCREEN_NEW_SESSION_NAME" "$SCREEN_NEW_CMD" "$@")"
   screen -wipe &>/dev/null
-  if screen -ls 2>/dev/null | grep -q "\.${SCREEN_NEW_SESSION_NAME}[[:space:]]"; then
-    printf_cyan "Attaching to existing session: $SCREEN_NEW_SESSION_NAME"
+  if screen -ls 2>/dev/null | grep -q -- "\\.${SCREEN_NEW_SESSION_NAME}[[:space:]]"; then
+    __printf_cyan "Attaching to existing session: $SCREEN_NEW_SESSION_NAME"
     exec screen -x "$SCREEN_NEW_SESSION_NAME"
   else
     __screen_exec "$SCREEN_NEW_SCREENRC" "$SCREEN_NEW_SESSION_NAME" "$SCREEN_NEW_CMD" "$@"
   fi
   ;;
 esac
-SCREEN_NEW_EXIT_STATUS="${SCREEN_NEW_EXIT_STATUS:-$?}"
+exitCode=$?
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
-SCREEN_NEW_EXIT_STATUS="${SCREEN_NEW_EXIT_STATUS:-0}"
+exitCode="${exitCode:-0}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
-exit ${SCREEN_NEW_EXIT_STATUS:-0}
+exit ${exitCode:-0}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # ex: ts=2 sw=2 et filetype=sh

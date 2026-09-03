@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609031824-git
+##@Version           :  202609032257-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202609031824-git"
+VERSION="202609032257-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -641,7 +641,7 @@ __update_usage() {
 # Generate JSON template for repo creation based on visibility
 __generate_repo_json() {
   local repo_name="$1"
-  local description="${2:-Repository for $1}"
+  local description="${2:-Repository for $(__strip_git_url "$1")}"
   local homepage="${3:-}"
   # public or private
   local visibility="${4:-public}"
@@ -3316,7 +3316,7 @@ __gitea_create_repo() {
   local url="$GITADMIN_PERSONAL_GIT_HOST/api/v1/user/repos"
   local json_data=""
 
-  [ -f "$GITADMIN_CWD/DESCRIPTION" ] && description="$(<"$GITADMIN_CWD/DESCRIPTION")" || description="${description:-Repository for $repo_name}"
+  [ -f "$GITADMIN_CWD/DESCRIPTION" ] && description="$(<"$GITADMIN_CWD/DESCRIPTION")" || description="${description:-Repository for $(__strip_git_url "$repo_name")}"
 
   # Determine visibility
   if [ "$GITADMIN_REPO_VISIBLE" = "no" ] || [ "$visibility" = "private" ]; then
@@ -3497,7 +3497,7 @@ __gitea_ensure_org() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__gitea_migrate_skip_existing() {
+__gitea_migrate_repo() {
   local gh_owner="$1"
   local gitea_user="$2"
   local gitea_owner="$3"
@@ -3507,19 +3507,31 @@ __gitea_migrate_skip_existing() {
   local GITEA_TOKEN="$GITADMIN_PRIVATE_AUTH_TOKEN"
   local eCode=0 REPO_NAME="" URL="" REPO_INFO="" private="" website="" avatar="" description="" gitea_url=""
   for URL in $repo_list; do
-    REPO_NAME="$(echo "$URL" | sed "s|https://github.com/${gh_owner}/||g" | tr '[:upper:]' '[:lower:]' | grep '^' || continue)"
-    if curl -q -LSsf -X GET "$GITEA_DOMAIN/api/v1/repos/$gitea_owner/$REPO_NAME" \
-        -H 'accept: application/json' 2>/dev/null | __jq -r '.full_name' | grep -q "$REPO_NAME"; then
-      printf_yellow "⏭️  Skipping (already exists): $gitea_owner/$REPO_NAME"
-      continue
-    fi
+    REPO_NAME="$(echo "$URL" | sed "s|https://github.com/${gh_owner}/||g" | tr '[:upper:]' '[:lower:]' | grep -- '^' || continue)"
     REPO_INFO="$(__curl_gh_api "https://api.github.com/repos/$gh_owner/$REPO_NAME" 2>/dev/null)"
     gitea_url="$GITEA_DOMAIN/$gitea_owner/$REPO_NAME"
-    private="$(echo "$REPO_INFO" | __jq -r '.private' | grep -v 'null' | grep '^' || echo "false")"
-    website="$(echo "$REPO_INFO" | __jq -r '.homepage' | grep -v 'null' | grep '^' || echo "$gitea_url")"
-    avatar="$(echo "$REPO_INFO" | __jq -r '.owner.avatar_url' | grep -v 'null' | grep '^' || echo "")"
-    description="$(echo "$REPO_INFO" | __jq -r '.description' | grep -v 'null' | grep '^' || echo "$REPO_NAME")"
+    private="$(echo "$REPO_INFO" | __jq -r '.private' | grep -v -- 'null' | grep -- '^' || echo "false")"
+    website="$(echo "$REPO_INFO" | __jq -r '.homepage' | grep -v -- 'null' | grep -- '^' || echo "$gitea_url")"
+    avatar="$(echo "$REPO_INFO" | __jq -r '.owner.avatar_url' | grep -v -- 'null' | grep -- '^' || echo "")"
+    description="$(echo "$REPO_INFO" | __jq -r '.description' | grep -v -- 'null' | grep -- '^' || echo "Repository for $REPO_NAME")"
     [ "$GITADMIN_REPO_VISIBLE" = "no" ] && private="true" || private="${private:-false}"
+    if curl -q -LSsf -X GET "$GITEA_DOMAIN/api/v1/repos/$gitea_owner/$REPO_NAME" \
+        -H 'accept: application/json' 2>/dev/null | __jq -r '.full_name' | grep -q -- "$REPO_NAME"; then
+      printf_yellow "🔀 The repo: $gitea_owner/$REPO_NAME already exists — triggering mirror sync 🔀"
+      # PATCH /repos/{owner}/{repo} only accepts EditRepoOption (basic settings, not migration fields).
+      # For an existing mirror, trigger a resync via the mirror-sync endpoint instead.
+      curl -q -LSs -X POST -u "$gitea_user:$GITEA_TOKEN" \
+        "$GITEA_DOMAIN/api/v1/repos/$gitea_owner/$REPO_NAME/mirror-sync" \
+        -H 'accept: application/json' 2>/dev/null >"$GITADMIN_TEMP_FILE"
+      printf_blue "🚀 Mirror sync triggered: $gitea_owner/$REPO_NAME"
+      # Enable Actions in case it was not already on
+      curl -q -LSs -X PATCH -u "$gitea_user:$GITEA_TOKEN" \
+        "$GITEA_DOMAIN/api/v1/repos/$gitea_owner/$REPO_NAME" \
+        -H 'accept: application/json' -H 'Content-Type: application/json' \
+        -d '{"has_actions":true}' 2>/dev/null >"$GITADMIN_TEMP_FILE"
+      __sleep 5
+      continue
+    fi
     printf_cyan "🚀 Importing $gh_owner/$REPO_NAME → $gitea_owner/$REPO_NAME"
     curl -q -LfSs --retry 2 --retry-max-time 3 --retry-delay 3 -X POST \
       -u "$gitea_user:$GITEA_TOKEN" "$GITEA_DOMAIN/api/v1/repos/migrate" \
@@ -3562,7 +3574,7 @@ __github_to_gitea_all() {
     local org_repos
     org_repos="$(__curl_gh_api "https://api.github.com/orgs/$gh_input/repos?per_page=100&sort=full_name&type=all" | __jq -r '.[].html_url' 2>/dev/null | grep '^')"
     [ -n "$org_repos" ] || printf_exit 1 2 "💔 No repos found for org: $gh_input"
-    __gitea_migrate_skip_existing "$gh_input" "$gitea_user" "$gitea_org" "$org_repos"
+    __gitea_migrate_repo "$gh_input" "$gitea_user" "$gitea_org" "$org_repos"
     eCode=$?
   else
     printf_purple "👤 GitHub user detected: $gh_input"
@@ -3570,7 +3582,7 @@ __github_to_gitea_all() {
     local user_repos
     user_repos="$(__curl_gh_api "https://api.github.com/users/$gh_input/repos?per_page=100&sort=full_name&type=owner" | __jq -r '.[].html_url' 2>/dev/null | grep '^')"
     if [ -n "$user_repos" ]; then
-      __gitea_migrate_skip_existing "$gh_input" "$gitea_user" "$gitea_user" "$user_repos"
+      __gitea_migrate_repo "$gh_input" "$gitea_user" "$gitea_user" "$user_repos"
       eCode=$((eCode + $?))
     else
       printf_yellow "⚠️  No personal repos found for: $gh_input"
@@ -3584,7 +3596,7 @@ __github_to_gitea_all() {
       local org_repos
       org_repos="$(__curl_gh_api "https://api.github.com/orgs/$org/repos?per_page=100&sort=full_name&type=all" | __jq -r '.[].html_url' 2>/dev/null | grep '^')"
       if [ -n "$org_repos" ]; then
-        __gitea_migrate_skip_existing "$org" "$gitea_user" "$gitea_org_name" "$org_repos"
+        __gitea_migrate_repo "$org" "$gitea_user" "$gitea_org_name" "$org_repos"
         eCode=$((eCode + $?))
       else
         printf_yellow "⚠️  No repos found for org: $org"
@@ -3610,7 +3622,7 @@ __gitlab_branch() {
 # Create a GitLab repository
 __gitlab_create_repo() {
   local user="$1"
-  local repo="$2"
+  local repo="$(__strip_git_url "$2")"
   local description="${3:-Repository for $repo}"
   local homepage="${4:-}"
   local visibility="${5:-public}"
@@ -8105,7 +8117,7 @@ modify)
   elif echo "$1" | grep -q '/'; then
     # Parse user/repo format
     user="${1%%/*}"
-    repo="${1##*/}"
+    repo="$(__strip_git_url "${1##*/}")"
     shift
 
     # Use platform from flag or detect
@@ -8158,10 +8170,10 @@ create)
   # Parse user/repo
   if echo "$1" | grep -q '/'; then
     user="${1%%/*}"
-    repo="${1##*/}"
+    repo="$(__strip_git_url "${1##*/}")"
   else
     user="$1"
-    repo="$2"
+    repo="$(__strip_git_url "$2")"
     shift
   fi
   shift
@@ -8213,10 +8225,10 @@ delete)
   elif echo "$1" | grep -q '/'; then
     # Parse user/repo format
     user="${1%%/*}"
-    repo="${1##*/}"
+    repo="$(__strip_git_url "${1##*/}")"
   else
     user="$1"
-    repo="$2"
+    repo="$(__strip_git_url "$2")"
   fi
 
   # Auto-detect platform if not specified
@@ -9504,8 +9516,8 @@ bitbucket)
     shift 1
     { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME bitbucket create workspace repo [description]"
     workspace="$1"
-    repo="$2"
-    description="${3:-repo for $repo}"
+    repo="$(__strip_git_url "$2")"
+    description="${3:-Repository for $repo}"
     visibility="${GITADMIN_REPO_VISIBLE:-yes}"
     [ "$visibility" = "no" ] && visibility="private" || visibility="public"
     __bitbucket_create_repo "$workspace" "$repo" "$description" "$visibility"
@@ -9608,8 +9620,8 @@ codeberg)
   create)
     shift 1
     { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME codeberg create repo [description]"
-    repo="$1"
-    description="${2:-repo for $repo}"
+    repo="$(__strip_git_url "$1")"
+    description="${2:-Repository for $repo}"
     visibility="${GITADMIN_REPO_VISIBLE:-yes}"
     [ "$visibility" = "no" ] && visibility="private" || visibility="public"
     __codeberg_create_repo "$repo" "$description" "$visibility"
@@ -9716,8 +9728,8 @@ forgejo)
   create)
     shift 1
     { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME forgejo create repo [description]"
-    repo="$1"
-    description="${2:-repo for $repo}"
+    repo="$(__strip_git_url "$1")"
+    description="${2:-Repository for $repo}"
     visibility="${GITADMIN_REPO_VISIBLE:-yes}"
     [ "$visibility" = "no" ] && visibility="private" || visibility="public"
     __forgejo_create_repo "$repo" "$description" "$visibility"

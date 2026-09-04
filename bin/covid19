@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608311420-git
+##@Version           :  202609040628-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608311420-git"
+VERSION="202609040628-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -202,7 +202,7 @@ __help() {
   __printf_line "mx                                     - Show the stats for the Mexico"
   __printf_line "uk                                     - Show the stats for the UK"
   __printf_line "it                                     - Show the stats for the Italy"
-  __printf_line "help                                   - Show the API help page"
+  __printf_line "all                                    - Show global stats (default)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -228,18 +228,55 @@ __trap_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __curl() {
-  curl -q -LSsf --max-time 1 --retry 0 "$1" 2>/dev/null | grep -- '^' || false
+  curl -q -LSsf --max-time 5 --retry 0 "$1" 2>/dev/null | grep -- '^' || false
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Render a disease.sh country/global JSON payload
+__print_covid19_stats() {
+  local json="$1" name cases todaycases deaths todaydeaths recovered active critical updated
+  name="$(printf '%s' "$json" | jq -r '.country // "Global"')"
+  cases="$(printf '%s' "$json" | jq -r '.cases // 0')"
+  todaycases="$(printf '%s' "$json" | jq -r '.todayCases // 0')"
+  deaths="$(printf '%s' "$json" | jq -r '.deaths // 0')"
+  todaydeaths="$(printf '%s' "$json" | jq -r '.todayDeaths // 0')"
+  recovered="$(printf '%s' "$json" | jq -r '.recovered // 0')"
+  active="$(printf '%s' "$json" | jq -r '.active // 0')"
+  critical="$(printf '%s' "$json" | jq -r '.critical // 0')"
+  updated="$(printf '%s' "$json" | jq -r '.updated // 0')"
+  printf_blue "COVID-19 stats for $name"
+  printf_cyan "Cases:      $cases (+$todaycases today)"
+  printf_cyan "Active:     $active"
+  printf_cyan "Critical:   $critical"
+  printf_green "Recovered:  $recovered"
+  printf_red "Deaths:     $deaths (+$todaydeaths today)"
+  if [ "$updated" != "0" ]; then
+    printf_purple "Updated:    $(date -d "@$((updated / 1000))" 2>/dev/null || date -r "$((updated / 1000))" 2>/dev/null)"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_covid19() {
-  COVID19_SERVER_QUERY="${*:-$COVID19_SERVER_QUERY}${COVID19_SERVER_OPTIONS:-}"
-  results="$(__curl "$COVID19_SERVER_HOST/$COVID19_SERVER_QUERY")"
+  local query="${1:-${COVID19_COUNTRY:-}}" url results
+  __cmd_exists jq || printf_exit "jq is required to run $APPNAME"
+  case "$query" in
+  '' | all) url="$COVID19_SERVER_HOST/all" ;;
+  help)
+    __help
+    return $?
+    ;;
+  *) url="$COVID19_SERVER_HOST/countries/$query" ;;
+  esac
+  results="$(__curl "$url")"
   printf '\n'
-  if [ -n "$results" ]; then
-    __curl "$COVID19_SERVER_HOST/$COVID19_SERVER_QUERY"
+  if [ -n "$results" ] && printf '%s' "$results" | jq -e . >/dev/null 2>&1; then
+    if [ "$COVID19_JSON_OUTPUT" = "true" ]; then
+      printf '%s\n' "$results" | jq .
+    else
+      __print_covid19_stats "$results"
+    fi
   else
-    __curl "$COVID19_SERVER_HOST/help"
+    printf_red "Unable to fetch COVID-19 stats for '${query:-all}' - check the country code and try again"
+    exitCode=1
   fi
   printf '\n'
 }
@@ -272,8 +309,9 @@ COVID19_NOTIFY_CLIENT_ICON="${COVID19_NOTIFY_CLIENT_ICON:-notification-new}"
 COVID19_NOTIFY_CLIENT_URGENCY="${COVID19_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-COVID19_SERVER_HOST="${COVID19_SERVER_HOST:-https://corona-stats.online}"
+COVID19_SERVER_HOST="${COVID19_SERVER_HOST:-https://disease.sh/v3/covid-19}"
 COVID19_PING_URL="${COVID19_PING_URL:-8.8.8.8}"
+COVID19_COUNTRY="${COVID19_COUNTRY:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$COVID19_CONFIG_DIR/$COVID19_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -407,12 +445,12 @@ while :; do
     COVID19_SILENT="true"
     ;;
   --country)
-    COVID19_SERVER_HOST="$COVID19_SERVER_HOST/$2"
+    COVID19_COUNTRY="$2"
     shift 2
     ;;
   --json)
     shift 1
-    COVID19_SERVER_OPTIONS="?format=json"
+    COVID19_JSON_OUTPUT="true"
     ;;
   --)
     shift 1

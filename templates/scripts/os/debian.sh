@@ -100,7 +100,7 @@ grab_remote_file() {
 run_external() { printf_green "Executing $*" && "$@" >/dev/null 2>&1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 retrieve_version_file() {
-  grab_remote_file https://github.com/casjay-base/centos/raw/GEN_SCRIPT_REPLACE_DEFAULT_BRANCH/version.txt | head -n1 || echo "GEN_SCRIPT_REPLACE_VERSION"
+  grab_remote_file https://github.com/casjay-base/rhel/raw/GEN_SCRIPT_REPLACE_DEFAULT_BRANCH/version.txt | head -n1 || echo "GEN_SCRIPT_REPLACE_VERSION"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 run_grub() {

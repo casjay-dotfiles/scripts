@@ -289,7 +289,7 @@ save_remote_file() {
   fi
 }
 domain_name() { hostname -d | grep '^' || hostname -f | awk -F'.' '{$1="";OFS="." ; print $0}' | sed 's/^.//;s| |.|g' | grep '^'; }
-retrieve_version_file() { grab_remote_file "https://github.com/casjay-base/centos/raw/main/version.txt" | head -n1 || echo "Unknown version"; }
+retrieve_version_file() { grab_remote_file "https://github.com/casjay-base/rhel/raw/main/version.txt" | head -n1 || echo "Unknown version"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_head() {
   printf '%b##################################################\n' "$CYAN"
@@ -718,7 +718,7 @@ run_post "dfmgr install $DFMGR_CONFIGS"
 printf_head "Installing custom web server files"
 ##################################################################################################################
 [ -d "/tmp/configs" ] && devnull rm_if_exists "/tmp/configs"
-devnull git clone -q "https://github.com/casjay-base/centos" "/tmp/configs"
+devnull git clone -q "https://github.com/casjay-base/rhel" "/tmp/configs"
 devnull git clone -q "https://github.com/phpsysinfo/phpsysinfo" "/var/www/html/sysinfo"
 devnull git clone -q "https://github.com/solbu/vnstat-php-frontend" "/var/www/html/vnstat"
 sudo -HE STATICSITE="$(hostname -f)" bash -c "$(curl -LSs "https://github.com/casjay-templates/default-web-assets/raw/main/setup.sh")"

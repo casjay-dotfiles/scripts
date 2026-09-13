@@ -674,3 +674,22 @@ oversight).
    then feature-parity rewrite, then keybindings, then templates
 3. Both: doc-sync (help/man/completions) run at the very end for both
    scripts before final commit, per explicit user instruction
+
+## Pre-existing `script-lint` violations found 2026-09-13 (centos->rhel rename sweep)
+
+Surfaced incidentally while updating hardcoded `casjay-base/centos`/
+`pkmgr/centos` URLs to `casjay-base/rhel`/`pkmgr/rhel` — confirmed via
+`git diff` that these predate this edit (only the URL lines changed).
+Re-run `script-lint` for exact current line numbers before fixing.
+
+- [ ] `bin/pkmgr`: ~47 pre-existing violations (grep missing `--`,
+      inline comments, bare `exit`)
+- [ ] `templates/scripts/os/centos.sh`: ~30 pre-existing violations
+      (grep missing `--`, naming)
+- [ ] `templates/scripts/os/{debian,fedora,macos,void}.sh`: ~13
+      pre-existing violations each (grep missing `--`, template
+      functions missing `__` prefix: `run_post`, `system_service_exists`,
+      `system_service_enable`, `system_service_disable`,
+      `detect_selinux`, `disable_selinux`, `grab_remote_file`,
+      `run_external`, `retrieve_version_file`, `run_grub`, `test_pkg`,
+      `remove_pkg`, `install_pkg`)

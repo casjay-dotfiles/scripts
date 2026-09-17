@@ -693,3 +693,18 @@ Re-run `script-lint` for exact current line numbers before fixing.
       `detect_selinux`, `disable_selinux`, `grab_remote_file`,
       `run_external`, `retrieve_version_file`, `run_grub`, `test_pkg`,
       `remove_pkg`, `install_pkg`)
+
+## Pre-existing `script-lint` violations found 2026-09-17 (ISO-URL accuracy fix)
+
+Surfaced incidentally while fixing stale/broken ISO URLs in
+`bin/latest-iso` (omnios, artix, endeavour, openbsd, openindiana,
+slackware) — confirmed via `script-lint` that these predate the diff.
+
+- [ ] `bin/latest-iso`: 9 pre-existing naming violations — the
+      `printf_*` suite (`printf_newline`, `printf_blue`, `printf_red`,
+      `printf_green`, `printf_cyan`, `printf_yellow`, `printf_purple`,
+      `printf_error`, `printf_exit`, lines 120-128) is missing the `__`
+      prefix. Matches the established repo-wide `printf_*` naming
+      convention (AI.md's inline `printf_*` suite template), so any fix
+      needs a coordinated rename across every script that defines/calls
+      these, not a one-off change here.

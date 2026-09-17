@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608311420-git
+##@Version           :  202609171335-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608311420-git"
+VERSION="202609171335-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -2090,7 +2090,10 @@ __latest_list() {
     __rolling_version_warn "EndeavourOS" "$version"
     ISOFILE="$(__iso_filename "endeavour" "$version")"
     real_url="$LATEST_ISO_ENDEAVOUR_URL"
-    iso_url="$(__curl "$LATEST_ISO_ENDEAVOUR_URL" | __tr_split | __grep -- 'mirrors.gigenet.com' | __strip_iso)"
+    # The download page is one long minified line with many href="..." attributes on it, so
+    # __strip_href's greedy single-line sed only ever keeps the last one - split each href onto
+    # its own line first, then extract cleanly.
+    iso_url="$(__curl "$LATEST_ISO_ENDEAVOUR_URL" | __grep -oE -- 'href="[^"]*"' | __strip_href | __grep -- 'mirrors.gigenet.com' | __grep -E -- '\.iso$' | head -n1)"
     __latest_iso "$iso_url" "$ISOFILE"
     statusCode=$(($? + $statusCode))
     ;;
@@ -2289,15 +2292,19 @@ __latest_list() {
     ;;
   omnios|omnios=*)
     shift 1
-    local version="" omnios_ver=""
+    local version="" omnios_ver="" omnios_track=""
     __parse_version "$system_iso" "LATEST_ISO_OMNIOS_RELEASE"; version="$LATEST_ISO_VERSION"
     ISOFILE="$(__iso_filename "omnios" "$version")"
     real_url="$LATEST_ISO_OMNIOS_URL"
     if [ -n "$version" ]; then
       __latest_iso "$LATEST_ISO_OMNIOS_URL/r${version}/omnios-r${version}.iso" "$ISOFILE"
     else
-      omnios_ver="$(__curl "$LATEST_ISO_OMNIOS_URL/lts/" | __strip_href | __grep -E -- '^omnios-r[0-9]+\.iso$' | sort -rV | head -n1 | __sed 's/\.iso$//' | __sed 's/^omnios-r//')"
-      __latest_iso "$LATEST_ISO_OMNIOS_URL/lts/omnios-r${omnios_ver}.iso" "$ISOFILE"
+      # The "stable" track has overtaken "lts" before, so check both and take the highest release.
+      omnios_ver="$( { __curl "$LATEST_ISO_OMNIOS_URL/lts/" | __strip_href | __grep -E -- '^omnios-r[0-9]+\.iso$'
+        __curl "$LATEST_ISO_OMNIOS_URL/stable/" | __strip_href | __grep -E -- '^omnios-r[0-9]+\.iso$'; } | sort -rV | head -n1 | __sed 's/\.iso$//' | __sed 's/^omnios-r//')"
+      omnios_track="lts"
+      __curl "$LATEST_ISO_OMNIOS_URL/stable/" | __strip_href | __grep -qE -- "^omnios-r${omnios_ver}\.iso$" && omnios_track="stable"
+      __latest_iso "$LATEST_ISO_OMNIOS_URL/${omnios_track}/omnios-r${omnios_ver}.iso" "$ISOFILE"
     fi
     statusCode=$(($? + $statusCode))
     ;;
@@ -2310,7 +2317,8 @@ __latest_list() {
     if [ -n "$version" ]; then
       oi_snapshot="$version"
     else
-      oi_snapshot="$(__curl "$LATEST_ISO_OPENINDIANA_URL/hipster/" | __strip_href | __grep -E -- '^[0-9]{8}/$' | sort -rV | head -n1 | __sed 's|/$||g')"
+      # Hrefs are relative ("./20260430/"), so strip the leading "./" before matching the date.
+      oi_snapshot="$(__curl "$LATEST_ISO_OPENINDIANA_URL/hipster/" | __strip_href | __sed 's|^\./||g' | __grep -E -- '^[0-9]{8}/$' | sort -rV | head -n1 | __sed 's|/$||g')"
     fi
     __latest_iso "$LATEST_ISO_OPENINDIANA_URL/hipster/${oi_snapshot}/OI-hipster-gui-${oi_snapshot}.iso" "$ISOFILE"
     statusCode=$(($? + $statusCode))
@@ -2326,7 +2334,9 @@ __latest_list() {
     if [ -n "$version" ]; then
       openbsd_ver="$version"
     else
-      openbsd_ver="$(__curl "$LATEST_ISO_OPENBSD_URL/" | __sort_v | __strip_url)"
+      # Directory listing rows also carry a numeric data-o="<epoch>" timestamp attribute that
+      # __sort_v's raw-line sort was mistaking for the highest version, so scrape hrefs instead.
+      openbsd_ver="$(__curl "$LATEST_ISO_OPENBSD_URL/" | __strip_href | __grep -E -- '^[0-9]+\.[0-9]+/$' | __sed 's|/$||g' | sort -rV | head -n1)"
     fi
     openbsd_suffix="${openbsd_ver//./}"
     __latest_iso "$LATEST_ISO_OPENBSD_URL/$openbsd_ver/$openbsd_arch/install${openbsd_suffix}.iso" "$ISOFILE"
@@ -2447,7 +2457,9 @@ __latest_list() {
     ISOFILE="$(__iso_filename "slackware" "$version")"
     real_url="$LATEST_ISO_SLACKWARE_URL"
     slackware_release="${version:-$LATEST_ISO_SLACKWARE_RELEASE}"
-    __latest_iso "$LATEST_ISO_SLACKWARE_URL/slackware64-${slackware_release}/iso/slackware64-${slackware_release}-install-dvd.iso" "$ISOFILE"
+    # Prebuilt ISOs live under slackware-iso/, not inside the package-tree dir - the package
+    # tree only ships isolinux boot loader components, no install DVD image.
+    __latest_iso "${LATEST_ISO_SLACKWARE_URL%/}/slackware-iso/slackware64-${slackware_release}-iso/slackware64-${slackware_release}-install-dvd.iso" "$ISOFILE"
     statusCode=$(($? + $statusCode))
     ;;
   solus|solus=*)
@@ -2993,12 +3005,12 @@ LATEST_ISO_ALMA_URL="${LATEST_ISO_ALMA_URL:-http://mirror.vtti.vt.edu/almalinux}
 LATEST_ISO_ALPINE_URL="${LATEST_ISO_ALPINE_URL:-https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases}"
 LATEST_ISO_ARCHCRAFT_URL="${LATEST_ISO_ARCHCRAFT_URL:-https://sourceforge.net/projects/archcraft}"
 LATEST_ISO_ARCHLINUX_URL="${LATEST_ISO_ARCHLINUX_URL:-http://mirror.siena.edu/archlinux/iso/latest}"
-LATEST_ISO_ARTIX_URL="${LATEST_ISO_ARTIX_URL:-https://iso.artixlinux.org/}"
+LATEST_ISO_ARTIX_URL="${LATEST_ISO_ARTIX_URL:-https://artix.unixpeople.org/iso/}"
 LATEST_ISO_BLACKARCH_URL="${LATEST_ISO_BLACKARCH_URL:-https://ftp.halifax.rwth-aachen.de/blackarch/iso}"
 LATEST_ISO_CACHYOS_URL="${LATEST_ISO_CACHYOS_URL:-https://sourceforge.net/projects/cachyos-arch/best_release.json}"
 LATEST_ISO_CENTOS_URL="${LATEST_ISO_CENTOS_URL:-https://archive.kernel.org/centos-vault/centos}"
 LATEST_ISO_DEBIAN_URL="${LATEST_ISO_DEBIAN_URL:-https://cdimage.debian.org/cdimage/release/current}"
-LATEST_ISO_ENDEAVOUR_URL="${LATEST_ISO_ENDEAVOUR_URL:-https://endeavouros.com}"
+LATEST_ISO_ENDEAVOUR_URL="${LATEST_ISO_ENDEAVOUR_URL:-https://endeavouros.com/download/}"
 LATEST_ISO_FEDORA_URL="${LATEST_ISO_FEDORA_URL:-https://fedora.mirrorservice.org/fedora/linux/releases}"
 LATEST_ISO_FLATCAR_URL="${LATEST_ISO_FLATCAR_URL:-https://stable.release.flatcar-linux.net/amd64-usr/current}"
 LATEST_ISO_FREEBSD_URL="${LATEST_ISO_FREEBSD_URL:-https://download.freebsd.org/releases}"

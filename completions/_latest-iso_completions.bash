@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607071200-git
+##@Version           :  202608311420-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -28,7 +28,7 @@ _latest-iso() {
   local OPTS=""
   local SHORTOPTS="-C"
   local LONGOPTS="--no-color --debug --completions --options --version --help --config --silent --dir --force --all --ask --filename --arch --release --name --test"
-  local SUBCMDS="all gui iso server"
+  local SUBCMDS="all gui custom server"
   local ARRAY="aeryn alma alpine arch archcraft artix bazzite blackarch cachy centos chimera clonezilla debian endeavour fedora flatcar "
   local ARRAY+="freebsd freenas garuda gentoo ghostbsd gparted heads hirens kali macos manjaro netbsd nixos nobara "
   local ARRAY+="omnios openindiana openbsd opensuse openvz parrot peppermint pfsense photon popos proxmox redcore rocky "
@@ -83,7 +83,7 @@ _latest-iso() {
       COMPREPLY=()
       ;;
 
-    iso)
+    custom)
       _filedir
       return
       ;;

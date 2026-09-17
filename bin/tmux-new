@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609171611-git
+##@Version           :  202609171227-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202609171611-git"
+VERSION="202609171227-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -224,12 +224,10 @@ __help() {
   __printf_line "tmux-new --socket <s> show             - show only sessions on socket <s>"
   __printf_line "tmux-new --name <n> show               - show only session <n> across sockets"
   __printf_line "tmux-new nested [name]                 - nested tmux with single status bar"
-  __printf_line "tmux-new save                          - manual snapshot (tmux-resurrect)"
-  __printf_line "tmux-new restore                       - restore last snapshot"
-  __printf_line "tmux-new apply-state-cmds              - patch panes after resurrect restore (hook target)"
+  __printf_line "tmux-new save                          - manual state.txt snapshot"
+  __printf_line "tmux-new restore                       - restore from state.txt"
   __printf_line "tmux-new sync-state                    - resave state now (pane-close hook target)"
   __printf_line "tmux-new boot                          - restore if server is down (login/systemd hook)"
-  __printf_line "tmux-new cleanup                       - prune old snapshots (keeps newest TMUX_NEW_SNAPSHOT_KEEP)"
   __printf_line "tmux-new kill [type] [name]            - kill sessions/windows/panes"
   __printf_line "tmux-new kill all                      - kill all sessions and recreate"
   __printf_line ""
@@ -634,8 +632,8 @@ PREFIX = Ctrl+Space
 │ PREFIX J           Join all windows into current window as panes              │
 │ PREFIX B           Break all panes back out into their own windows            │
 │ PREFIX R           Reload tmux configuration                                  │
-│ PREFIX Ctrl+s      Save session state (tmux-resurrect)                        │
-│ PREFIX Ctrl+r      Restore session state (tmux-resurrect)                     │
+│ PREFIX Ctrl+s      Save session state (tmux-new state.txt)                    │
+│ PREFIX Ctrl+r      Restore session state (tmux-new state.txt)                 │
 │ PREFIX Ctrl+p      Send a command to every pane in every window               │
 └───────────────────────────────────────────────────────────────────────────────┘
 
@@ -918,7 +916,6 @@ __launch_tmux() {
     fi
     if [ "$server_is_up" = "true" ] && __tmux has-session -t "=$TMUX_NEW_NAME" 2>/dev/null; then
       printf_green "Attaching to existing session $TMUX_NEW_NAME"
-      __tmux_apply_resurrect_dir
       __tmux_new_bg_tasks
       rm -f "$TMUX_NEW_TEMP_FILE" 2>/dev/null
     else
@@ -927,7 +924,6 @@ __launch_tmux() {
       printf_cyan "Starting new tmux environment for $TMUX_NEW_NAME"
       [ "$server_is_up" = "true" ] || __sleep 3
       __tmux -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" new-session -d -s "$TMUX_NEW_NAME" -c "$TMUX_NEW_CWD" "tmux source-file $TMUX_NEW_FILE_WINDOWS/$TMUX_NEW_NAME" &>"$TMUX_NEW_LOG_DIR/$APPNAME.log"
-      __tmux_apply_resurrect_dir
       __tmux_new_bg_tasks
       rm -f "$TMUX_NEW_TEMP_FILE" 2>/dev/null
     fi
@@ -950,19 +946,10 @@ __launch_tmux() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Point the running tmux server at our per-socket resurrect dir so save/restore stay isolated
-# (tmux-resurrect reads the @resurrect-dir global option). Safe to call repeatedly.
-__tmux_apply_resurrect_dir() {
-  __tmux list-sessions &>/dev/null || return 1
-  [ -d "$TMUX_NEW_RESURRECT_DIR" ] || mkdir -p "$TMUX_NEW_RESURRECT_DIR" 2>/dev/null
-  __tmux set-option -g @resurrect-dir "$TMUX_NEW_RESURRECT_DIR" &>/dev/null
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Resave the moment a pane or window disappears, instead of waiting up to
 # TMUX_NEW_SAVE_INTERVAL seconds for the next autosave tick - without this, a pane closed
-# right before the server exits never gets pruned from state.txt or the tmux-resurrect
-# snapshot, and __tmux_restore replays it on the next restore regardless of how many days
-# have passed, since it prefers that snapshot over state.txt whenever one exists.
+# right before the server exits never gets pruned from state.txt, and __tmux_restore
+# replays it on the next restore regardless of how many days have passed.
 # pane-exited only fires when the pane's own program exits on its own (e.g. `exit`,
 # Ctrl-D) - it does NOT fire for a forced kill-pane (prefix+x), so after-kill-pane is also
 # needed to catch that. window-unlinked covers both kill-window (prefix+&) and the last-pane
@@ -1005,11 +992,11 @@ __tmux_save_state() {
     done >"$tmp_file" 2>/dev/null && mv -f "$tmp_file" "$state_file" 2>/dev/null || rm -f "$tmp_file" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Crash fallback: recreate sessions/windows/panes from state.txt and replay commands.
-# Only used when tmux-resurrect has no saved snapshot. Splits in missing panes (a window
-# only ever gets pane 0 for free from new-session/new-window) and reapplies the captured
-# window_layout once all of a window's panes exist, so multi-pane windows come back with
-# the right pane count/geometry instead of collapsing to a single pane.
+# Recreate sessions/windows/panes from state.txt and replay commands - the sole restore
+# path. Splits in missing panes (a window only ever gets pane 0 for free from
+# new-session/new-window) and reapplies the captured window_layout once all of a window's
+# panes exist, so multi-pane windows come back with the right pane count/geometry instead
+# of collapsing to a single pane.
 __tmux_restore_from_state() {
   local state_file="$TMUX_NEW_RESURRECT_DIR/state.txt"
   [ -f "$state_file" ] || return 1
@@ -1055,57 +1042,6 @@ __tmux_restore_from_state() {
     esac
   done <"$state_file"
   __tmux list-sessions &>/dev/null
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# After a resurrect restore, replay commands into panes that landed at a shell prompt
-# but had a non-shell process running at save time. Skips panes that already have a
-# running process (resurrect got them right via @resurrect-processes). Panes/windows
-# from resurrect's own snapshot already have the right layout/cwd, so this only needs
-# to fix the command, not recreate panes - but still cd defensively before non-shell
-# commands in case the saved cwd and the pane's resurrect-restored cwd have drifted.
-__tmux_apply_state_cmds() {
-  local state_file="$TMUX_NEW_RESURRECT_DIR/state.txt"
-  [ -f "$state_file" ] || return 0
-  local sess win_idx win_name pane_idx pane_path cmd win_layout base_cmd current_cmd target
-  while IFS=$'\t' read -r sess win_idx win_name pane_idx pane_path cmd win_layout; do
-    [ -n "$sess" ] || continue
-    [ -n "$win_idx" ] || continue
-    __tmux has-session -t "=$sess" 2>/dev/null || continue
-    target="=${sess}:${win_idx}.${pane_idx}"
-    current_cmd=$(__tmux display-message -p -t "$target" "#{pane_current_command}" 2>/dev/null)
-    base_cmd="${cmd%% *}"
-    base_cmd="${base_cmd##*/}"
-    case "$current_cmd" in
-      bash|sh|zsh|fish|dash|csh|tcsh|ksh|mksh|"")
-        case "$base_cmd" in
-          bash|sh|zsh|fish|dash|csh|tcsh|ksh|mksh|"") ;;
-          *)
-            [ -d "$pane_path" ] && __tmux send-keys -t "$target" "cd $(printf '%q' "$pane_path")" Enter 2>/dev/null
-            __tmux send-keys -t "$target" "$cmd" Enter 2>/dev/null ;;
-        esac ;;
-    esac
-  done <"$state_file"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Snapshot retention - keep TMUX_NEW_SNAPSHOT_KEEP newest tmux_resurrect_*.txt files in the
-# current resurrect dir, delete the rest. Pass "quiet" to suppress the user-facing summary
-# (used by the autosave loop). Set TMUX_NEW_SNAPSHOT_KEEP=0 to disable rotation entirely.
-__tmux_cleanup_snapshots() {
-  local quiet="${1:-}"
-  local keep="${TMUX_NEW_SNAPSHOT_KEEP:-30}"
-  local dir="$TMUX_NEW_RESURRECT_DIR"
-  [ "$keep" -gt 0 ] 2>/dev/null || return 0
-  [ -d "$dir" ] || return 0
-  local count=0 removed=0 file
-  while IFS= read -r file; do
-    count=$((count + 1))
-    [ "$count" -le "$keep" ] && continue
-    rm -f "$dir/$file" 2>/dev/null && removed=$((removed + 1))
-  done < <(cd "$dir" 2>/dev/null && ls -1t tmux_resurrect_*.txt 2>/dev/null)
-  if [ "$removed" -gt 0 ] && [ "$quiet" != "quiet" ]; then
-    printf_cyan "Cleaned up $removed old snapshot(s) in $dir (kept newest $keep)"
-  fi
-  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Refresh the current socket's mtime so age-based cleanup (e.g. systemd-tmpfiles-clean)
@@ -1165,29 +1101,6 @@ __tmux_socket_unlink() {
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Quiet, non-exiting core of a full save - refreshes BOTH tmux-resurrect's own snapshot
-# (the "last" file __tmux_restore prefers whenever it exists) and tmux-new's state.txt
-# fallback. __tmux_restore never falls back to state.txt while a resurrect snapshot is
-# present, so a save path that only wrote state.txt (the autosave loop, the close hooks)
-# left restore replaying a snapshot that could be arbitrarily old - stale by days, not
-# just by one save interval. Shared by the autosave loop, the close hooks, and __tmux_save.
-__tmux_save_all() {
-  local save_script="$TMUX_NEW_PLUGIN_DIR/tmux-resurrect/scripts/save.sh" resurrect_ok="true"
-  __tmux_apply_resurrect_dir
-  if [ -x "$save_script" ]; then
-    local sockpath
-    sockpath="$(__tmux_resolve_sockpath)"
-    # tmux-resurrect's save.sh issues bare `tmux` calls with no -S/-L, which
-    # would silently fall through to the system default socket unless $TMUX
-    # is already set. A synthetic $TMUX pins it to our socket for this one
-    # invocation only, with no export pollution of the rest of the script.
-    TMUX="$sockpath,0,0" TMUX_NEW_SOCKET_FILE="${TMUX_NEW_SOCKET_FILE:-default}" \
-      "$save_script" >/dev/null 2>&1 || resurrect_ok="false"
-  fi
-  __tmux_save_state
-  [ "$resurrect_ok" = "true" ]
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Background task loop: saves session state every N seconds while the tmux server is alive.
 # Guarantees at most one loop per socket. Uses mkdir as an atomic lock gate; the PID file
 # is a secondary artifact used only to detect and reclaim stale locks (dead process).
@@ -1212,79 +1125,44 @@ __tmux_new_bg_tasks() {
   fi
   # mkdir is POSIX-atomic: exactly one concurrent caller wins; all others return 0.
   mkdir "$lock_dir" 2>/dev/null || return 0
-  __tmux_apply_resurrect_dir
   (
     printf '%s\n' "$BASHPID" >"$lock_file" 2>/dev/null
     trap 'rm -rf "$lock_dir" "$lock_file"' EXIT
     __tmux_touch_socket
-    __tmux_save_all
+    __tmux_save_state
     while __sleep "$interval"; do
       __tmux list-sessions &>/dev/null || { __tmux_socket_unlink "$sockpath"; break; }
       __tmux_touch_socket
-      __tmux_save_all
-      __tmux_cleanup_snapshots quiet
+      __tmux_save_state
     done
   ) </dev/null &>/dev/null &
   disown 2>/dev/null || true
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Manual save trigger (runs tmux-resurrect save.sh against the current server)
+# Manual save trigger.
 __tmux_save() {
   __tmux_server_find || printf_exit "No tmux server running on socket '${TMUX_NEW_SOCKET_FILE:-default}'"
-  if __tmux_save_all; then
-    __tmux_cleanup_snapshots
-  else
-    printf_yellow "tmux-resurrect save failed"
-  fi
+  __tmux_save_state
   printf_green "Session state saved to $TMUX_NEW_RESURRECT_DIR"
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Kill any live session on this socket that tmux-new does not itself manage
-# (no matching $TMUX_NEW_FILE_CONF/<name> config file). tmux-resurrect's
-# restore.sh restores every session in its snapshot verbatim, including a
-# stray "default" plain-tmux session if one ever slipped into that snapshot -
-# this strips those back out so restore only ever leaves tmux-new-owned state.
-__tmux_prune_unmanaged_sessions() {
-  local sess
-  __tmux list-sessions -F "#{session_name}" 2>/dev/null | while IFS= read -r sess; do
-    [ -n "$sess" ] || continue
-    [ -f "$TMUX_NEW_FILE_CONF/$sess" ] && continue
-    __tmux kill-session -t "=$sess" 2>/dev/null
-  done
-  return 0
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Manual restore trigger. Uses a disposable bootstrap session if the server is not already running.
-# Prefers tmux-resurrect's own restore.sh (exact snapshot restore, correct order) when a snapshot
-# exists, falling back to the state.txt replay only when no snapshot is available or restore.sh fails.
+# Manual restore trigger. Uses a disposable bootstrap session if the server is not already
+# running. Always replays from tmux-new's own state.txt - no third-party snapshot format
+# is involved, so restore is exactly what was last saved to state.txt, nothing more.
 __tmux_restore() {
-  local restore_script="$TMUX_NEW_PLUGIN_DIR/tmux-resurrect/scripts/restore.sh"
   local state_file="$TMUX_NEW_RESURRECT_DIR/state.txt"
-  local snapshot_file="$TMUX_NEW_RESURRECT_DIR/last"
-  [ -f "$state_file" ] || [ -f "$snapshot_file" ] || printf_exit "No saved state found in $TMUX_NEW_RESURRECT_DIR"
+  [ -f "$state_file" ] || printf_exit "No saved state found in $TMUX_NEW_RESURRECT_DIR"
   local server_started="false"
   if ! __tmux list-sessions &>/dev/null; then
     # Start bootstrap server with the managed tmux.conf so bind-key R targets the correct per-session file.
     __tmux -f "$TMUX_NEW_TMUX_DIR/tmux.conf" new-session -d -s "_tmux_new_restore" 2>/dev/null || printf_exit "Failed to start bootstrap tmux server"
     server_started="true"
   fi
-  __tmux_apply_resurrect_dir
-  local restored="false" sockpath
-  sockpath="$(__tmux_resolve_sockpath)"
-  if [ -x "$restore_script" ] && [ -f "$snapshot_file" ]; then
-    # Same synthetic-$TMUX pinning as __tmux_save - restore.sh's bare `tmux`
-    # calls (and its post-restore-all hook, which fires apply-state-cmds)
-    # must land on our socket, never the system default one.
-    TMUX="$sockpath,0,0" TMUX_NEW_SOCKET_FILE="${TMUX_NEW_SOCKET_FILE:-default}" \
-      "$restore_script" >/dev/null 2>&1 && restored="true"
-  fi
-  if [ "$restored" != "true" ]; then
-    __tmux_restore_from_state && restored="true" || true
-  fi
+  local restored="false"
+  __tmux_restore_from_state && restored="true" || true
   [ "$server_started" = "true" ] && __tmux kill-session -t "_tmux_new_restore" 2>/dev/null || true
-  __tmux_prune_unmanaged_sessions
   if [ "$restored" = "true" ] || __tmux list-sessions &>/dev/null; then
     printf_green "Session state restored from $TMUX_NEW_RESURRECT_DIR"
     return 0
@@ -1795,7 +1673,6 @@ RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR="${RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR:-$HOME/Pr
 RUN_OPTIONS_LOGS_BUILDX="${RUN_OPTIONS_LOGS_BUILDX:-$HOME/.local/log/buildx}"
 TMUX_NEW_SOCKET_FILE="${TMUX_NEW_SOCKET_FILE:-tmux-new}"
 TMUX_NEW_SAVE_INTERVAL="${TMUX_NEW_SAVE_INTERVAL:-300}"
-TMUX_NEW_SNAPSHOT_KEEP="${TMUX_NEW_SNAPSHOT_KEEP:-30}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -1843,7 +1720,7 @@ LONGOPTS+=",kill,name:,socket:,exec:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="clean,list,attach,single,shell,server,web,docker,dev,go,rust,python,devops,monitoring"
 ARRAY+=",database,ai,rpm,node,bun,deno,build,ssh,productivity,test,default,edit,create"
-ARRAY+=",save,restore,apply-state-cmds,sync-state,boot,cleanup,show,status,switch,rename,clone,nested,kill,update"
+ARRAY+=",save,restore,sync-state,boot,show,status,switch,rename,clone,nested,kill,update"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""
@@ -1988,9 +1865,8 @@ while :; do
   esac
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Scope the resurrect dir to this socket so snapshots from different
-# tmux-new sockets never mix, dilute the snapshot keep window, or restore
-# each other's sessions
+# Scope the state.txt dir to this socket so different tmux-new sockets
+# never mix or restore each other's sessions
 TMUX_NEW_RESURRECT_DIR="${TMUX_NEW_RESURRECT_DIR:-$TMUX_NEW_CONFIG_DIR/sessions/${TMUX_NEW_SOCKET_FILE:-default}}"
 mkdir -p "$TMUX_NEW_RESURRECT_DIR" 2>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2098,24 +1974,14 @@ restore)
   __tmux_restore
   exit $?
   ;;
-apply-state-cmds)
-  shift 1
-  __tmux_apply_state_cmds
-  exit $?
-  ;;
 sync-state)
   shift 1
-  __tmux_save_all
+  __tmux_save_state
   exit $?
   ;;
 boot)
   shift 1
   __tmux_boot
-  exit $?
-  ;;
-cleanup)
-  shift 1
-  __tmux_cleanup_snapshots
   exit $?
   ;;
 status | info)

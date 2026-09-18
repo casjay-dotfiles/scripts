@@ -31,7 +31,7 @@ _latest-iso() {
   local SUBCMDS="all gui custom server"
   local ARRAY="aeryn alma alpine arch archcraft artix bazzite blackarch cachy centos chimera clonezilla debian endeavour fedora flatcar "
   local ARRAY+="freebsd freenas garuda gentoo ghostbsd gparted heads hirens kali macos manjaro netbsd nixos nobara "
-  local ARRAY+="omnios openindiana openbsd opensuse openvz parrot peppermint pfsense photon popos proxmox redcore rocky "
+  local ARRAY+="omnios openindiana openbsd opensuse openvz parrot pearos peppermint pfsense photon popos proxmox redcore rocky "
   local ARRAY+="slackware smartos solus tails tiny ubuntu vanilla void xcp-ng"
 
   _init_completion || return

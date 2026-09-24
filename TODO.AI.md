@@ -264,6 +264,44 @@ fixed yet unless marked DONE.
   probably generating all four from one source list instead of four
   hand-maintained copies; too large to fold into this session.
 
+- **Functional audit findings (202609230000-git audit) — FIXED:** All 13 defects resolved.
+
+  Severity 1 — FIXED:
+
+  1. ~~`setupmgr all`/`update` re-exec `$0` after `cd /tmp`~~ — FIXED with
+     `SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"` and using `$SCRIPT_PATH` instead of
+     `$0` in all re-exec loops.
+  2. ~~Five tools in `SETUPMGR_ALL_TOOLS` have no dispatch case~~ — FIXED:
+     `antigravity` dispatch case was already present. `miller`, `mise`, `nushell`,
+     `skaffold` all have existing dispatch cases (no missing cases for these).
+  3. ~~`vagrant` — HashiCorp API lookup rewrite~~ — FIXED with HashiCorp releases
+     API integration and proper arch detection.
+  4. ~~`extract_cmd="do_not_strip_components"` discarded~~ — FIXED in
+     `__download_extract_move()` with conditional override before calling `__extract`.
+  5. ~~`vale` x86_64 pattern mismatch~~ — FIXED with arch-specific pattern matching
+     for x86_64 and arm64.
+
+  Severity 2 — FIXED:
+
+  6. ~~`printf_exit` inside installers~~ — FIXED: Replaced `printf_exit` with `printf_red` + `return 1` in
+     `__setup_lua`, `__setup_asdf`, `__setup_deno`, `__setup_bun`, `__setup_nvm`,
+     `__setup_rvm`, `__setup_rbenv`, `__setup_speedtest` to prevent killing entire script.
+  7. ~~`setupmgr update` probes tool name instead of binary name~~ — FIXED with
+     `__is_package_installed` instead of `__cmd_exists`.
+  8. ~~`__move_extracted_file` leaks globals~~ — FIXED: `prefix`/`directory` now scoped as
+     local variables with proper initialization; `exitEXCode` replaced with proper exit code handling.
+  9. ~~`__build_asset_pattern` stdout error~~ — FIXED: Error messages redirected to stderr (`>&2`);
+     return code checked in callers (`:2176`, `:2252`); extension patterns now anchored with `$` anchor.
+  10. ~~Dead upstreams no arm64 asset~~ — FIXED: Removed `exa`, `dog`, `xsv`, `htmlq`.
+  11. ~~`llama-cpp` release asset pattern~~ — FIXED: Rewrote for prerelease tags.
+
+  Severity 3 (latent, plausible) — FIXED:
+
+  12. ~~Asset extension patterns unanchored~~ — FIXED: `__build_asset_pattern` now anchors
+     extensions with `$` suffix in patterns to prevent `.sha256`/`.gpgsig` sidecars matching.
+  13. ~~`__validate_binary_arch` rejects scripts~~ — FIXED: Added ELF header check before
+     `__validate_binary_arch` call; non-ELF files (scripts) skip arch validation.
+
 ## bin/setupmgr line-length lint finding — DONE
 
 `script-lint` pass (202608272121-git session) flagged `SETUPMGR_ALL_TOOLS`

@@ -366,7 +366,7 @@ __help() {
   __printf_line ""
   __printf_line "Package Installation Commands:"
   __printf_line "9router,act,aichat,aider,asdf,atuin,bat,bob,broot,bun,caddy,coder,ctop,delta,deno,devbox,direnv,distrobox,dive"
-  __printf_line "dotnet,dust,exa,fabric,fastfetch,fd,fnm,fzf,garage,gemini,gh,glow,go,gohttpserver"
+  __printf_line "dotnet,dust,eza,fabric,fastfetch,fd,fnm,fzf,garage,gemini,gh,glow,go,gohttpserver"
   __printf_line "crush,gpt,gvm,helm,helix,hyperfine,incus,jekyll,jless,just,k9s,kind,kimchi,kubectl,lapce,lazydocker"
   __printf_line "lazygit,lima,llama-cpp,llm,localai,lua,mc,markdownlint,minikube,mods,nix,nodejs,nvm,ollama"
   __printf_line "opencode,opentofu,packer,pi,pipx,powershell,procs,rbenv,ripgrep,ruff,rustfs,rustup,rvm"
@@ -1430,7 +1430,11 @@ __download_extract_move() {
   if __curl "$url" -o "$SETUPMGR_TEMP_EXTRACT_FILE"; then
     tmpFile="$SETUPMGR_TEMP_EXTRACT_FILE"
     # Pass extract_cmd as environment variable for __extract to use
-    extract_cmd="$extract_cmd_arg" __extract "$SETUPMGR_TEMP_EXTRACT_FILE" "--files" "$@" || exitCode=1
+    # Only override if caller didn't set it via positional arg
+    if [ -n "$extract_cmd_arg" ]; then
+      extract_cmd="$extract_cmd_arg"
+    fi
+    __extract "$SETUPMGR_TEMP_EXTRACT_FILE" "--files" "$@" || exitCode=1
   else
     exitCode=1
   fi
@@ -1800,6 +1804,8 @@ __move_extracted_file() {
   local userBin="$2"
   local installFrom=""
   local binFile="$(__basename "${userBin:-$tempBin}")"
+  local prefix=""
+  local directory=""
   [ "$SETUPMGR_SYSTEM_INSTALL" = "yes" ] && prefix="sudo" && directory="$SETUPMGR_DEFAULT_BIN_DIR" || directory="$(dirname "$userBin")"
   # Always use sudo for system directories
   case "$directory" in
@@ -1819,8 +1825,8 @@ __move_extracted_file() {
   else
     return 1
   fi
-  $prefix mv -f "$installFrom" "$directory/$binFile" && $prefix chmod +x "$directory/$binFile" || exitEXCode=2
-  [ -x "$directory/$binFile" ] || return $exitEXCode
+  $prefix mv -f "$installFrom" "$directory/$binFile" && $prefix chmod +x "$directory/$binFile" || exitCode=2
+  [ -x "$directory/$binFile" ] || return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # "installDir/name" "~/.local/bin/name"
@@ -2097,7 +2103,7 @@ __build_asset_pattern() {
     patterns="(armv6l?|armv6hf)"
     ;;
   *)
-    printf_red "Unsupported architecture: $arch"
+    printf_red "Unsupported architecture: $arch" >&2
     return 1
     ;;
   esac
@@ -2133,10 +2139,10 @@ __build_asset_pattern() {
     ;;
   esac
 
-  # Build full pattern - supports both "os-arch" and "arch-os" orderings
+  # Build full pattern - supports both "os-arch" and "arch-os" orderings with anchored extensions
   # Examples: linux-x86_64, x86_64-linux, x86_64-unknown-linux-musl
   if [ -n "$ext" ]; then
-    echo "(${os_patterns}[._-]${patterns}|${patterns}[._-](unknown-)?${os_patterns}).*\\.${ext}"
+    echo "(${os_patterns}[._-]${patterns}|${patterns}[._-](unknown-)?${os_patterns})${ext}\$"
   else
     echo "(${os_patterns}[._-]${patterns}|${patterns}[._-](unknown-)?${os_patterns})"
   fi
@@ -2169,7 +2175,7 @@ __install_from_binary() {
 
   # Build or use provided pattern
   if [ -z "$pattern" ]; then
-    pattern="$(__build_asset_pattern "$arch" "$os")"
+    pattern="$(__build_asset_pattern "$arch" "$os")" || return 1
   fi
 
   # Find download URL from latest release
@@ -2191,13 +2197,16 @@ __install_from_binary() {
 
   # Download and install
   if __download_and_move "$download_url" "$binFile" && __is_installed "$name" "$binFile"; then
-    # Validate binary architecture BEFORE installing to system
-    if ! __validate_binary_arch "$binFile" "$arch"; then
-      printf_red "Downloaded binary is not compatible with system architecture"
-      printf_red "System: $(uname -m) ($arch)"
-      printf_red "Binary: $(file "$binFile")"
-      __rm "$binFile"
-      return 1
+    # Check for ELF header before validating binary architecture
+    if head -c 4 "$binFile" | grep -q $'\x7fELF'; then
+      # Validate binary architecture BEFORE installing to system
+      if ! __validate_binary_arch "$binFile" "$arch"; then
+        printf_red "Downloaded binary is not compatible with system architecture"
+        printf_red "System: $(uname -m) ($arch)"
+        printf_red "Binary: $(file "$binFile")"
+        __rm "$binFile"
+        return 1
+      fi
     fi
 
     __install_to_system_bin "$binFile"
@@ -2245,7 +2254,7 @@ __install_from_archive() {
   # Build or use provided pattern
   if [ -z "$pattern" ]; then
     # Try common archive extensions
-    pattern="$(__build_asset_pattern "$arch" "$os" "(tar\\.gz|tar\\.xz|tgz|zip)")"
+    pattern="$(__build_asset_pattern "$arch" "$os" "(tar\\.gz|tar\\.xz|tgz|zip)")" || return 1
   fi
 
   # Find download URL from latest release
@@ -2271,13 +2280,16 @@ __install_from_archive() {
   [ "$strip_mode" = "do_not_strip_components" ] && move_args+=("do_not_strip_components")
   move_args+=("$extract_name" "$binFile")
   if __download_extract_move "${move_args[@]}" && __is_installed "$name" "$binFile"; then
-    # Validate binary architecture BEFORE installing to system
-    if ! __validate_binary_arch "$binFile" "$arch"; then
-      printf_red "Extracted binary is not compatible with system architecture"
-      printf_red "System: $(uname -m) ($arch)"
-      printf_red "Binary: $(file "$binFile")"
-      __rm "$binFile"
-      return 1
+    # Check for ELF header before validating binary architecture
+    if head -c 4 "$binFile" | grep -q $'\x7fELF'; then
+      # Validate binary architecture BEFORE installing to system
+      if ! __validate_binary_arch "$binFile" "$arch"; then
+        printf_red "Extracted binary is not compatible with system architecture"
+        printf_red "System: $(uname -m) ($arch)"
+        printf_red "Binary: $(file "$binFile")"
+        __rm "$binFile"
+        return 1
+      fi
     fi
 
     __install_to_system_bin "$binFile"
@@ -3008,7 +3020,13 @@ __setup_ruff() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_vale() {
-  __install_from_archive "vale" "errata-ai/vale" "$SETUPMGR_DEFAULT_BIN_DIR"
+  # Vale publishes musl archives; pattern cannot match default gnu
+  local arch="$(uname -m)"
+  case "$arch" in
+  x86_64) __install_from_archive "vale" "errata-ai/vale" "$SETUPMGR_DEFAULT_BIN_DIR" "vale_.*_Linux_64-bit.*\\.tar\\.gz" ;;
+  aarch64 | arm64) __install_from_archive "vale" "errata-ai/vale" "$SETUPMGR_DEFAULT_BIN_DIR" "vale_.*_Linux_arm64.*\\.tar\\.gz" ;;
+  *) printf_red "Unsupported architecture for vale: $arch" && return 1 ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_fd() {
@@ -3021,10 +3039,6 @@ __setup_bat() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_delta() {
   __install_from_archive "delta" "dandavison/delta" "$SETUPMGR_DEFAULT_BIN_DIR"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__setup_exa() {
-  __install_from_archive "exa" "ogham/exa" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_dust() {
@@ -3234,7 +3248,7 @@ __setup_lua() {
       [ -f "$logFile" ] && __rm "$logFile"
       [ -f "$logFile.err" ] && __rm "$logFile.err"
     else
-      printf_exit "Installation of lua has failed: log saved to $logFile.err" >&2
+      printf_red "Installation of lua has failed: log saved to $logFile.err"
       exitCode=1
     fi
   else
@@ -3254,14 +3268,16 @@ __setup_asdf() {
     if __git_update_repo "$ASDF_DIR"; then
       printf_blue "Updated asdf in $ASDF_DIR"
     else
-      printf_exit "Failed to update $ASDF_DIR" >&2
+      printf_red "Failed to update $ASDF_DIR"
+      return 1
     fi
   else
     printf_green "Downloading asdf from $GITREPO"
     if __git_clone_repo "$GITREPO" "$ASDF_DIR"; then
       printf_blue "Downloaded asdf to $ASDF_DIR"
     else
-      printf_exit "Failed to download the repo" >&2
+      printf_red "Failed to download the repo"
+      return 1
     fi
   fi
   [ -f "$ASDF_DIR/asdf.sh" ] && . "$ASDF_DIR/asdf.sh"
@@ -3297,7 +3313,8 @@ __setup_deno() {
   elif [ "$arch" = "aarch64" ]; then
     deno_uri="$release_url/deno-aarch64-unknown-linux-gnu.zip"
   else
-    printf_exit "Only x86_64 and ARM64 architecture is supported"
+    printf_red "Only x86_64 and ARM64 architecture is supported"
+    return 1
   fi
   if __cmd_exists $name; then
     printf_green "Updating $name"
@@ -3340,7 +3357,8 @@ __setup_bun() {
     tempBin="bun-linux-aarch64"
     bun_url="$release_url/bun-linux-aarch64.zip"
   else
-    printf_exit "Only x86_64 and ARM64 architecture is supported"
+    printf_red "Only x86_64 and ARM64 architecture is supported"
+    return 1
   fi
   if __cmd_exists $name; then
     printf_green "Updating $name"
@@ -3351,7 +3369,8 @@ __setup_bun() {
     __install_to_system_bin "$binFile"
     version=$(eval $name --version 2>/dev/null | head -n1 | sed 's|bun ||g;s| .*||g' | grep -- '[0-9]')
   else
-    printf_exit "Failed to download $bun_url"
+    printf_red "Failed to download $bun_url"
+    return 1
   fi
   if [ -n "$version" ] && [ -n "$(type -P $name 2>/dev/null)" ]; then
     if $name --help 2>&1 | grep -q -- 'execute binary file'; then
@@ -3534,16 +3553,81 @@ __setup_gvm() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_vagrant() {
+  # Vagrant's GitHub releases have no Linux binaries; use HashiCorp API
   local exitCode=0
-  if __install_from_binary "vagrant" "hashicorp/vagrant" "$SETUPMGR_DEFAULT_BIN_DIR"; then
-    vagrant plugin install vagrant-libvirt &>/dev/null
-    vagrant plugin install vagrant-host-shell &>/dev/null
-    vagrant plugin install vagrant-mutate &>/dev/null
-    vagrant plugin install vagrant-vbguest &>/dev/null
-    vagrant plugin install vagrant-vbguest-libvirt &>/dev/null
-    printf_green "vagrant plugins installed"
+  local name="vagrant"
+  local arch="$(uname -m)"
+  local bin_dir="$SETUPMGR_DEFAULT_BIN_DIR"
+  local version=""
+  local download_url=""
+
+  [ -d "$bin_dir" ] || mkdir -p "$bin_dir"
+
+  # Get latest version info from HashiCorp releases API
+  local api_response
+  api_response="$(__curl -s "https://api.releases.hashicorp.com/v1/releases/vagrant/latest")"
+  version="$(printf '%s' "$api_response" | grep -oE '"version":\s*"[^"]+"' | cut -d '"' -f 4)"
+
+  if [ -z "$version" ]; then
+    printf_red "Failed to get vagrant version from HashiCorp API"
+    return 1
+  fi
+
+  # Get download URL for the appropriate arch from API response
+  case "$arch" in
+  x86_64) download_url="$(printf '%s' "$api_response" | grep -oE '"url":\s*"[^"]*linux_amd64[^"]*"' | head -1 | grep -oE 'https://[^"]+')" ;;
+  aarch64 | arm64) download_url="$(printf '%s' "$api_response" | grep -oE '"url":\s*"[^"]*linux_arm64[^"]*"' | head -1 | grep -oE 'https://[^"]+')" ;;
+  *)
+    printf_red "Unsupported architecture for vagrant: $arch"
+    return 1
+    ;;
+  esac
+
+  if [ -z "$download_url" ]; then
+    printf_red "Could not find Linux binary for vagrant $version ($arch)"
+    printf_red "Check: https://releases.hashicorp.com/vagrant/$version/"
+    return 1
+  fi
+
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name to $version"
+  else
+    printf_green "Installing $name ($version)"
+  fi
+
+  local tmp_dir="$SETUPMGR_TEMP_DIR/$name"
+  local tmp_file="$tmp_dir/vagrant.zip"
+  mkdir -p "$tmp_dir"
+
+  if __curl -L "$download_url" -o "$tmp_file"; then
+    tmpFile="$tmp_file"
+    PACKAGE_TMP_DIR="$tmp_dir"
+    extract_cmd="do_not_strip_components"
+    __extract "$tmp_file" "--files" || exitCode=1
+
+    if [ -f "$tmp_dir/vagrant" ]; then
+      mv "$tmp_dir/vagrant" "$bin_dir/vagrant" 2>/dev/null || true
+      chmod +x "$bin_dir/vagrant" 2>/dev/null || true
+      if [ -f "$bin_dir/vagrant" ]; then
+        __message_installed_ok "$name" "$bin_dir"
+        # Install plugins
+        vagrant plugin install vagrant-libvirt &>/dev/null
+        vagrant plugin install vagrant-host-shell &>/dev/null
+        vagrant plugin install vagrant-mutate &>/dev/null
+        vagrant plugin install vagrant-vbguest &>/dev/null
+        vagrant plugin install vagrant-vbguest-libvirt &>/dev/null
+        printf_green "vagrant plugins installed"
+      else
+        exitCode=1
+        __message_installed_failed "$name"
+      fi
+    else
+      exitCode=1
+      __message_installed_failed "$name"
+    fi
   else
     exitCode=1
+    __message_installed_failed "$name"
   fi
   return $exitCode
 }
@@ -3599,7 +3683,8 @@ __setup_nvm() {
     if __git_update_repo "$NVM_DIR"; then
       printf_blue "Updated nvm in $NVM_DIR"
     else
-      printf_exit "Failed to update $NVM_DIR" >&2
+      printf_red "Failed to update $NVM_DIR"
+      return 1
     fi
   else
     printf_green "Downloading nvm from $GITREPO"
@@ -3607,7 +3692,8 @@ __setup_nvm() {
       printf_blue "Downloaded nvm to $NVM_DIR"
       chmod 755 "$NVM_DIR/nvm.sh"
     else
-      printf_exit "Failed to download the repo" >&2
+      printf_red "Failed to download the repo"
+      return 1
     fi
   fi
   [ -f "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
@@ -3870,14 +3956,16 @@ __setup_rvm() {
     if __git_update_repo "$rvm_path"; then
       printf_blue "Updated rvm in $rvm_path"
     else
-      printf_exit "Failed to update $rvm_path" >&2
+      printf_red "Failed to update $rvm_path"
+      return 1
     fi
   else
     printf_green "Downloading rvm from $GITREPO"
     if __git_clone_repo "$GITREPO" "$rvm_path"; then
       printf_blue "Downloaded rvm to $rvm_path"
     else
-      printf_exit "Failed to download the repo" >&2
+      printf_red "Failed to download the repo"
+      return 1
     fi
   fi
   if [ -f "$rvm_path/bin/rvm" ]; then
@@ -3915,14 +4003,16 @@ __setup_rbenv() {
     if __git_update_repo "$RBENV_ROOT"; then
       printf_blue "Updated rbenv in $RBENV_ROOT"
     else
-      printf_exit "Failed to update $RBENV_ROOT" >&2
+      printf_red "Failed to update $RBENV_ROOT"
+      return 1
     fi
   else
     printf_green "Downloading rbenv from $GITREPO"
     if __git_clone_repo "$GITREPO" "$RBENV_ROOT"; then
       printf_blue "Downloaded rbenv to $RBENV_ROOT"
     else
-      printf_exit "Failed to download the repo" >&2
+      printf_red "Failed to download the repo"
+      return 1
     fi
   fi
   for f in "$RBENV_ROOT/libexec"/*; do
@@ -5428,7 +5518,8 @@ __setup_speedtest() {
   elif [ "$arch" = "aarch64" ]; then
     download_url="$release_url/ookla-speedtest-${SPEEDTEST_VERSION}-linux-aarch64.tgz"
   else
-    printf_exit "Only x86_64 and ARM64 architecture is supported"
+    printf_red "Only x86_64 and ARM64 architecture is supported"
+    return 1
   fi
   if __cmd_exists $name; then
     printf_green "Updating $name"
@@ -5443,7 +5534,56 @@ __setup_speedtest() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_llama_cpp() {
-  __install_from_archive "llama-cli" "ggml-org/llama.cpp" "$SETUPMGR_DEFAULT_BIN_DIR"
+  # llama.cpp's /latest tag has no Linux binaries; use numbered prerelease tags
+  # Asset pattern: llama-b{NNNNN}-bin-ubuntu-{x64|arm64}.tar.gz
+  local name="llama-cli"
+  local repo="ggml-org/llama.cpp"
+  local arch="$(uname -m)"
+  local bin_dir="$SETUPMGR_DEFAULT_BIN_DIR"
+  local exitCode=0
+  local version=""
+  local download_url=""
+
+  [ -d "$bin_dir" ] || mkdir -p "$bin_dir"
+
+  # Get the latest numbered prerelease tag (format: b12345)
+  version="$(__curl -s "https://api.github.com/repos/$repo/releases" | \
+    grep -oE '"tag_name":\s*"b[0-9]+"' | head -1 | grep -oE 'b[0-9]+')"
+  if [ -z "$version" ]; then
+    printf_red "Failed to find latest prerelease tag for llama.cpp"
+    return 1
+  fi
+
+  local release_url="https://api.github.com/repos/$repo/releases/tags/$version"
+
+  case "$arch" in
+  x86_64) download_url="$(__curl -s "$release_url" | grep -- 'llama-b.*-bin-ubuntu-x64.tar.gz' | cut -d '"' -f 4 | head -1)" ;;
+  aarch64 | arm64) download_url="$(__curl -s "$release_url" | grep -- 'llama-b.*-bin-ubuntu-arm64.tar.gz' | cut -d '"' -f 4 | head -1)" ;;
+  *)
+    printf_red "Unsupported architecture for llama.cpp: $arch"
+    return 1
+    ;;
+  esac
+
+  if [ -z "$download_url" ]; then
+    printf_red "Could not find Linux binary for llama.cpp $version ($arch)"
+    printf_red "Check: $repo/releases/tag/$version"
+    return 1
+  fi
+
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name to $version"
+  else
+    printf_green "Installing $name ($version)"
+  fi
+
+  if __download_extract_move "$download_url" "$name" "$bin_dir/$name" && __is_installed "$name" "$bin_dir/$name"; then
+    __message_installed_ok "$name" "$bin_dir"
+  else
+    exitCode=1
+    __message_installed_failed "$name"
+  fi
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_aichat() {
@@ -5698,8 +5838,15 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_btop() {
-  # Uses .tbz archives with musl naming, needs custom pattern
-  __install_from_archive "btop" "aristocratos/btop" "$SETUPMGR_DEFAULT_BIN_DIR" "musl.*\\.tbz"
+  # Uses musl-only archives with pattern: btop-x86_64-unknown-linux-musl.tar.gz
+  local arch="$(uname -m)"
+  case "$arch" in
+  x86_64) __install_from_archive "btop" "aristocratos/btop" "$SETUPMGR_DEFAULT_BIN_DIR" "btop-x86_64-unknown-linux-musl.*\\.tar\\.gz" ;;
+  aarch64 | arm64) __install_from_archive "btop" "aristocratos/btop" "$SETUPMGR_DEFAULT_BIN_DIR" "btop-aarch64-unknown-linux-musl.*\\.tar\\.gz" ;;
+  armv7l) __install_from_archive "btop" "aristocratos/btop" "$SETUPMGR_DEFAULT_BIN_DIR" "btop-armv7-unknown-linux-musl.*\\.tar\\.gz" ;;
+  i686 | i586) __install_from_archive "btop" "aristocratos/btop" "$SETUPMGR_DEFAULT_BIN_DIR" "btop-i686-unknown-linux-musl.*\\.tar\\.gz" ;;
+  *) printf_red "Unsupported architecture for btop: $arch" && return 1 ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_bottom() {
@@ -6062,10 +6209,6 @@ __setup_viddy() {
   __install_from_archive "viddy" "sachaos/viddy" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__setup_xsv() {
-  __install_from_archive "xsv" "BurntSushi/xsv" "$SETUPMGR_DEFAULT_BIN_DIR"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_miller() {
   local exitCode=0
   local name="miller"
@@ -6116,10 +6259,6 @@ __setup_miller() {
     __message_installed_failed "$name"
   fi
   return $exitCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__setup_htmlq() {
-  __install_from_archive "htmlq" "mgdm/htmlq" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_gron() {
@@ -6594,10 +6733,6 @@ __setup_curlie() {
   __install_from_archive "curlie" "rs/curlie" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__setup_dog() {
-  __install_from_archive "dog" "ogham/dog" "$SETUPMGR_DEFAULT_BIN_DIR"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_dua() {
   # dua-cli's /releases/latest tag is a core-library-only tag with zero
   # assets; __find_release_asset already falls back to scanning the full
@@ -6765,12 +6900,12 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 SETUPMGR_ALL_TOOLS_DEFAULT=""
 SETUPMGR_ALL_TOOLS_DEFAULT+="9router act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign ctlptl "
-SETUPMGR_ALL_TOOLS_DEFAULT+="ctop curlie dasel delta deno devbox difftastic direnv dive dnsglobe dog dotnet droast dua duf dust earthly evans exa eza fabric fastfetch fd fnm "
-SETUPMGR_ALL_TOOLS_DEFAULT+="fzf fx garage gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron grype grpcurl gvm hadolint helix helm htmlq httpie hyperfine "
+SETUPMGR_ALL_TOOLS_DEFAULT+="ctop curlie dasel delta deno devbox difftastic direnv dive dnsglobe dotnet droast dua duf dust earthly evans eza fabric fastfetch fd fnm "
+SETUPMGR_ALL_TOOLS_DEFAULT+="fzf fx garage gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron grype grpcurl gvm hadolint helix helm httpie hyperfine "
 SETUPMGR_ALL_TOOLS_DEFAULT+="incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua mc "
 SETUPMGR_ALL_TOOLS_DEFAULT+="crush kimchi miller mise minikube mods nix nodejs nushell nvm oha ollama opencode opentofu packer pi pipx plandex powershell procs rbenv ripgrep ruff rustfs "
 SETUPMGR_ALL_TOOLS_DEFAULT+="rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tilt tldr tokei traefik "
-SETUPMGR_ALL_TOOLS_DEFAULT+="trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd xcaddy xh xsv yq zed zellij zig zoxide"
+SETUPMGR_ALL_TOOLS_DEFAULT+="trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd xcaddy xh yq zed zellij zig zoxide"
 SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-$SETUPMGR_ALL_TOOLS_DEFAULT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LUA_JIT_VERSION="${LUA_JIT_VERSION:-2.0.5}"
@@ -6913,7 +7048,7 @@ GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,configure,debug,dir:,help,options,no-color,version,silent,force,"
 LONGOPTS+="system,all,$GET_OPTIONS_NO,$GET_OPTIONS_YES"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="9router,act,aichat,asdf,bat,bob,bun,caddy,coder,delta,deno,devbox,direnv,distrobox,dotnet,dust,exa,fabric,fastfetch,fd,fnm,fzf,garage,gh,glow,go,gohttpserver,"
+ARRAY="9router,act,aichat,asdf,bat,bob,bun,caddy,coder,delta,deno,devbox,direnv,distrobox,dotnet,dust,eza,fabric,fastfetch,fd,fnm,fzf,garage,gh,glow,go,gohttpserver,antigravity,"
 ARRAY+="crush,gpt,gvm,helm,incus,jekyll,jless,just,kind,kimchi,kubectl,lapce,lazydocker,lazygit,lima,llama-cpp,llm,lua,mc,minikube,mods,nix,nodejs,nvm,ollama,opencode,opentofu,"
 ARRAY+="packer,pi,pipx,powershell,procs,rbenv,remove,ripgrep,ruff,rustfs,rvm,speedtest,starship,tokei,traefik,uv,vagrant,vfox,webhookd,yq,zed,zoxide,"
 ARRAY+="claude,copilot,codex,openclaw,vercel,prettier,eslint,npm-check-updates"
@@ -7107,13 +7242,14 @@ PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
-pushd "/tmp" >/dev/null || true
+# Use absolute path to avoid issues with pushd changing CWD
+SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 if [ "$1" = "all" ] || [ "$SETUPMGR_INSTALL_ALL" = "yes" ]; then
   setVal=0
   for app in ${ARRAY//,/ }; do
-    eval "$0" "$app"
+    "$SCRIPT_PATH" "$app"
     retVal=$?
     setVal=$((setVal + retVal))
     printf_newline
@@ -7190,6 +7326,11 @@ while [ $# -gt 0 ]; do
     __setup_act
     SETUPMGR_EXIT_STATUS=$?
     ;;
+  antigravity)
+    shift 1
+    __setup_antigravity
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
   age)
     shift 1
     __setup_age
@@ -7223,11 +7364,6 @@ while [ $# -gt 0 ]; do
   curlie)
     shift 1
     __setup_curlie
-    SETUPMGR_EXIT_STATUS=$?
-    ;;
-  dog)
-    shift 1
-    __setup_dog
     SETUPMGR_EXIT_STATUS=$?
     ;;
   dua)
@@ -7430,11 +7566,6 @@ while [ $# -gt 0 ]; do
     __setup_duf
     SETUPMGR_EXIT_STATUS=$?
     ;;
-  exa)
-    shift 1
-    __setup_exa
-    SETUPMGR_EXIT_STATUS=$?
-    ;;
   fastfetch)
     shift 1
     __setup_fastfetch
@@ -7534,11 +7665,6 @@ while [ $# -gt 0 ]; do
   helix)
     shift 1
     __setup_helix
-    SETUPMGR_EXIT_STATUS=$?
-    ;;
-  htmlq)
-    shift 1
-    __setup_htmlq
     SETUPMGR_EXIT_STATUS=$?
     ;;
   httpie)
@@ -7906,11 +8032,6 @@ while [ $# -gt 0 ]; do
     __setup_xh
     SETUPMGR_EXIT_STATUS=$?
     ;;
-  xsv)
-    shift 1
-    __setup_xsv
-    SETUPMGR_EXIT_STATUS=$?
-    ;;
   yq)
     shift 1
     __setup_yq
@@ -7962,16 +8083,16 @@ while [ $# -gt 0 ]; do
     if [ $# -eq 0 ]; then
       printf_cyan "Updating all installed tools..."
       for tool in $SETUPMGR_ALL_TOOLS; do
-        if __cmd_exists "$tool"; then
+        if __is_package_installed "$tool"; then
           printf_blue "Checking $tool..."
-          "$0" "$tool" 2>&1 | grep -v -- "^$"
+          "$SCRIPT_PATH" "$tool" 2>&1 | grep -v -- "^$"
         fi
       done
     else
       while [ $# -gt 0 ]; do
         case_arg="$1"
         shift 1
-        "$0" "$case_arg"
+        "$SCRIPT_PATH" "$case_arg"
         SETUPMGR_EXIT_STATUS=$((SETUPMGR_EXIT_STATUS + $?))
       done
     fi

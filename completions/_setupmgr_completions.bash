@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608281436-git
+##@Version           :  202609241759-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -20,10 +20,11 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-_setupmgr_completion() {
+_setupmgr() {
   #####################################################################
   local cur prev words cword opts split CONFDIR="" CONFFILE="" SEARCHDIR=""
   local SHOW_COMP_OPTS="" NOOPTS="" SHORTOPTS="" LONGOPTS="" ARRAY="" LIST="" SHOW_COMP_OPTS_SEP=""
+  local CASJAYSDEVDIR="" OPTS_NO="" OPTS_YES=""
   #####################################################################
   _init_completion || return
   #####################################################################
@@ -50,18 +51,10 @@ _setupmgr_completion() {
   SHORTOPTS=""
   SHORTOPTS+=""
   #####################################################################
-  LONGOPTS="--completions --config --reset-config --debug --dir --help --options --no-color --version --silent --force --no- "
-  LONGOPTS+="--all "
+  LONGOPTS="--completions --config --reset-config --configure --debug --dir --help --options --color --no-color --version --silent --force --system --all "
   #####################################################################
-  ARRAY="act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy claude coder codex cody "
-  ARRAY+="continue copilot cortex cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv distrobox dive dnsglobe dog dotnet droast dua "
-  ARRAY+="duf dust earthly eslint evans exa eza fabric fastfetch fd fnm fx fzf garage gemini gh ghz git-cliff gitleaks gitui glow go "
-  ARRAY+="gohttpserver gpt grex gron grpcurl grype gvm hadolint helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind "
-  ARRAY+="kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua markdownlint mc miller minikube "
-  ARRAY+="mise mods nix nodejs npm-check-updates nushell nvm oha ollama openclaw opencode opentofu packer pipx plandex powershell prettier "
-  ARRAY+="procs rbenv remove ripgrep ruff rustfs rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task "
-  ARRAY+="terminal-browser tgpt tilt tldr tokei traefik trivy trufflehog uv vagrant vale vegeta vercel vfox viddy watchexec webhookd xcaddy "
-  ARRAY+="xh xsv yq zed zellij zig zoxide"
+  ARRAY="9router act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign crush charm ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dnsglobe dotnet droast dua duf dust earthly evans eza fabric fastfetch fd fnm fx fzf garage gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron grpcurl grype gvm hadolint helix helm httpie hyperfine incus jekyll jless jnv jq just k6 k9s kimchi kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua mc miller minikube mise mods nix nodejs nushell nvm oha ollama opencode opentofu packer pi pipx plandex powershell procs rbenv ripgrep ruff rustfs rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tilt tldr tokei traefik trivy trufflehog uv vagrant vale vegeta vfox viddy watchexec webhookd xcaddy xh yq zed zellij zig zoxide"
+  ARRAY+="remove all system update"
   #####################################################################
   LIST=""
   LIST+=""
@@ -92,7 +85,7 @@ _setupmgr_completion() {
       prev=""
       COMPREPLY=($(compgen -W 'long short list array' -- "$cur"))
       ;;
-    --config | --debug | --help | --options | --no-color | --version)
+    --config | --debug | --help | --options | --color | --no-color | --version)
       COMPREPLY=($(compgen -W '${ARRAY} ${LONGOPTS} ${SHORTOPTS}' -- ${cur}))
       return 0
       ;;
@@ -123,6 +116,6 @@ _setupmgr_completion() {
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions
-  complete -F _setupmgr_completion -o default setupmgr
+  complete -F _setupmgr -o default setupmgr
 
 # ex: ts=2 sw=2 et filetype=sh

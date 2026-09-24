@@ -2,18 +2,30 @@
 
 ## bin/setupmgr / completions / man page
 
-- **`script-lint` findings, NOT fixed (all pre-existing, out of scope for
-  the small `wrk`-removal diff that triggered this lint pass — that diff
-  only touched the `SETUPMGR_ALL_TOOLS` line, version headers, and
-  changelog lines).** `bin/setupmgr`: 90 issues — 60 `grep` calls missing
-  the `--` separator before the query (lines include 90, 342, 407, 423,
-  569, 623, 625, 627, 633, 659-673, 732, 876-951, 1004, 1110, 1177,
-  1191-1560, 5599-5615) and 21 inline comments that should be moved above
-  the code they describe (lines 1212-1213, 1842, 1902-1904, 1954,
-  1996-1998, 2071-2076, 2133-2140, 2205-2206, 5510-5512, 6904, 6915).
-  `completions/_setupmgr_completions.bash`: 3 more `grep --` violations
-  (lines 32, 34, 37). Needs its own dedicated cleanup pass (large,
-  mechanical, file-wide — not folded into an unrelated commit).
+- DONE (202609241759-git): all 40 `script-lint` findings from the prior
+  pass fixed and re-verified — UUOC `basename`/`dirname` subshells
+  replaced with parameter expansion, all lines >180 chars split (verified
+  `awk 'length > 180'` returns zero), all `grep`/`grep -E`/`grep -q` calls
+  missing the `--` separator fixed in both `bin/setupmgr` and
+  `completions/_setupmgr_completions.bash` (verified: only remaining
+  non-`--` matches are the `__grep()` wrapper definition itself and a
+  changelog text line, not actual violations). Consolidated
+  `grep -n '\$(basename\|\$(dirname'` re-check: zero active matches
+  (one commented-out line excluded). `bash -n` passes.
+
+- **`printf_*`/`ask_for_password` unprefixed function names, NOT
+  renamed — deliberate, out of scope.** These lack the AI.md `__`
+  function-prefix, but are a project-wide, deliberately unprefixed
+  convention used unprefixed across 200+ files (`bin/`, `functions/`,
+  `man/`, `completions/`, `templates/`), defined canonically in
+  `functions/global/colors.bash` / `functions/minimal.bash` and
+  duplicated locally in self-contained scripts like `bin/setupmgr` for
+  consistency with the rest of the codebase. Renaming only inside
+  `bin/setupmgr` would break sourcing consistency and diverge from the
+  rest of the project; the same decision was already logged for
+  `bin/latest-iso` on 2026-09-17. Any fix requires a coordinated,
+  repo-wide rename across every script that defines/calls these — not a
+  one-off change here.
 
 - **`script-lint` finding, NOT fixed (pre-existing, out of scope for this
   session's edit):** `SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-...}"`

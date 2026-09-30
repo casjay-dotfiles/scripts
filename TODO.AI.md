@@ -1,5 +1,33 @@
 # TODO.AI.md
 
+## bin/setupmgr: missing xz/bzip2 dependency guards — DONE (202609301441-git)
+
+User asked whether decompression tools (bzip2, xz/tar, zstd, etc.) are
+verified before downloading — reasoned that a missing decompressor means
+a wasted download followed by a confusing extraction error. Checked: the
+existing `zstd` guard (`__cmd_exists zstd` with a clear error, right
+above `__tar_extract`) had no equivalent for `.tar.xz`/`.tbz`/`.tar.bz2`.
+Confirmed via container testing that GNU tar on Ubuntu 24.04 execs a
+separate `xz` binary for `-J` rather than linking liblzma in, and that
+binary is missing by default (reproduced the exact failure: `tar (child):
+xz: Cannot exec: No such file or directory`) — `nodejs`, `helix`,
+`watchexec`, and this session's own `zig` fix all download `.tar.xz`
+archives and would hit this. `bzip2` is unused by any current tool but
+was equally unguarded (same latent risk for a future addition).
+AlmaLinux 9 ships `xz` by default but not `bzip2`/`zstd` — availability
+genuinely differs by distro family, confirming this needed a real check,
+not an assumption. Added `__cmd_exists xz`/`__cmd_exists bzip2` guards
+matching the existing `zstd` pattern in `__tar_extract`; `__extract`'s
+own `.tar.xz`/`.tbz`/`.tar.bz2` case arms already fall through to
+`__tar_extract` as their final fallback, so they transitively get the
+new guard without duplicating it. `.Z`/`uncompress` checked too —
+present by default on both distros and unused by any current tool
+anyway, left alone. `script-lint`: zero new issues; two other
+pre-existing findings surfaced and fixed in the same pass since they
+were trivial and directly adjacent to code already touched this session
+(two lines of dead commented-out code in the dependency-check block;
+one UUOC `echo | grep` replaced with a `[[ ]]` substring test).
+
 ## bin/setupmgr: widespread bare (non-`local`) variable assignments — NOT fixed
 
 Surfaced by `script-lint` while reviewing the `bob` fix: `download_url`

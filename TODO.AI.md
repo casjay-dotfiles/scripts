@@ -1,5 +1,26 @@
 # TODO.AI.md
 
+## functions/global/pkgs.bash — 6 pre-existing lint findings, not fixed
+
+script-lint agent found these while reviewing the pip/perl detection fix
+(202609301939-git); none are new, none touched by that fix:
+
+- Line 149 (`export APP="${APPNAME:-$PROG}"`): `APP` is a bare exported
+  global in a sourced-only library file, not on the well-known/shared
+  exception list — should be `PKGS_APP`.
+- Lines 22, 24, 74, 87, 100: `grep -q`/`grep -wq` missing the `--`
+  separator before the query (`__npm_exists`, `__gem_exists`,
+  `__lua_exists`, `__go_exists`).
+
+Separately (not from that lint pass, found during the same investigation):
+`__npm_exists` (line ~22) uses unanchored `grep -q "$package"` against
+`npm list` output — a substring match, so checking `vue` would false-
+positive on an installed `vue-router`. `__gem_exists`/`__lua_exists`/
+`__go_exists` already use `-wq` (word-boundary) and are not affected.
+Not fixed: out of scope for the reported bug (false negative on
+powerline-status), this is the opposite failure mode (false positive)
+and needs its own verification pass.
+
 ## bin/setupmgr: missing xz/bzip2 dependency guards — DONE (202609301441-git)
 
 User asked whether decompression tools (bzip2, xz/tar, zstd, etc.) are

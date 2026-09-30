@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207070946-git
+##@Version           :  202609301939-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -31,14 +31,18 @@ __npm_exists() {
 __perl_exists() {
   builtin type -P perl &>/dev/null || printf_return "Perl is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo perl" && shift 1 || local cmdbin="perl"
-  local package="$1"
-  if $cmdbin -M$package -le 'print $INC{"$package/Version.pm"}' &>/dev/null; then return 0; else return 1; fi
+  # CPAN/distro package names (e.g. JSON-PP) use hyphens where the actual
+  # importable module name (JSON::PP) uses "::", so both forms are accepted.
+  local raw="${1//perl-/}"
+  local module="${raw//-/::}"
+  __cmd_exists "$raw" && return 0
+  if $cmdbin -M"$module" -e1 &>/dev/null; then return 0; else return 1; fi
   set --
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #python_exists "pythonpackage"
 __python_exists() {
-  local pythonver=""
+  local pythonver="" pipver=""
   if builtin type -P python3 &>/dev/null; then
     pythonver="python3"
   elif builtin type -P python2 &>/dev/null; then
@@ -49,9 +53,20 @@ __python_exists() {
     printf_return "Python is not installed"
     return 1
   fi
-  [ "$1" = "--sudo" ] && local cmdbin="sudo $pythonver" && shift 1 || local cmdbin="$pythonver"
+  if builtin type -P pip3 &>/dev/null; then
+    pipver="pip3"
+  elif builtin type -P pip &>/dev/null; then
+    pipver="pip"
+  fi
+  [ "$1" = "--sudo" ] && local cmdbin="sudo $pythonver" pipbin="sudo $pipver" && shift 1 || local cmdbin="$pythonver" pipbin="$pipver"
   local package="$1"
-  if $cmdbin -c "import importlib.util; exit(0 if importlib.util.find_spec('$package') else 1)" 2>/dev/null; then return 0; else return 1; fi
+  # Pip distribution names (e.g. powerline-status) rarely match their importable
+  # module name (e.g. powerline), so pip show is checked before falling back to
+  # importlib with the hyphen-to-underscore normalized name.
+  local normalized="${package//-/_}"
+  __cmd_exists "$package" && return 0
+  [ -n "$pipver" ] && $pipbin show "$package" &>/dev/null && return 0
+  if $cmdbin -c "import importlib.util; exit(0 if importlib.util.find_spec('$normalized') else 1)" 2>/dev/null; then return 0; else return 1; fi
   set --
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -98,7 +113,9 @@ __go_exists() {
 __check_pip() {
   local ARGS="$*"
   local MISSING=""
-  for cmd in $ARGS; do builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "; done
+  # Pip package names are not shell commands, so detection goes through
+  # __python_exists (pip show / importlib), never a bare type -P lookup.
+  for pkg in $ARGS; do __python_exists "$pkg" &>/dev/null || MISSING+="$pkg "; done
   if [ -n "$MISSING" ]; then
     printf_read_question "2" "$1 is not installed Would you like install it? [y/N]" "1" "choice"
     if printf_answer_yes "$choice"; then

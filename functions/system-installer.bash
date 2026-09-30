@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605131000-git
+##@Version           :  202609301939-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -589,18 +589,6 @@ cmdif() {
   local package=$1
   if builtin type -P "$package" &>/dev/null; then return 0; else return 1; fi
 }
-perlif() {
-  local package=$1
-  if devnull perl -M$package -le 'print $INC{"$package/Version.pm"}'; then return 0; else return 1; fi
-}
-pythonif() {
-  local package=$1
-  if devnull $PYTHONVER -c "import $package"; then return 0; else return 1; fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-cmd_missing() { cmdif "$1" || MISSING+="$1 "; }
-perl_missing() { perlif "$1" || MISSING+="perl-$1 "; }
-python_missing() { pythonif "$1" || MISSING+="$PYTHONVER-$1 "; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_clone() {
   local repo="$1"

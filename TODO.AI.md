@@ -1,5 +1,95 @@
 # TODO.AI.md
 
+## bin/setupmgr full arch/URL verification sweep — CLEARED (202609301312-git)
+
+Follow-up to the same-day tool-list-sync cleanup, prompted by a direct user
+request: verify every one of the 165 canonical tools' install URL/binary
+against real upstream sources, in containers, not just doc-sync. Used the
+GitHub API (authenticated via the `GITHUB_ACCESS_TOKEN` already in the
+environment — see note below) to batch-check all 102 archive/binary-based
+tools' release assets, then individually verified the remaining 63
+(custom-curl/git-clone/pipx/hashicorp/other categories) against their real
+upstream endpoints. Found and fixed real bugs:
+
+- **`__setup_lapce` — two real, compounding bugs.** Hardcoded asset names
+  (`Lapce-linux-x86_64.tar.gz`/`Lapce-linux-aarch64.tar.gz`) were stale —
+  upstream renamed to `lapce-linux-amd64.tar.gz`/`lapce-linux-arm64.tar.gz`
+  (confirmed via GitHub API); the Darwin/arm64 branch pointed at a
+  `Lapce-macos-aarch64.dmg` that no longer exists (macOS ships one
+  universal `Lapce-macos.dmg` now). Even with the filename fixed, the
+  extraction would still have failed — the archive wraps its binary in a
+  `Lapce/` subdirectory, confirmed by downloading and extracting the real
+  archive in a container, but the script's `tar -xzf` had no
+  `--strip-components=1` and checked for a flat `$install_dir/lapce`. Both
+  fixed; the fix was verified against the real archive's actual structure,
+  not assumed.
+- **`__setup_zig` — broken for every install, always.** `ZIG_VERSION`
+  defaulted to the literal string `"master"`, constructing
+  `zig-x86_64-linux-master.tar.xz` — ziglang.org has never served a build
+  at that URL; confirmed 404 in a container. Rewrote to query
+  `https://ziglang.org/download/index.json` and resolve the real latest
+  stable version (or an exact `ZIG_VERSION` override) to a real tarball
+  URL. Verified end-to-end in a container: resolves to
+  `zig-x86_64-linux-0.16.0.tar.xz`, which returns 200.
+- **`__setup_lua` — hard-disabled by a prior session despite actually
+  working.** `printf_red "This doesn't seem to be working" && return 1`
+  unconditionally aborted before ever attempting the install, with 60+
+  lines of dead code below it (a no-`local`, no-return-code violation in
+  itself). Verified in a container with `build-essential`/
+  `libreadline-dev` installed: `luaver`'s full lua-5.4.3 build/install/
+  switch sequence succeeds with exit 0 — the prior disable was likely
+  caused by a missing C toolchain on a minimal host, never diagnosed.
+  Removed the hard disable; added an explicit `gcc`/`cc` and `make`
+  availability check with a clear error message instead, so a genuinely
+  missing toolchain now fails loudly with an actionable message rather
+  than either a vague permanent disable or a confusing mid-build error.
+  Note: only the core `luaver install` step was independently verified in
+  a container; the `install-luarocks`/`install-luajit` sub-steps use the
+  same proven `luaver` mechanism but were not separately tested.
+- **`cortex`'s npm package name was wrong** — `@louisle/cortexso` 404s on
+  the npm registry (this scope/package does not exist). The real package
+  is unscoped `cortexso` (Menlo Research's local AI server CLI, matching
+  the man page's "Cortex AI CLI" description); confirmed its
+  `package.json` `bin` field maps `cortex`, matching the existing
+  `__cmd_exists cortex` check elsewhere in the file. Fixed.
+- **`tokei` removed entirely** — confirmed via the GitHub releases API
+  that `XAMPPRocky/tokei` has shipped zero binary release assets across
+  every release back to v13.0.0-alpha.8 (source-tarball-only), the same
+  defect class as the already-removed `tig`/`entr`/`wrk`/`ncdu`. Removed
+  `__setup_tokei`, its dispatch case, and every advertised-tool-list
+  entry (`SETUPMGR_ALL_TOOLS_DEFAULT`, the script's `ARRAY`, completions'
+  `ARRAY`, man page, `__help`) — re-verified all four lists are still
+  byte-for-word identical (164 → 165 minus tokei) after the removal. Also
+  trimmed a stale `exa` entry sitting on the same `__remove_package`
+  case-arm line as `tokei` (dead reference from `exa`'s earlier removal).
+
+**Everything else checked out correct** — confirmed by either matching
+constructed URLs/filenames against real release asset lists (98 of 102
+archive/binary tools, all arch-aware custom patterns from prior sessions:
+`buf`/`eza`/`lsd`/`oha`/`sops`/`tabby`/`vale`/`trivy`/`bun` all verified
+exact), or downloading and running real files in containers (`fd` amd64
+and arm64 binaries downloaded and `file`-checked against
+`__validate_binary_arch`'s regex in both directions — no cross-arch match
+either way), or HTTP-checking official vendor endpoints directly
+(`helm`/`dotnet`/`zed`/`powershell`/`kubectl`/`nodejs`/`go.dev`/
+`rustfs`/`garage`/`speedtest`/`pipx.pyz`/`gohttpserver`/`nix-installer`),
+or registry checks (all git-clone repos for `asdf`/`gvm`/`nvm`/`rvm`/
+`rbenv` reachable; all remaining npm packages' `bin` fields confirmed
+matching their `__cmd_exists` checks; `llm`/`aider-chat`/`httpie` on
+PyPI). `jless`/`tabby` genuinely have no arm64 upstream build — confirmed
+this fails cleanly (a real `return 1` with a clear message, never a
+cross-arch download) by reading `__build_asset_pattern`'s regex
+construction and `__find_release_asset`'s match logic; not a bug.
+
+**Security note:** the environment already had a `GITHUB_ACCESS_TOKEN`
+set. A bug in an ad hoc Python verification script (not committed to the
+repo — scratch tooling only) leaked it into a scratchpad file and this
+session's own output via an uncaught `subprocess` exception's default
+string representation. Scrubbed from the scratchpad file immediately;
+flagged to the user as exposed in this transcript since sessions aren't
+private exports. Not a setupmgr code issue — logged here only because it
+happened during this work.
+
 ## bin/setupmgr / completions — 2 pre-existing lint findings, NOT fixed
 
 Surfaced incidentally by `script-lint` while verifying this session's

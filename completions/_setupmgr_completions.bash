@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609301221-git
+##@Version           :  202609301312-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -62,7 +62,7 @@ _setupmgr() {
   ARRAY+="kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua markdownlint mc "
   ARRAY+="miller minikube mise mods nix nodejs npm-check-updates nushell nvm oha ollama opencode openclaw opentofu "
   ARRAY+="packer pi pipx plandex powershell prettier procs rbenv ripgrep ruff rustfs rustup rvm sd shellcheck shfmt "
-  ARRAY+="skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tilt tldr tokei traefik "
+  ARRAY+="skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tilt tldr traefik "
   ARRAY+="trivy trufflehog uv vagrant vale vegeta vercel vfox viddy watchexec webhookd xcaddy xh yq zed zellij zig "
   ARRAY+="zoxide"
   ARRAY+=" remove all system update"

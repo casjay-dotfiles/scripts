@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609301312-git
+##@Version           :  202609301349-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -64,7 +64,7 @@ _setupmgr() {
   ARRAY+="packer pi pipx plandex powershell prettier procs rbenv ripgrep ruff rustfs rustup rvm sd shellcheck shfmt "
   ARRAY+="skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tilt tldr traefik "
   ARRAY+="trivy trufflehog uv vagrant vale vegeta vercel vfox viddy watchexec webhookd xcaddy xh yq zed zellij zig "
-  ARRAY+="zoxide"
+  ARRAY+="zoxide doggo hermes openshell pup scc"
   ARRAY+=" remove all system update"
   #####################################################################
   LIST=""

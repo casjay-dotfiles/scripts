@@ -1,5 +1,68 @@
 # TODO.AI.md
 
+## bin/setupmgr: add hermes/openshell + 3 gap-fill replacements — DONE (202609301349-git)
+
+User asked to add `hermes` (NousResearch/hermes-agent) and `openshell`
+(NVIDIA/OpenShell) if not already present, and to always read a tool's own
+install/setup script first when one exists, since it teaches the real
+install mechanism — this rule was added to AI.md's Verification & Safety
+section, project-wide (not just setupmgr): read the upstream script to
+learn from, never execute it or copy it wholesale.
+
+- **`openshell`**: has real `openshell-x86_64-unknown-linux-musl.tar.gz`/
+  `openshell-aarch64-unknown-linux-musl.tar.gz` release assets (verified:
+  downloaded and extracted the real x86_64 archive in a container, flat
+  structure, real ELF binary). The release also ships `openshell-gateway-`/
+  `-supervisor-`/`-prover-`/`-driver-vm-` variants sharing the same arch
+  substring, so the pattern is anchored to the exact plain-CLI filename to
+  avoid ambiguity.
+- **`hermes`**: caught and fixed a real self-introduced violation of the
+  new AI.md rule (and of this codebase's own pre-existing, previously
+  undiscovered guard: the disabled `__download_and_execute()` helper,
+  which explicitly bans `curl | bash` style installs and names `nix`/
+  `rustup`/`dotnet`/`nodejs`/`fnm`/`devbox`/`distrobox`/`plandex` as the
+  correct native-install precedent). The first draft of `__setup_hermes`
+  downloaded and `bash`-executed hermes-agent's official `install.sh`
+  directly — reading that script (per the new rule) showed it bootstraps
+  a full pm-managed Python/Node/browser-tooling dev environment, but also
+  revealed the official PyPI package `hermes-agent` (published by Nous
+  Research) ships the identical `hermes = hermes_cli.main:main` console
+  entrypoint as the repo's own `hermes` launcher (verified by downloading
+  the real wheel and reading its `entry_points.txt` directly — zero
+  execution). Rewrote to `pipx install hermes-agent`, matching the
+  existing `llm`/`aider`/`httpie` native-pip pattern exactly. Zero script
+  execution anywhere in the final implementation.
+- Audited the entire file afterward for any other instance of this
+  pattern (pipe-to-interpreter, `eval` on curl output, an interpreter
+  executing a downloaded/temp path, `source`/`.` on a downloaded path,
+  process substitution, PowerShell `Invoke-Expression`/
+  `Invoke-RestMethod`, bare execution of a downloaded file) — found
+  nothing else. `nix-installer`/`rustup-init` (pre-existing, untouched)
+  download and run *compiled binaries*, not shell scripts, and are
+  explicitly named as compliant in the `__download_and_execute` guard
+  comment; `distrobox` (pre-existing) explicitly clones and symlinks
+  scripts directly rather than running distrobox's own installer;
+  `nvm`/`rvm`/`gvm`/`asdf`/`rbenv`/`luaver` are version-manager tools
+  themselves invoked via their own documented subcommands, not bootstrap
+  installers.
+- **Gap-fill replacements for tools removed this session/earlier**, per
+  user request after noticing real functional gaps: `scc` (boyter/scc,
+  replaces `tokei` — zero release assets, removed earlier this session),
+  `doggo` (mr-karan/doggo, replaces `dog` — a `dig`-style DNS lookup
+  client; `dnsglobe` already in the list is recon/enumeration, a
+  different niche), `pup` (ericchiang/pup, replaces `htmlq` — jq-like
+  HTML extraction). All three verified with real downloaded/extracted
+  binaries in containers. `doggo`'s release also ships a `doggo_web_*`
+  component sharing the `linux_<arch>` substring, so its pattern is
+  anchored to the exact `doggo-linux-<arch>` filename. `ncdu`'s disk-usage
+  niche and `xsv`'s CSV niche were judged already covered by existing
+  `dust` and `sq`/`miller` respectively — not replaced.
+- All five new tools synced across `SETUPMGR_ALL_TOOLS_DEFAULT`, the
+  script's `ARRAY`, `__help`, completions' `ARRAY`, and the man page
+  (166 → 170 canonical tools); re-verified all four list sources are
+  still byte-for-word identical. `script-lint` run against the full diff:
+  zero new issues.
+
 ## bin/setupmgr full arch/URL verification sweep — CLEARED (202609301312-git)
 
 Follow-up to the same-day tool-list-sync cleanup, prompted by a direct user
@@ -89,6 +152,16 @@ string representation. Scrubbed from the scratchpad file immediately;
 flagged to the user as exposed in this transcript since sessions aren't
 private exports. Not a setupmgr code issue — logged here only because it
 happened during this work.
+
+## man/setupmgr.1 DESCRIPTION lines exceed 180 chars — likely not a real issue
+
+`script-lint` flagged lines 8 and 16 (197 and 203 chars) — pre-existing
+prose in the `.SH DESCRIPTION` section, untouched by any session's edits.
+Judgment call, not fixed: AI.md's 180-char line-length rule is under "Code
+Standards" and troff man pages conventionally keep one sentence per line
+regardless of length (troff reflows at render time) — this is likely not
+a real violation of the rule's intent, but logging per policy since it
+keeps getting re-flagged incidentally.
 
 ## bin/setupmgr / completions — 2 pre-existing lint findings, NOT fixed
 

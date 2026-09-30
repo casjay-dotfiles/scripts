@@ -77,6 +77,7 @@ Dependency graph takes priority over label order. Numbered/lettered sequence is 
 - **Never run unrequested destructive ops, even to "fix"** — stop and ask
 - **Never auto-bypass a hook block** — if a PreToolUse hook returns `BLOCKED:`, tell the user; only they decide
 - Verify APIs/flags exist before using them; run code before calling it done; iterate until verification passes
+- **Third-party install research — always read the upstream install/setup script if one exists** before writing or fixing any code that installs, wraps, or scaffolds that tool — project-wide, not just `setupmgr`: any script that installs a third-party dependency (new or existing). The upstream script is research material only — read it to learn the real install mechanism (binary vs. archive vs. package vs. bootstrap, PATH wiring, non-interactive flags, where it actually places the binary); never execute or copy it wholesale into this project's own scripts
 - **kill scoping** — `kill $PID` only when `$PID` was captured at launch in the current task (`PID=$!`)
 - **systemctl gate** — `status`/`is-active`/`is-enabled`/`cat`/`show` and `--user` variants are always OK; `restart`/`stop`/`start`/`reload`/`disable`/`enable`/`mask` on host services require user confirmation
 

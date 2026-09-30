@@ -622,114 +622,6 @@ __query_server() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__detect_proxmox_version() {
-  local version_url="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/version"
-  local response
-
-  printf_blue "🔍 Detecting Proxmox version..."
-
-  response=$(curl -q -LSs --max-time 10 -k "$version_url" 2>/dev/null)
-  if [ -n "$response" ]; then
-    PROXMOX_VERSION=$(echo "$response" | jq -r '.data.version // .version // "unknown"' 2>/dev/null)
-    PROXMOX_RELEASE=$(echo "$response" | jq -r '.data.release // .release // "unknown"' 2>/dev/null)
-    PROXMOX_MAJOR_VERSION="${PROXMOX_VERSION%%.*}"
-
-    printf_green "📋 Detected: Proxmox VE $PROXMOX_VERSION (Release: $PROXMOX_RELEASE)"
-    export PROXMOX_VERSION PROXMOX_RELEASE PROXMOX_MAJOR_VERSION
-  else
-    printf_yellow "⚠️ Could not detect version - assuming modern Proxmox"
-    PROXMOX_MAJOR_VERSION="9"
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__save_spice_file_v5() {
-  local base_url="$1"
-  printf_cyan "🖥️ Proxmox 5.x: Using legacy SPICE endpoint..."
-
-  # Proxmox 5.x uses simpler spiceproxy
-  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/spiceproxy" \
-    -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" >"$FILENAME" 2>/dev/null
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__save_spice_file_v6() {
-  local base_url="$1"
-  printf_cyan "🖥️ Proxmox 6.x: Enhanced SPICE with API tokens..."
-
-  # Proxmox 6.x enhanced spiceproxy
-  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/spiceproxy" \
-    -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" >"$FILENAME" 2>/dev/null && return 0
-
-  # Fallback to VNC if SPICE fails
-  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/vncproxy" \
-    -d "websocket=1" >"$FILENAME" 2>/dev/null
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__save_spice_file_v7() {
-  local base_url="$1"
-  printf_cyan "🖥️ Proxmox 7.x: noVNC default with WebSocket..."
-
-  # Proxmox 7.x prefers noVNC with websocket
-  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/vncproxy" \
-    -d "websocket=1" >"$FILENAME" 2>/dev/null && return 0
-
-  # Fallback to SPICE
-  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/spiceproxy" \
-    -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" >"$FILENAME" 2>/dev/null
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__save_spice_file_v8() {
-  local base_url="$1"
-  printf_cyan "🖥️ Proxmox 8.x: Modern console access..."
-
-  # Try multiple methods for Proxmox 8.x
-  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/vncproxy" \
-    -d "websocket=1" >"$FILENAME" 2>/dev/null && return 0
-
-  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/spiceproxy" \
-    -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" >"$FILENAME" 2>/dev/null && return 0
-
-  # Try terminal proxy
-  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/termproxy" >"$FILENAME" 2>/dev/null
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__save_spice_file_v9() {
-  local base_url="$1"
-  printf_cyan "🖥️ Proxmox 9.x: Latest console protocols..."
-
-  # Proxmox 9.x - try all available methods
-  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/vncproxy" \
-    -d "websocket=1&generate-password=1" >"$FILENAME" 2>/dev/null && return 0
-
-  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/spiceproxy" \
-    -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" >"$FILENAME" 2>/dev/null && return 0
-
-  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/termproxy" \
-    -d "cmd=login" >"$FILENAME" 2>/dev/null
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__save_spice_file() {
-  local base_url="$1"
-
-  # Detect version if not already done
-  if [ -z "$PROXMOX_MAJOR_VERSION" ]; then
-    __detect_proxmox_version
-  fi
-
-  # Use version-specific console access
-  case "$PROXMOX_MAJOR_VERSION" in
-  5) __save_spice_file_v5 "$base_url" ;;
-  6) __save_spice_file_v6 "$base_url" ;;
-  7) __save_spice_file_v7 "$base_url" ;;
-  8) __save_spice_file_v8 "$base_url" ;;
-  9 | *) __save_spice_file_v9 "$base_url" ;;
-  esac
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 __ensure_authenticated() {
   # Make sure we have authentication tokens for API calls
   if [ -z "$TICKET" ] || [ -z "$CSRF" ]; then
@@ -1536,15 +1428,19 @@ __save_spice_file() {
   fi
 
   # Make the API call and capture both output and errors
+  # The proxy parameter must be a bare hostname. Proxmox's address format check
+  # rejects "host:port" and full URLs with HTTP 400 (verified against pve.casjayvps.us).
+  # Proxmox derives the correct proxy port itself and returns it as .data.proxy.
+  local spice_proxy="$PROXMOX_CLI_DEFAULT_SERVER_HOST"
   local spice_response
   # Use POST method for SPICE proxy API
-  spice_response="$(__curl_post "$spice_endpoint" -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" 2>"$error_log")"
+  spice_response="$(__curl_post "$spice_endpoint" -d "proxy=$spice_proxy" 2>"$error_log")"
   local curl_exit=$?
 
   # If POST fails, try GET method as fallback
   if [ $curl_exit -ne 0 ]; then
     printf_yellow "⚠️ POST method failed, trying GET method..." >&2
-    spice_response="$(__curl_auth "$spice_endpoint?proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" 2>"$error_log")"
+    spice_response="$(__curl_auth "$spice_endpoint?proxy=$spice_proxy" 2>"$error_log")"
     curl_exit=$?
   fi
 
@@ -1589,9 +1485,11 @@ __save_spice_file() {
           [ -n "$toggle_fullscreen" ] && [ "$toggle_fullscreen" != "empty" ] && echo "toggle-fullscreen=$toggle_fullscreen" || echo "toggle-fullscreen=shift+f11"
           [ -n "$release_cursor" ] && [ "$release_cursor" != "empty" ] && echo "release-cursor=$release_cursor" || echo "release-cursor=ctrl+alt+r"
           [ -n "$secure_attention" ] && [ "$secure_attention" != "empty" ] && echo "secure-attention=$secure_attention" || echo "secure-attention=ctrl+alt+ins"
-          # Handle CA certificate (convert \\n to actual newlines)
+          # Handle CA certificate (convert the literal backslash-n pairs to real newlines).
+          # The previous sed was over-escaped and emitted a single-line cert, which made
+          # virt-viewer fail TLS verification with "Unable to connect to graphics server".
           if [ -n "$ca" ] && [ "$ca" != "null" ] && [ "$ca" != "empty" ]; then
-            echo "ca=$(echo "$ca" | sed 's/\\\\n/\n/g')"
+            printf 'ca=%b\n' "$ca"
           fi
         } >"$vv_file"
 

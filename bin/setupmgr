@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609301349-git
+##@Version           :  202609301428-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202609301349-git"
+VERSION="202609301428-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 # When invoked via sudo, $HOME points at /root by default. Re-anchor it on
@@ -1522,6 +1522,7 @@ __download_install_appimage() {
   local binFile=""
   local binDir=""
   local prefix=""
+  local work_dir="" appimage_file="" extracted_bin=""
 
   if [ -z "$url" ] || [ -z "$name" ]; then
     printf_red "Usage: __download_install_appimage <url> <name> [binDir]"
@@ -1543,14 +1544,10 @@ __download_install_appimage() {
     prefix=""
   fi
 
-  SETUPMGR_TEMP_APPIMAGE_FILE="$SETUPMGR_TEMP_DIR/${name}.AppImage"
-
-  if [ -n "$PACKAGE_TMP_DIR" ] && [ -e "$PACKAGE_TMP_DIR" ]; then
-    __rm "$PACKAGE_TMP_DIR"
-  fi
-
-  [ -d "$SETUPMGR_TEMP_DIR" ] || mkdir -p "$SETUPMGR_TEMP_DIR"
-  [ -f "$SETUPMGR_TEMP_APPIMAGE_FILE" ] && __rm "$SETUPMGR_TEMP_APPIMAGE_FILE"
+  work_dir="$SETUPMGR_TEMP_DIR/${name}-appimage"
+  __rm "$work_dir" 2>/dev/null
+  mkdir -p "$work_dir"
+  appimage_file="$work_dir/${name}.AppImage"
 
   # Create bin directory
   if [ -n "$prefix" ]; then
@@ -1559,19 +1556,30 @@ __download_install_appimage() {
     mkdir -p "$binDir"
   fi
 
-  # Download AppImage
-  if __curl "$url" -o "$SETUPMGR_TEMP_APPIMAGE_FILE"; then
-    # Install with appropriate permissions
-    if [ -n "$prefix" ]; then
-      $prefix mv -f "$SETUPMGR_TEMP_APPIMAGE_FILE" "$binFile" && $prefix chmod +x "$binFile"
+  # AppImages need libfuse.so.2 to run directly, which many hosts/containers
+  # lack by default ("dlopen(): error loading libfuse.so.2 / AppImages
+  # require FUSE to run" — confirmed on a stock AlmaLinux 9 host). Extract
+  # at install time with --appimage-extract instead (no FUSE needed for
+  # extraction) and ship the real extracted binary, never the AppImage
+  # wrapper itself.
+  if __curl "$url" -o "$appimage_file" && chmod +x "$appimage_file" &&
+    (cd "$work_dir" && "./$(__basename "$appimage_file")" --appimage-extract >/dev/null 2>&1); then
+    extracted_bin="$(find "$work_dir/squashfs-root" -maxdepth 3 -type f -iname "$name" 2>/dev/null | head -1)"
+    [ -z "$extracted_bin" ] && [ -x "$work_dir/squashfs-root/AppRun" ] && extracted_bin="$work_dir/squashfs-root/AppRun"
+    if [ -n "$extracted_bin" ] && [ -f "$extracted_bin" ]; then
+      if [ -n "$prefix" ]; then
+        $prefix cp -f "$extracted_bin" "$binFile" && $prefix chmod +x "$binFile"
+      else
+        cp -f "$extracted_bin" "$binFile" && chmod +x "$binFile"
+      fi
     else
-      mv -f "$SETUPMGR_TEMP_APPIMAGE_FILE" "$binFile" && chmod +x "$binFile"
+      exitCode=1
     fi
-    __rm "$SETUPMGR_TEMP_APPIMAGE_FILE" 2>/dev/null
-    [ -x "$binFile" ] || exitCode=1
   else
     exitCode=1
   fi
+  __rm "$work_dir" 2>/dev/null
+  [ -x "$binFile" ] || exitCode=1
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2046,15 +2054,23 @@ __find_release_asset() {
 
   case "$platform" in
   github)
-    # GitHub: Try /releases/latest first
-    local download_url="$(__curl "$api_url" | grep -- '"browser_download_url"' | cut -d '"' -f 4 | grep -iE -- "$pattern" | head -n1)"
-    
+    # GitHub: Try /releases/latest first. When a release ships both a gnu
+    # and a musl Linux build, the generic pattern matches both — prefer
+    # musl deterministically (statically linked, no host glibc-version
+    # dependency) instead of whichever happens to sort first in the API
+    # response, which would otherwise be arbitrary.
+    local matches="$(__curl "$api_url" | grep -- '"browser_download_url"' | cut -d '"' -f 4 | grep -iE -- "$pattern")"
+    local download_url="$(echo "$matches" | grep -i -- 'musl' | head -n1)"
+    [ -z "$download_url" ] && download_url="$(echo "$matches" | head -n1)"
+
     # If no assets found in latest, try recent releases (scan up to 10)
     if [ -z "$download_url" ]; then
       local releases_url="${api_url%/latest}"
-      download_url="$(__curl "$releases_url" | grep -- '"browser_download_url"' | cut -d '"' -f 4 | grep -iE -- "$pattern" | head -n1)"
+      matches="$(__curl "$releases_url" | grep -- '"browser_download_url"' | cut -d '"' -f 4 | grep -iE -- "$pattern")"
+      download_url="$(echo "$matches" | grep -i -- 'musl' | head -n1)"
+      [ -z "$download_url" ] && download_url="$(echo "$matches" | head -n1)"
     fi
-    
+
     echo "$download_url"
     ;;
   gitlab)
@@ -2343,6 +2359,32 @@ __install_from_npm() {
     __message_installed_failed "$name"
   fi
 
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_from_pipx() {
+  # name: binary/command name (e.g., "llm")
+  local name="$1"
+  # package: pip package name (defaults to the binary name)
+  local package="${2:-$name}"
+  local exitCode=0
+
+  if ! __cmd_exists pipx; then
+    printf_red "pipx is required to install $name"
+    printf_yellow "Run: setupmgr pipx"
+    return 1
+  fi
+  if __cmd_exists "$name" && [ "$SETUPMGR_FORCE_INSTALL" != "true" ]; then
+    printf_green "$name is already installed"
+    return 0
+  fi
+  printf_green "Installing $name via pipx"
+  if pipx install "$package" |& __output_status; then
+    printf_green "Installed $name via pipx"
+  else
+    exitCode=1
+    __message_installed_failed "$name"
+  fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4601,18 +4643,35 @@ __setup_bob() {
   local arch="$(uname -m)"
   local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
   local release_url="https://api.github.com/repos/MordechaiHadad/bob/releases/latest"
+  local appimage_path="" extracted_bin=""
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
-  # the plain Linux zips need glibc 2.39; the AppImage bundles its own loader and works on older glibc
+  # The plain Linux zips need glibc 2.39; the AppImage bundles its own loader
+  # and works on older glibc. But an AppImage needs libfuse.so.2 to RUN —
+  # confirmed missing on stock hosts/containers ("dlopen(): error loading
+  # libfuse.so.2 / AppImages require FUSE to run"). Extracting it at install
+  # time with --appimage-extract needs no FUSE (verified in a container) and
+  # yields a real ELF binary, so ship that instead of the AppImage itself.
   case $arch in
   x86_64) download_url="$(__curl "$release_url" | grep -- browser_download_url | cut -d '"' -f 4 | grep -- "/bob-linux-x86_64-appimage.zip\$")" ;;
   aarch64 | arm64) download_url="$(__curl "$release_url" | grep -- browser_download_url | cut -d '"' -f 4 | grep -- "/bob-linux-arm-appimage.zip\$")" ;;
   esac
+  if [ -z "$download_url" ]; then
+    printf_red "Could not find latest release asset for bob"
+    return 1
+  fi
   if __cmd_exists $name; then
     printf_green "Updating $name"
   else
     printf_green "Installing $name"
   fi
-  if __download_extract_move "$download_url" do_not_strip_components "${name}.AppImage" "$binFile" && __is_installed "$name" "$binFile"; then
+  if __download_extract_move "$download_url" do_not_strip_components "${name}.AppImage" "$PACKAGE_TMP_DIR/${name}.AppImage"; then
+    appimage_path="$PACKAGE_TMP_DIR/${name}.AppImage"
+    chmod +x "$appimage_path"
+    if (cd "$PACKAGE_TMP_DIR" && "./${name}.AppImage" --appimage-extract >/dev/null 2>&1); then
+      extracted_bin="$PACKAGE_TMP_DIR/squashfs-root/usr/bin/$name"
+    fi
+  fi
+  if [ -f "$extracted_bin" ] && __install_to_system_bin "$extracted_bin" && __is_installed "$name" "$binFile"; then
     local target_home="$(__target_home)"
     __user_mkdir "$target_home/.local/share/bob"
 
@@ -4626,7 +4685,6 @@ __setup_bob() {
 }
 EOF
     fi
-    __install_to_system_bin "$binFile"
     __message_installed_ok "$name"
   else
     exitCode=1
@@ -5168,24 +5226,7 @@ __setup_openshell() {
 # by Nous Research) ships the same hermes_cli.main:main entrypoint as the
 # repo's own `hermes` launcher, so pipx installs the real CLI natively.
 __setup_hermes() {
-  local exitCode=0
-  local name="hermes"
-  if ! __cmd_exists pipx; then
-    printf_red "pipx is required to install $name"
-    printf_yellow "Run: setupmgr pipx"
-    return 1
-  fi
-  if __cmd_exists "$name" && [ "$SETUPMGR_FORCE_INSTALL" != "true" ]; then
-    printf_green "$name is already installed"
-    return 0
-  fi
-  if pipx install hermes-agent |& __output_status; then
-    printf_green "Installed $name via pipx"
-  else
-    exitCode=1
-    __message_installed_failed "$name"
-  fi
-  return $exitCode
+  __install_from_pipx "hermes" "hermes-agent"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Line-counter replacement for the removed tokei (zero binary releases ever)
@@ -5740,49 +5781,16 @@ __setup_mods() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_llm() {
-  local exitCode=0
-  local name="llm"
-  if ! __cmd_exists pipx; then
-    printf_red "pipx is required to install $name"
-    printf_yellow "Run: setupmgr pipx"
-    return 1
-  fi
-  if __cmd_exists "$name" && [ "$SETUPMGR_FORCE_INSTALL" != "true" ]; then
-    printf_green "$name is already installed"
-    return 0
-  fi
-  if pipx install llm |& __output_status; then
-    printf_green "Installed $name via pipx"
-  else
-    exitCode=1
-    __message_installed_failed "$name"
-  fi
-  return $exitCode
+  __install_from_pipx "llm"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_aider() {
-  local exitCode=0
-  local name="aider-chat"
-  local cmd_name="aider"
-  if ! __cmd_exists pipx; then
-    printf_red "pipx is required to install $name"
-    printf_yellow "Run: setupmgr pipx"
-    return 1
-  fi
-  if __cmd_exists "$cmd_name" && [ "$SETUPMGR_FORCE_INSTALL" != "true" ]; then
-    printf_green "$cmd_name is already installed"
-    return 0
-  fi
-  printf_green "Installing $name via pipx"
-  if pipx install aider-chat |& __output_status; then
-    printf_green "Installed $cmd_name via pipx"
+  if __install_from_pipx "aider" "aider-chat"; then
     printf_cyan "Usage: aider --model ollama/qwen2.5-coder:32b"
     printf_cyan "Docs: https://aider.chat/docs/"
   else
-    exitCode=1
-    __message_installed_failed "$name"
+    return 1
   fi
-  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_plandex() {
@@ -6142,24 +6150,7 @@ __setup_tldr() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_httpie() {
-  local exitCode=0
-  local name="httpie"
-  if ! __cmd_exists pipx; then
-    printf_red "pipx is required to install $name"
-    printf_yellow "Run: setupmgr pipx"
-    return 1
-  fi
-  if __cmd_exists http && [ "$SETUPMGR_FORCE_INSTALL" != "true" ]; then
-    printf_green "$name is already installed"
-    return 0
-  fi
-  if pipx install httpie |& __output_status; then
-    printf_green "Installed $name via pipx"
-  else
-    exitCode=1
-    __message_installed_failed "$name"
-  fi
-  return $exitCode
+  __install_from_pipx "http" "httpie"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_git_cliff() {
@@ -7419,7 +7410,7 @@ export SETUPMGR_CWD
 # Verify the small set of binaries every install path depends on. Use the
 # local __cmd_exists rather than calling out to the external `cmd_exists`
 # helper, which would create its own ~/.cache/cmd_exists dir as root.
-for __setupmgr_required in bash curl tar unzip; do
+for __setupmgr_required in bash curl tar unzip jq file; do
   if ! __cmd_exists "$__setupmgr_required"; then
     printf_red "Missing required dependency: $__setupmgr_required"
     exit 69

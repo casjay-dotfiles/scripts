@@ -1,5 +1,81 @@
 # TODO.AI.md
 
+## bin/setupmgr: widespread bare (non-`local`) variable assignments — NOT fixed
+
+Surfaced by `script-lint` while reviewing the `bob` fix: `download_url`
+is assigned as a bare global inside `__setup_bob()` (and many other
+`__setup_*` functions — 25 bare `download_url=` assignments vs. 11
+properly `local`-declared, confirmed via grep). `PACKAGE_TMP_DIR` is also
+commonly a bare global, though it may be an intentional established
+convention for handing a temp dir to shared helpers (`__download_extract_move`
+etc.) rather than a bug — needs a repo-wide read to tell the two apart,
+not a one-off fix. Out of scope for the `bob`/arch-audit session that
+found it; too broad to fold into that fix without touching dozens of
+unrelated functions.
+
+## bin/setupmgr: arch-correctness audit, real bob bug fix — DONE (202609301428-git)
+
+User asked whether every tool downloads the correct architecture, and
+reported a real bug: `bob` failed at runtime with `dlopen(): error
+loading libfuse.so.2 / AppImages require FUSE to run`. User also asked to
+test in AlmaLinux 8/9/10 containers (their actual runtime), not just
+Debian/Ubuntu — this project now tests both families going forward.
+
+- **`bob` — real, reproduced, fixed.** `__setup_bob` downloaded the
+  AppImage build and shipped it as-is. AppImages need `libfuse.so.2` to
+  run, which is missing by default on stock Ubuntu *and* AlmaLinux (both
+  confirmed via `rpm -q`/`command -v`) — reproduced the exact reported
+  error in a container. Fixed by running the downloaded AppImage with
+  `--appimage-extract` at install time (no FUSE needed for extraction,
+  confirmed) and shipping the real extracted ELF binary from
+  `squashfs-root/usr/bin/bob` instead of the AppImage wrapper. Verified
+  end-to-end in a container: real `bob-nvim 4.2.0` binary, runs without
+  FUSE. Also fixed the same bug in the shared, currently-unused
+  `__download_install_appimage()` helper (same pattern, same bug) so any
+  future AppImage-based tool doesn't reintroduce it.
+- **Systemic hardening: prefer `musl` over `gnu` Linux builds.**
+  `__find_release_asset`'s generic pattern matches both when a release
+  ships both (confirmed for 14 tools: codex, ruff, fd, bat, delta, dust,
+  starship, hyperfine, uv, bandwhich, sd, tldr, git-cliff, difftastic,
+  jnv), previously picking whichever sorted first in GitHub's API
+  response (arbitrary — confirmed `gnu` for `fd`). `gnu` builds have a
+  host glibc-version dependency; `musl` builds are statically linked and
+  portable everywhere. `fd`'s GNU build happened to still run on
+  AlmaLinux 9 (glibc 2.34) in this test, so not a confirmed active
+  failure for most of these — but the ambiguity itself was a real
+  correctness gap with no downside to closing, so `__find_release_asset`
+  now deterministically prefers any `musl` match. Verified against real
+  API data: now resolves to `fd-v10.5.0-x86_64-unknown-linux-musl.tar.gz`
+  instead of the `-gnu` variant.
+- **Real dependency-check gaps found via AlmaLinux testing.** The
+  hard-required dependency check (`bash curl tar unzip`) was missing
+  `jq` (used by ~17 call sites, including gitlab/gitea platform support
+  and this session's `zig` fix) and `file` (used inside
+  `__validate_binary_arch`, the core architecture-safety check) — both
+  confirmed missing by default on stock Ubuntu 24.04 *and* AlmaLinux 9.
+  Without `file`, every archive/binary install would fail closed with a
+  confusing false "Architecture mismatch detected!" instead of a clear
+  dependency error (safe, but breaks the tool for most users on a
+  minimal host). Added both to the required list. Confirmed `--help`/
+  `--version` still work with zero dependencies (the check runs after
+  their case arms, which `exit` directly).
+- **New shared `__install_from_pipx` helper**, per user question ("do we
+  have a function for installing via pipx/pip/etc?") — answer was no,
+  the pattern was duplicated inline 4 times (`llm`, `aider`, `httpie`,
+  `hermes`, each ~17 near-identical lines). Added the helper (matching
+  the existing `__install_from_npm`/`__install_from_archive` convention)
+  and refactored all four call sites to use it.
+- **`mistral` — researched, not added.** `mistralai` on PyPI is Mistral
+  AI's own Python *SDK library* (for use inside other programs), not a
+  standalone CLI. The only "mistral-cli" found is an unofficial
+  third-party npm package by an individual developer, not published by
+  Mistral AI — flagged as low-trust rather than added. No official
+  Mistral CLI exists to add at this time.
+- Re-verified the full four-way tool-list sync (`SETUPMGR_ALL_TOOLS_DEFAULT`,
+  `ARRAY`, completions, man page) is unaffected by these fixes (no tools
+  added/removed this round, only install-logic corrections).
+  `script-lint`: zero new issues.
+
 ## bin/setupmgr: add hermes/openshell + 3 gap-fill replacements — DONE (202609301349-git)
 
 User asked to add `hermes` (NousResearch/hermes-agent) and `openshell`

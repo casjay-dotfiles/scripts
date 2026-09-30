@@ -1,335 +1,80 @@
 # TODO.AI.md
 
-## bin/setupmgr / completions / man page
+## bin/setupmgr / completions — 2 pre-existing lint findings, NOT fixed
 
-- DONE (202609241759-git): all 40 `script-lint` findings from the prior
-  pass fixed and re-verified — UUOC `basename`/`dirname` subshells
-  replaced with parameter expansion, all lines >180 chars split (verified
-  `awk 'length > 180'` returns zero), all `grep`/`grep -E`/`grep -q` calls
-  missing the `--` separator fixed in both `bin/setupmgr` and
-  `completions/_setupmgr_completions.bash` (verified: only remaining
-  non-`--` matches are the `__grep()` wrapper definition itself and a
-  changelog text line, not actual violations). Consolidated
-  `grep -n '\$(basename\|\$(dirname'` re-check: zero active matches
-  (one commented-out line excluded). `bash -n` passes.
+Surfaced incidentally by `script-lint` while verifying this session's
+setupmgr fixes; neither is on a changed line, out of scope for that work.
 
-- **`printf_*`/`ask_for_password` unprefixed function names, NOT
-  renamed — deliberate, out of scope.** These lack the AI.md `__`
-  function-prefix, but are a project-wide, deliberately unprefixed
-  convention used unprefixed across 200+ files (`bin/`, `functions/`,
-  `man/`, `completions/`, `templates/`), defined canonically in
-  `functions/global/colors.bash` / `functions/minimal.bash` and
-  duplicated locally in self-contained scripts like `bin/setupmgr` for
-  consistency with the rest of the codebase. Renaming only inside
-  `bin/setupmgr` would break sourcing consistency and diverge from the
-  rest of the project; the same decision was already logged for
-  `bin/latest-iso` on 2026-09-17. Any fix requires a coordinated,
-  repo-wide rename across every script that defines/calls these — not a
-  one-off change here.
+- `bin/setupmgr:7238`: `export FORCE_INSTALL="true"` — generic exported
+  name crosses the process boundary; the script already carries
+  `SETUPMGR_FORCE_INSTALL` alongside it, making `FORCE_INSTALL` a
+  redundant unprefixed duplicate.
+- `completions/_setupmgr_completions.bash`: header has
+  `##@Version : 202609241759-git` but the file body has no `VERSION=`
+  assignment at all — missing the required header/body pair.
 
-- **`script-lint` finding, NOT fixed (pre-existing, out of scope for this
-  session's edit):** `SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-...}"`
-  (currently line 6591) is a single line >180 chars (~1002 chars) — the
-  AI.md line-length rule requires splitting. Predates this session; not
-  touched by the `__setup_*`-functions diff, so left alone per
-  working-set discipline. Needs its own mechanical fix (e.g. multi-line
-  `+=` continuation) in a dedicated commit.
+## bin/setupmgr / completions / man page — CLEARED (202609301400-git)
 
-- **`__setup_httpie` is broken — wrong distribution channel, NOT fixed.**
-  Verified via GitHub API: `httpie/cli`'s latest release (`3.2.4`) ships
-  **zero release assets** — HTTPie is distributed via PyPI (`pip install
-  httpie`), not GitHub binary releases, so `__install_from_archive` will
-  always fail with "Could not find latest release asset for linux/amd64".
-  Pre-existing bug (function predates this session); only just became
-  reachable when its dispatch case was wired up (202608281340-git). No
-  `__install_from_pip`/`__install_from_pipx` helper exists in this file, so
-  fixing this needs either a new pip-based install helper (raises the
-  static-binary-only design question the same way `antigravity`'s apt
-  fallback did) or dropping `httpie` from `SETUPMGR_ALL_TOOLS` — a decision
-  for the user, not a mechanical fix.
+Full backlog below resolved this session (user directive: fix in place,
+no rewrite). Summary of what changed:
 
-- DONE (this session): `completions/_setupmgr_completions.bash`'s `ARRAY` and
-  `man/setupmgr.1`'s package list now document all 157 entries in
-  `SETUPMGR_ALL_TOOLS`. Verified with `comm -23`/`comm -13` diffs — zero
-  entries missing in either direction.
+- `__setup_httpie` rewritten to install via `pipx install httpie`
+  (matching the existing `__setup_llm`/`__setup_aider` pattern) instead of
+  the broken `__install_from_archive` call — verified in a disposable
+  Ubuntu container that `pipx install httpie` succeeds and provides
+  `http`/`httpie`/`https`. IDEA.md's "binary/archive/npm/pip" install
+  channel list sanctions this; no user decision needed.
+- `__setup_ncdu` deleted entirely — verified via the GitHub releases API
+  (in a container) that `rofl0r/ncdu` has zero releases, same defect
+  class as the already-removed `tig`/`entr`/`wrk`.
+- `__setup_antigravity`'s `apt install -y downloaded.deb` branch removed
+  — same package-manager-delegation violation class as `podman`. The
+  function's existing self-contained tarball install path is now the
+  only Linux path (works on both x86_64/arm64; still `__require_desktop`
+  gated).
+- `remove` removed from `ARRAY` (was letting `setupmgr all` invoke
+  `setupmgr remove` with no args mid-batch).
+- All four tool-list sources (`SETUPMGR_ALL_TOOLS_DEFAULT`, `ARRAY`,
+  `completions/_setupmgr_completions.bash`'s `ARRAY`, `man/setupmgr.1`'s
+  package list) rebuilt from one canonical 166-tool list derived directly
+  from the main dispatch `case` block (ground truth), then verified
+  byte-for-word identical across all four with `diff`/`comm`. Man page's
+  stale `dog`/`exa`/`htmlq`/`xsv` entries (already removed from the
+  script in a prior session) dropped; `charm` added.
+- `difftastic` probe fixed (`probe="difft"`, confirmed by downloading and
+  running the real release asset in a container) in both
+  `__is_package_installed`/`__remove_package`; `nvm`/`rvm`/`gvm`
+  directory-based detection added to `__is_package_installed` (they
+  install shell functions, not `PATH` binaries).
+- `__help` rewritten: full 166-tool list, plus the 7 previously-missing
+  flags (`--all`, `--system`, `--silent`, `--force`, `--dir`,
+  `--reset-config`, `--completions`) and `--configure`.
+- Short "intentional exception" comments added above `__setup_distrobox`,
+  `__setup_jekyll`, `__setup_nix`, `__setup_terminal_browser` explaining
+  why each is a defensible non-static-binary install.
+- `printf_*`/`ask_for_password` unprefixed names: left as-is — confirmed
+  still a deliberate, project-wide convention (see prior note), not a bug.
+- `bash -n` passes; `awk 'length > 180'` returns zero across
+  `bin/setupmgr`, `completions/_setupmgr_completions.bash`, and
+  `man/setupmgr.1`.
 
-- DONE (202608281300-git, user-reported bug: `setupmgr claude opencode gh lf
-  shellcheck ...` silently stopped after `gh` with exit 0): root cause was
-  `lf` having no `__setup_*` function and no dispatch case, so the arg
-  parser's `*) break ;;` catch-all silently aborted the *entire* remaining
-  batch instead of erroring on just the unknown tool. Fixed both halves:
-  (1) added `__setup_lf()` (uses `__install_from_archive` against
-  `gokcehan/lf`'s standard release assets) plus its dispatch case; (2) fixed
-  the systemic `*) break ;;` catch-all to `printf_red "Unknown tool: $1"`,
-  set `SETUPMGR_EXIT_STATUS=1`, `shift 1`, and continue the loop instead of
-  aborting it — so any future dispatch gap degrades to a per-tool error
-  instead of silently truncating the rest of the batch.
+Prior session history for this file (dispatch-case wiring, duplicate
+function cleanup, `wrk`/`tig`/`entr` removal, the 13-defect functional
+audit, the original line-length fix) is preserved in git log; superseded
+by the cleared state above.
 
-  Also wired up dispatch cases for 26 other tools that already had a
-  `__setup_*` function but no case arm (same defect class as `lf`, found
-  while auditing the bug): `bandwhich`, `cosign`, `ctlptl`, `dasel`,
-  `difftastic`, `git-cliff`, `gitleaks`, `gitui`, `grex`, `gron`, `grype`,
-  `htmlq`, `httpie`, `jnv`, `kompose`, `kubectx`, `kubens`, `sd`, `sq`,
-  `stern`, `syft`, `trufflehog`, `trivy`, `viddy`, `watchexec`, `xcaddy`,
-  `xh`, `xsv`. Verified none of these functions fall back to a system
-  package manager (would be a package-manager-delegation violation) before
-  wiring them up. `script-lint` run against the diff: clean, no new
-  violations.
+## templates/scripts/functions/docker-entrypoint lint findings — NOT fixed
 
-  `antigravity` was in the same "has function, no case" list but
-  deliberately excluded — its `__setup_antigravity` uses
-  `__sudo apt install -y` on Debian-family hosts, a package-manager
-  delegation violation needing its own decision; left as-is below.
-
-- DONE (this session): wrote 19 new `__setup_*` functions (`ali`,
-  `bombardier`, `buf`, `curlie`, `dog`, `dua`, `earthly`, `evans`, `eza`,
-  `fx`, `ghz`, `grpcurl`, `jq`, `k6`, `lsd`, `oha`, `vegeta`, `sops`,
-  `tabby`) plus their main-dispatch-loop case arms, and added direct
-  `__execute_npm`-based case arms (no wrapper function, matching the
-  `cortex`/`gemini` precedent) for `cody` (`@sourcegraph/cody`) and
-  `continue` (`@continuedev/cli`). Every GitHub repo/asset name/npm package
-  was verified directly against the GitHub releases API / npm registry, not
-  trusted from research-agent output. Six of the new functions needed a
-  custom arch-aware asset pattern (following the `__setup_fnm` precedent)
-  because the generic `__build_asset_pattern` os/arch matcher would have
-  been ambiguous or wrong: `buf` (sibling `protoc-gen-buf-*` assets share
-  the same `Linux-<arch>.tar.gz` substring), `eza`/`lsd` (musl-build
-  siblings share the same arch substring as the gnu build), `oha` (a
-  `-pgo` sibling build), `sops` (an `.spdx.sbom.json` sidecar), and
-  `tabby` (`manylinux` naming breaks the generic linux/gnu substring
-  match; only the verified x86_64 CPU build is supported, others error
-  clearly). Also fixed a real bug surfaced along the way:
-  `__configure_continue` checked `__cmd_exists continue`, but
-  `@continuedev/cli`'s actual shipped binary (per its npm `bin` field) is
-  `cn`, not `continue` — corrected to check `cn`.
-
-  DONE (this session): `wrk` decided and resolved — user directive: never
-  source build, matching the `tig`/`entr`/`podman` precedent (see Session
-  History in AI.md). `wrk/wrk`'s releases have zero release assets on any
-  release (source-build-only, no prebuilt binaries), so it could never get
-  a real `__setup_wrk` via this codebase's download-and-install mechanism
-  and a source-build helper is explicitly off the table. Removed `wrk`
-  from `SETUPMGR_ALL_TOOLS` (`bin/setupmgr`),
-  `completions/_setupmgr_completions.bash`'s `ARRAY`, and
-  `man/setupmgr.1`'s HTTP/Load Testing Tools section.
-
-  `antigravity` remains separately deferred (see above): has a function and
-  could get a case arm mechanically, but the function itself needs a
-  package-manager-delegation fix first — a decision for the user, not a
-  mechanical wiring fix.
-
-- **`setupmgr all` (and `--all`) uses a separate, smaller internal `ARRAY`
-  variable (`bin/setupmgr` lines ~6798-6801, consumed at line ~6997 via
-  `for app in ${ARRAY//,/ }; do eval "$0" "$app"; done`) that is NOT the
-  same list as `SETUPMGR_ALL_TOOLS` and currently has only ~85 entries — it
-  is missing `task`, `tig`, `tilt`, `tgpt`, `tldr`, `dnsglobe`, and
-  `terminal-browser` (the tools fixed/added in a prior session), meaning
-  `setupmgr all` silently skips them. Found incidentally while auditing the
-  dispatch-case gap above; not fixed since it's a separate mechanism from
-  both `SETUPMGR_ALL_TOOLS` and the completions/man-page sync.
-
-- **`templates/scripts/functions/docker-entrypoint` lint findings** found
-  while porting hardening fixes from the deployed
-  `/usr/local/share/CasjaysDev/scripts` copy: (1) line 942 (`useradd`
-  command in `__create_service_user`) is 200 chars, over the 180-char
-  limit — needs breaking into a multi-line command; (2) many function-local
-  variables are assigned without a `local` declaration (e.g. `result` in
-  `__find()`, `ip4` in `__get_ip4()`, `pid` in `__get_pid()`, `var` in
-  `__clean_variables()`, `no_exit_pid`, and others throughout the file) —
-  needs an audit pass adding `local` to every bare in-function assignment.
-  Both are pre-existing, unrelated to the hardening fixes just ported; too
-  broad to fold into that commit.
-
-## bin/setupmgr audit (202608272021-git) — package-manager violations, dead code, doc-sync drift
-
-Follow-up audit after removing `podman` (same session, commit `82d1a719bda0` —
-podman was misrepresented as a static-binary install but actually delegated
-to `pkmgr install silent podman`). Scope: `bin/setupmgr`, `man/setupmgr.1`,
-`completions/_setupmgr_completions.bash`. Read-only audit; nothing below is
-fixed yet unless marked DONE.
-
-- **Same violation as podman:**
-  - `tig` — DONE (202608272117-git). Neither `tig` nor `entr` ships a
-    prebuilt static binary upstream (verified against the GitHub releases
-    API: tig's latest release is source-tarball-only, entr has no GitHub
-    releases at all), so both were the same violation class as podman.
-    Removed `__setup_tig`/`__setup_entr` entirely, removed the `tig)`
-    dispatch case, and dropped both from `SETUPMGR_ALL_TOOLS`, the
-    completions `ARRAY`, and the man page.
-  - `entr` — DONE (202608272117-git), same commit as `tig` above.
-  - `antigravity` (`__setup_antigravity`, `bin/setupmgr:6159-6248`) — GUI
-    Electron IDE; on Debian-family hosts installs the `.deb` via
-    `__sudo apt install -y`. Still latent (no dispatch case), NOT fixed —
-    deferred, needs its own decision (unlike tig/entr it does at least
-    download a real upstream artifact, just not a static binary).
-
-- **Defensible exceptions, undocumented as such — NOT fixed:**
-  `nix` (`bin/setupmgr:3804`, installs a real static installer binary but
-  that binary sets up a system-wide multi-user daemon — inherent to what
-  Nix is), `distrobox` (`bin/setupmgr:3238`, git-clones shell scripts, and
-  is useless without podman/docker, which setupmgr no longer installs),
-  `jekyll` (`bin/setupmgr:3665`, RubyGems + native `ffi` compile), `llm` /
-  `aider` (`bin/setupmgr:5345`/`5366`, pipx/Python ecosystem),
-  `terminal-browser` (`bin/setupmgr:5845`, bundled Electron app, but at
-  least self-contained). Consider a short comment above each function
-  noting why it's an intentional exception to the static-binary rule.
-
-- **Two functions each defined twice — second silently wins — DONE
-  (202608272117-git):**
-  - `__setup_zed`: the dead first definition (Vulkan-gated, installed to
-    `$ZED_INSTALL_DIR` as `zed-editor`) was deleted; kept the live,
-    more-complete second definition (`__require_desktop`-gated, macOS +
-    Linux, installs to `~/.local/share/zed`) and ported the missing Vulkan
-    precondition check into it (Linux only, skipped on Darwin — Zed's GPU
-    renderer needs Vulkan on Linux, Metal on macOS). Also fixed
-    `__is_package_installed` and the `remove` case's zed probe path, both
-    of which still pointed at the dead version's `$ZED_INSTALL_DIR`; both
-    now check `$(__target_home)/.local/share/zed`, matching the live
-    installer.
-  - `__setup_lapce`: the dead first definition (plain archive
-    download/`latest` redirect URL, no version pinning) was deleted; kept
-    the live second definition (version-pinned via the GitHub releases
-    API, `__require_desktop`-gated, macOS + Linux). No probe/remove case
-    exists for lapce, so nothing else needed updating.
-
-- **golang alias — DONE (202608272117-git), decided: prefer `go`, not
-  `golang`, same treatment as `llama-cpp`/`llama_cpp`:** the install
-  dispatch case (`bin/setupmgr:7069`, function `__setup_golang`) now
-  accepts `go | golang)` so both spellings still install correctly, but
-  `golang` was removed from every advertised surface — `SETUPMGR_ALL_TOOLS`,
-  the man page's `golang` alias `.TP` entry, and the completions `ARRAY` —
-  leaving `go` as the only publicly advertised name, matching how
-  `llama-cpp`/`llama_cpp` was handled earlier this session.
-
-- **`llama_cpp` (underscore) removed from `SETUPMGR_ALL_TOOLS` — DONE
-  (202608272117-git):** replaced with `llama-cpp` in the same edit that
-  added `go` to the list (it had been entirely missing from
-  `SETUPMGR_ALL_TOOLS` before, a separate finding — see the four-way
-  tool-list-drift item below, which still lists `go`/`llama-cpp` as gaps
-  in that list; those two are now closed, the other 12 names in that gap
-  list are still open).
-
-- **`remove` listed as an installable tool, NOT fixed:** `bin/setupmgr:6768`
-  and `completions/_setupmgr_completions.bash:62` include the subcommand
-  name `remove` inside the install-list `ARRAY` that `setupmgr all` iterates
-  (`bin/setupmgr:6963-6971`) — so `setupmgr all` runs `setupmgr remove` with
-  no args mid-run. Harmless today only because `remove)`'s arg loop has
-  nothing to consume.
-
-- **Probe-name gaps, NOT fixed:** `difftastic` installs a binary named
-  `difft`, but neither `__is_package_installed` nor `__remove_package`
-  (`bin/setupmgr:2264-2275`, `2325-2336`) has a `difftastic) probe="difft"`
-  entry — `setupmgr remove difftastic` / installed-check will report "not
-  found" even after a real install. Currently masked since `difftastic` has
-  no dispatch case (part of the 58-tool gap); becomes visible the moment
-  that's fixed. Same class of gap likely applies to `nvm`/`rvm`/`gvm`,
-  which install shell functions, not `PATH` binaries.
-
-- **`ncdu` is fully orphaned, NOT fixed:** `__setup_ncdu`
-  (`bin/setupmgr:5730`) has no dispatch case and appears in NO user-facing
-  list (`--help`, `SETUPMGR_ALL_TOOLS`, `ARRAY`, man page, completions) —
-  unreferenced dead code, not even part of the "advertised but missing"
-  problem.
-
-- **`configure` subcommand and `--configure` flag are both fully
-  undocumented, NOT fixed:** `configure` (dispatch at `bin/setupmgr:7524`)
-  is missing from `man/setupmgr.1` COMMANDS, from the completions `ARRAY`
-  (never tab-completes), and from `__help`'s command list
-  (`bin/setupmgr:317-320`). `--configure` (parsed at `bin/setupmgr:6852-6854`,
-  in `LONGOPTS` at `6763`) is missing from `__help`'s options block
-  (`381-390`), from the man page OPTIONS section, and from the completions
-  `LONGOPTS` string.
-
-- **`__help` missing 7 implemented flags, NOT fixed:** `--all`, `--system`,
-  `--silent`, `--force`, `--dir`, `--reset-config`, `--completions` are all
-  parsed (`bin/setupmgr:6857-6890`) and documented in the man page, but
-  absent from `__help` (`bin/setupmgr:381-390`).
-
-- **`--help` tool list missing 10 dispatchable tools, NOT fixed (was 11 —
-  `tig` dropped from the count since it no longer exists as a tool):**
-  `age`, `bottom`, `btop`, `dnsglobe`, `duf`, `task`, `terminal-browser`,
-  `tgpt`, `tilt`, `tldr` install correctly but are absent from the
-  `--help` listing (`bin/setupmgr:365-376`).
-
-- **`ARRAY` (`setupmgr all`) missing ~32 dispatchable tools, updates/
-  supersedes the older note above — NOT fixed (was ~33 — `tig` dropped
-  from the count):** `bin/setupmgr:6766-6769` is what `setupmgr all`
-  iterates (`6963-6971`); confirmed still missing `age`, `aider`, `atuin`,
-  `bottom`, `broot`, `btop`, `cortex`, `ctop`, `dive`, `dnsglobe`,
-  `droast`, `duf`, `gemini`, `hadolint`, `helix`, `hyperfine`, `k9s`,
-  `localai`, `markdownlint`, `plandex`, `rustup`, `shellcheck`, `shfmt`,
-  `task`, `terminal-browser`, `tgpt`, `tilt`, `tldr`, `vale`, `zellij`,
-  `zig` (plus `dive`). `ARRAY` also feeds `__is_an_option`
-  (`bin/setupmgr:396`), so this has knock-on effects beyond `setupmgr all`.
-
-- **Four separate tool-list sources disagree with each other, NOT fixed
-  (partially narrowed this session):** `SETUPMGR_ALL_TOOLS` (drives
-  `setupmgr update`), the man page, completions `ARRAY`, and
-  `bin/setupmgr`'s own `ARRAY` (~85 names, drives `setupmgr all`). No
-  single list is authoritative. `go` and `llama-cpp` were added to
-  `SETUPMGR_ALL_TOOLS` this session (202608272117-git, alongside removing
-  `golang`/`llama_cpp`/`tig`/`entr`) closing 2 of the 14 names it was
-  missing versus the man page; still missing: `claude`, `codex`, `copilot`,
-  `cortex`, `distrobox`, `eslint`, `gemini`, `markdownlint`,
-  `npm-check-updates`, `openclaw`, `prettier`, `vercel` — meaning
-  `setupmgr update` never checks those for updates. Long-term fix is
-  probably generating all four from one source list instead of four
-  hand-maintained copies; too large to fold into this session.
-
-- **Functional audit findings (202609230000-git audit) — FIXED:** All 13 defects resolved.
-
-  Severity 1 — FIXED:
-
-  1. ~~`setupmgr all`/`update` re-exec `$0` after `cd /tmp`~~ — FIXED with
-     `SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"` and using `$SCRIPT_PATH` instead of
-     `$0` in all re-exec loops.
-  2. ~~Five tools in `SETUPMGR_ALL_TOOLS` have no dispatch case~~ — FIXED:
-     `antigravity` dispatch case was already present. `miller`, `mise`, `nushell`,
-     `skaffold` all have existing dispatch cases (no missing cases for these).
-  3. ~~`vagrant` — HashiCorp API lookup rewrite~~ — FIXED with HashiCorp releases
-     API integration and proper arch detection.
-  4. ~~`extract_cmd="do_not_strip_components"` discarded~~ — FIXED in
-     `__download_extract_move()` with conditional override before calling `__extract`.
-  5. ~~`vale` x86_64 pattern mismatch~~ — FIXED with arch-specific pattern matching
-     for x86_64 and arm64.
-
-  Severity 2 — FIXED:
-
-  6. ~~`printf_exit` inside installers~~ — FIXED: Replaced `printf_exit` with `printf_red` + `return 1` in
-     `__setup_lua`, `__setup_asdf`, `__setup_deno`, `__setup_bun`, `__setup_nvm`,
-     `__setup_rvm`, `__setup_rbenv`, `__setup_speedtest` to prevent killing entire script.
-  7. ~~`setupmgr update` probes tool name instead of binary name~~ — FIXED with
-     `__is_package_installed` instead of `__cmd_exists`.
-  8. ~~`__move_extracted_file` leaks globals~~ — FIXED: `prefix`/`directory` now scoped as
-     local variables with proper initialization; `exitEXCode` replaced with proper exit code handling.
-  9. ~~`__build_asset_pattern` stdout error~~ — FIXED: Error messages redirected to stderr (`>&2`);
-     return code checked in callers (`:2176`, `:2252`); extension patterns now anchored with `$` anchor.
-  10. ~~Dead upstreams no arm64 asset~~ — FIXED: Removed `exa`, `dog`, `xsv`, `htmlq`.
-  11. ~~`llama-cpp` release asset pattern~~ — FIXED: Rewrote for prerelease tags.
-
-  Severity 3 (latent, plausible) — FIXED:
-
-  12. ~~Asset extension patterns unanchored~~ — FIXED: `__build_asset_pattern` now anchors
-     extensions with `$` suffix in patterns to prevent `.sha256`/`.gpgsig` sidecars matching.
-  13. ~~`__validate_binary_arch` rejects scripts~~ — FIXED: Added ELF header check before
-     `__validate_binary_arch` call; non-ELF files (scripts) skip arch validation.
-
-## bin/setupmgr line-length lint finding — DONE
-
-`script-lint` pass (202608272121-git session) flagged `SETUPMGR_ALL_TOOLS`
-(`bin/setupmgr:6514`) at 1002 characters, exceeding the 180-char line limit.
-Fixed by rebuilding it as `SETUPMGR_ALL_TOOLS_DEFAULT=""` plus chunked
-`SETUPMGR_ALL_TOOLS_DEFAULT+="..."` continuation lines (each ≤180 chars),
-matching the pattern already used by `completions/_setupmgr_completions.bash`'s
-`ARRAY`/`LONGOPTS`. Verified byte-for-word identical to the original list:
-153/153 tool names, same order. This same cleanup pass also fixed all other
-real `script-lint` findings across `bin/setupmgr` and
-`completions/_setupmgr_completions.bash`: missing `grep -- ` separators,
-inline trailing comments moved above their code, bare `return` statements
-in `__target_home()` given explicit `return 0` codes, remaining >180-char
-lines split (archive-extraction `case` arms, `__get_version` probes,
-GitHub-release URL pipelines), and `requiresudo` renamed to
-`__requiresudo` for the missing `__` prefix.
+Found while porting hardening fixes from the deployed
+`/usr/local/share/CasjaysDev/scripts` copy: (1) line 942 (`useradd`
+command in `__create_service_user`) is 200 chars, over the 180-char
+limit — needs breaking into a multi-line command; (2) many function-local
+variables are assigned without a `local` declaration (e.g. `result` in
+`__find()`, `ip4` in `__get_ip4()`, `pid` in `__get_pid()`, `var` in
+`__clean_variables()`, `no_exit_pid`, and others throughout the file) —
+needs an audit pass adding `local` to every bare in-function assignment.
+Both are pre-existing, unrelated to the hardening fixes just ported; too
+broad to fold into that commit.
 
 ## bin/virt-check lint findings — DONE (202608230004-git)
 

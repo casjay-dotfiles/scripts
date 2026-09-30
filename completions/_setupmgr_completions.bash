@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609241759-git
+##@Version           :  202609301221-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -53,8 +53,19 @@ _setupmgr() {
   #####################################################################
   LONGOPTS="--completions --config --reset-config --configure --debug --dir --help --options --color --no-color --version --silent --force --system --all "
   #####################################################################
-  ARRAY="9router act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign crush charm ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dnsglobe dotnet droast dua duf dust earthly evans eza fabric fastfetch fd fnm fx fzf garage gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron grpcurl grype gvm hadolint helix helm httpie hyperfine incus jekyll jless jnv jq just k6 k9s kimchi kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua mc miller minikube mise mods nix nodejs nushell nvm oha ollama opencode opentofu packer pi pipx plandex powershell procs rbenv ripgrep ruff rustfs rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tilt tldr tokei traefik trivy trufflehog uv vagrant vale vegeta vfox viddy watchexec webhookd xcaddy xh yq zed zellij zig zoxide"
-  ARRAY+="remove all system update"
+  ARRAY=""
+  ARRAY+="9router act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun "
+  ARRAY+="caddy charm claude cody codex coder continue copilot cortex cosign crush ctlptl ctop curlie dasel delta deno "
+  ARRAY+="devbox difftastic direnv distrobox dive dnsglobe dotnet droast dua duf dust earthly eslint evans eza fabric "
+  ARRAY+="fastfetch fd fnm fx fzf garage gemini gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron "
+  ARRAY+="grpcurl grype gvm hadolint helix helm httpie hyperfine incus jekyll jless jnv jq just k6 k9s kimchi kind "
+  ARRAY+="kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua markdownlint mc "
+  ARRAY+="miller minikube mise mods nix nodejs npm-check-updates nushell nvm oha ollama opencode openclaw opentofu "
+  ARRAY+="packer pi pipx plandex powershell prettier procs rbenv ripgrep ruff rustfs rustup rvm sd shellcheck shfmt "
+  ARRAY+="skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tilt tldr tokei traefik "
+  ARRAY+="trivy trufflehog uv vagrant vale vegeta vercel vfox viddy watchexec webhookd xcaddy xh yq zed zellij zig "
+  ARRAY+="zoxide"
+  ARRAY+=" remove all system update"
   #####################################################################
   LIST=""
   LIST+=""

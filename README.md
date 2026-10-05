@@ -13,6 +13,9 @@ sudo /usr/local/share/CasjaysDev/scripts/install.sh
 sudo systemmgr update scripts
 ```
 
+Set output coloring with `--color auto|yes|no`; the `NO_COLOR` environment
+variable disables colors.
+
 ## Manual install
   
 requires:

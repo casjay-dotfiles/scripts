@@ -36,7 +36,7 @@ _systemmgr() {
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
   local OPTS=""
-  local LONGOPTS="--completions --debug --no-color --options --config --version --help --silent --dir --force --all"
+  local LONGOPTS="--completions --debug --color --options --config --version --help --silent --dir --force --all"
   local SHORTOPTS=""
   local ARRAY="list search available remove update install cron version download"
   local LIST="bind cron grub httpd kvm lightdm logrotate mongodb named nginx postfix redis samba ssh ssl systemd tor"
@@ -67,6 +67,10 @@ _systemmgr() {
     COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
     return
   else
+    if [[ ${prev} == --color ]]; then
+      COMPREPLY=($(compgen -W 'auto yes no' -- "${cur}"))
+      return
+    fi
     case "${COMP_WORDS[1]:-$prev}" in
     --options)
       local prev="--options"

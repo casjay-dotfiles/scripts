@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608311420-git
+##@Version           :  202610042338-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608311420-git"
+VERSION="202610042338-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -41,8 +41,19 @@ export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$
 # Initial debugging
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Disables colorization
-[ "$1" = "--no-color" ] && export SHOW_RAW="true"
+# Resolve color mode before defining output functions.
+SYSTEMMGR_COLOR_MODE="${SYSTEMMGR_COLOR_MODE:-auto}"
+for ((SYSTEMMGR_ARG_INDEX = 1; SYSTEMMGR_ARG_INDEX <= $#; SYSTEMMGR_ARG_INDEX++)); do
+  SYSTEMMGR_ARG_VALUE="${!SYSTEMMGR_ARG_INDEX}"
+  case "$SYSTEMMGR_ARG_VALUE" in
+  --color)
+    SYSTEMMGR_NEXT_INDEX=$((SYSTEMMGR_ARG_INDEX + 1))
+    SYSTEMMGR_COLOR_MODE="${!SYSTEMMGR_NEXT_INDEX:-auto}"
+    ;;
+  --color=*) SYSTEMMGR_COLOR_MODE="${SYSTEMMGR_ARG_VALUE#*=}" ;;
+  esac
+done
+[ "$SYSTEMMGR_COLOR_MODE" = "no" ] && export SHOW_RAW="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # pipes fail
 set -o pipefail
@@ -102,7 +113,7 @@ __am_i_online() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
-if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
+if [ -n "${NO_COLOR+x}" ] || [ "$SYSTEMMGR_COLOR_MODE" = "no" ] || { [ "$SYSTEMMGR_COLOR_MODE" = "auto" ] && [ ! -t 1 ]; }; then
   NC=""
   RESET=""
   BLACK=""
@@ -211,6 +222,7 @@ __help() {
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "--debug                                - enable debugging"
+  __printf_line "--color auto|yes|no                   - Control color output"
   __printf_line "--config                               - Generate user config file"
   __printf_line "--version                              - Show script version"
   __printf_line "--help                                 - Shows this message"
@@ -364,7 +376,13 @@ __api_list() {
   local per_page="${SYSTEMMGR_REPO_API_PER_PAGE:-1000}"
   local api_url="${SYSTEMMGR_REPO_API_URL:-https://api.github.com/orgs/$prefix/repos}"
   if __urlcheck "$api_url"; then
-    api_call="$(curl -q -LSsf -H "Accept: application/vnd.github.v3+json" "$api_url?per_page=$per_page" 2>/dev/null | jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -Ev '.github|template|^null$' | grep '^')"
+    api_call="$(
+      curl -q -LSsf --connect-timeout 5 --max-time 30 -H "Accept: application/vnd.github.v3+json" "$api_url?per_page=$per_page" 2>/dev/null |
+        jq '.[].name' 2>/dev/null |
+        sed 's#"##g' |
+        grep -Ev -- '.github|template|^null$' |
+        grep -- '^'
+    )"
     if [ -n "$api_call" ]; then
       printf '%s\n' "$api_call"
     else
@@ -567,7 +585,7 @@ SHORTOPTS="a,f"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,options,config,version,debug,help"
-LONGOPTS+=",force,all,raw"
+LONGOPTS+=",force,all,raw,color:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="download,list,search,available,remove,version,update,install,cron"
 ARRAY+=""
@@ -576,33 +594,20 @@ LIST="bind cron grub httpd kvm lightdm logrotate mongodb named nginx postfix red
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+if [ $? -ne 0 ]; then
+  printf_red "Invalid option"
+  exit 2
+fi
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
-  --no-color)
-    shift 1
-    export SHOW_RAW="true"
-    NC=""
-    RESET=""
-    BLACK=""
-    RED=""
-    GREEN=""
-    YELLOW=""
-    BLUE=""
-    PURPLE=""
-    CYAN=""
-    WHITE=""
-    ORANGE=""
-    LIGHTRED=""
-    BG_GREEN=""
-    BG_RED=""
-    ICON_INFO="[ info ]"
-    ICON_GOOD="[ ok ]"
-    ICON_WARN="[ warn ]"
-    ICON_ERROR="[ error ]"
-    ICON_QUESTION="[ ? ]"
-    printf_column() { tee | grep '^'; }
-    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+  --color)
+    case "$2" in
+    auto|yes|no) SYSTEMMGR_COLOR_MODE="$2" ;;
+    *) printf_red "Invalid color mode: $2"; exit 2 ;;
+    esac
+    [ "$SYSTEMMGR_COLOR_MODE" = "no" ] && export SHOW_RAW="true"
+    shift 2
     ;;
   --debug)
     shift 1

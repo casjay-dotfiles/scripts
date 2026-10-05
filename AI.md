@@ -346,7 +346,7 @@ Use standard POSIX and sysexits codes — never invent custom schemes.
 | `--help` | `-h` | Print help and exit 0 |
 | `--version` | `-v` | Print version and exit 0 |
 | `--debug` | *(none)* | Enable debug output |
-| `--no-color` | *(none)* | Disable color output |
+| `--color` | *(none)* | `auto` (default) / `yes` / `no` — detect TTY, force color, or disable color |
 | `--silent` | *(none)* | Suppress non-error output |
 | `--config` | *(none)* | Generate user config file |
 | `--options` | *(none)* | List all available options |
@@ -357,7 +357,7 @@ Use standard POSIX and sysexits codes — never invent custom schemes.
 ### Argument parsing — bash getopt pattern
 
 ```bash
-LONGOPTS="completions:,config,debug,dir:,help,options,no-color,version,silent"
+LONGOPTS="completions:,config,debug,dir:,help,options,color:,version,silent"
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
@@ -365,7 +365,7 @@ while :; do
   --help)     shift 1; __help; exit $? ;;
   --version)  shift 1; __version; exit $? ;;
   --debug)    shift 1; set -xo pipefail; export SCRIPT_OPTS="--debug" ;;
-  --no-color) shift 1; export SHOW_RAW="true"; ... ;;
+  --color)   case "$2" in auto|yes|no) COLOR_MODE="$2" ;; *) printf_exit "Invalid color mode" 64 ;; esac; shift 2 ;;
   --dir)      CWD_IS_SET="TRUE"; APPNAME_CWD="$2"; shift 2 ;;
   --)         shift 1; break ;;
   esac
@@ -449,7 +449,7 @@ fi
 
 **Established exception:** the `printf_color` function in existing scripts calls `tput setaf`/`tput sgr0` — this is accepted template boilerplate and is not changed in migration. Do not introduce new ad-hoc `tput` calls outside of `printf_color`.
 
-Color/cursor sequences must be suppressed when `NO_COLOR` is set or `--no-color` is passed.
+Color/cursor sequences must be suppressed when `NO_COLOR` is set or `--color no` is passed. `--color auto` follows terminal capability; `--color yes` forces color unless `NO_COLOR` is set.
 
 ### TUI alt buffer
 
@@ -500,7 +500,7 @@ The project is moving away from the sourced external functions file.
 ### Colorization block — both branches required
 
 The colorization `if/else` block must define `printf_column` in **both** branches:
-- no-color branch: `printf_column() { tee | grep -- '^'; }`
+- color-disabled branch: `printf_column() { tee | grep -- '^'; }`
 - color branch: `printf_column() { column -t 2>/dev/null; }`
 
 Corrected sed ANSI-stripping regex (no spurious space after `[`):
@@ -536,11 +536,10 @@ Additional as needed: `printf_custom` (urldecode/urlencode), `printf_read_questi
 
 ## Color & NO_COLOR
 
-- `--no-color` flag sets `SHOW_RAW="true"` internally
-- `NO_COLOR` env var: `[ -n "${NO_COLOR+x}" ]` — handles set-to-empty correctly
-- Colorization block: `if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then`
-- Early argv check (before getopt): `[ "$1" = "--no-color" ] && export SHOW_RAW="true"`
-- `--no-color` case in the getopt while loop also redefines `printf_column` and `printf_color`
+- Use `--color auto|yes|no`; `auto` is the default, `yes` forces color, and `no` disables color and emojis.
+- `NO_COLOR` disables color regardless of the selected `--color` mode. Check whether it is set with `[ -n "${NO_COLOR+x}" ]` so set-to-empty is honored.
+- Determine the color mode before defining output functions, then configure `printf_color` and `printf_column` for the selected mode.
+- `--no-color` is not a supported flag; use `--color no`.
 
 ---
 
@@ -643,7 +642,7 @@ Decisions and conventions established — not a work log.
 - **2026-04**: UUOC applied to templates/ (bash-only; sh/fish/zsh skipped)
 - **2026-04**: All completions renamed to `.bash` extension
 - **2026-05**: `__sleep` must use `sleep N` (read -t is a no-op on EOF)
-- **2026-05**: `--raw` (color flag) renamed to `--no-color` everywhere; `NO_COLOR` env var support added
+- **2026-05**: `--raw` (color flag) renamed to `--no-color` everywhere; `NO_COLOR` env var support added. Superseded by the global `--color auto|yes|no` convention in 2026-10.
 - **2026-05**: Shellcheck disable: single combined line, full canonical SC set
 - **2026-05**: `gitcommit --dir {dir} all` — COMMIT_MESS presence triggers stage-all; `--dir` + absolute path required
 - **2026-05**: gen-header structural update: 4 header fields restored (@@Other, @@Resource, @@Terminal App, @@sudo/root); boilerplate aligned to bash/system template

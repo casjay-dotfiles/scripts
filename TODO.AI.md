@@ -1,5 +1,18 @@
 # TODO.AI.md
 
+## bin/systemmgr: pre-existing script-lint findings — NOT fixed
+
+The script-lint pass for the color-option and API-timeout changes found 16
+pre-existing issues, with zero new issues:
+
+- `printf_column` and `printf_color` lack the project-required `__` prefix.
+- Thirteen `grep` calls at lines 111, 195, 239, 254, 265, 399 (two), 401,
+  428 (two), 450, and 496 lack `--` before the search expression.
+- Line 772 uses bare `exit` without an explicit status.
+
+These were not changed because they are unrelated to the option-parser and
+API-timeout fixes.
+
 ## functions/global/pkgs.bash — 6 pre-existing lint findings, not fixed
 
 script-lint agent found these while reviewing the pip/perl detection fix

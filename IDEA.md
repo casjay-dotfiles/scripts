@@ -11,7 +11,7 @@ A curated collection of bash scripts for system administration, development
 tooling, and personal automation. Scripts are self-contained, portable across
 Linux distributions, and installable as a dotfiles suite. Every script follows
 a consistent header format, UX conventions (--help, --version, --debug,
---no-color), and documentation triple (inline help, man page, bash completion).
+--color auto|yes|no), and documentation triple (inline help, man page, bash completion).
 
 ---
 
@@ -36,7 +36,7 @@ repo:           https://github.com/casjay-dotfiles/scripts
 
 - One script per concern — no monolithic tools
 - Self-contained: no runtime deps beyond bash 4+ and standard POSIX utilities
-- Consistent UX: every script supports `--help`, `--version`, `--debug`, `--no-color`
+- Consistent UX: every script supports `--help`, `--version`, `--debug`, and `--color auto|yes|no`
 - `NO_COLOR` env var honored per no-color.org spec
 - Portable across `linux/amd64`, `linux/arm64`, `linux/arm` (armv7l)
 - Installable system-wide or per-user via `install.sh`

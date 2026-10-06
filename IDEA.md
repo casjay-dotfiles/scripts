@@ -85,6 +85,7 @@ containers/     Dockerfiles + docker-compose.yml for distro testing
 - `randomwallpaper` — rotating desktop wallpaper daemon
 - `tmux-new` — tmux session/window launcher with config templates
 - `zellij-new` — zellij session launcher
+- `herdr-new` — herdr session launcher with environment presets (sessions, workspaces, tabs, pane commands)
 - `notifications` — desktop notification helper
 
 **Utilities**

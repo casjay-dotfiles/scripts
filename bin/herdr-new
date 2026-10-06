@@ -1,0 +1,379 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202610061700-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  herdr-new --help
+# @@Copyright        :  Copyright: (c) 2026 Jason Hempstead, Casjays Developments
+# @@Created          :  Monday, Oct 06, 2026 17:00 EDT
+# @@File             :  herdr-new
+# @@Description      :  Create and attach named herdr sessions from environment presets
+# @@Changelog        :  Initial version, ported from tmux-new onto herdr session/tab/pane commands
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="${0##*/}"
+VERSION="202610061700-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+HERDR_NEW_CONFIG_DIR="${HERDR_NEW_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr}"
+HERDR_NEW_CONFIG_FILE="$HERDR_NEW_CONFIG_DIR/config.toml"
+HERDR_NEW_LOG_DIR="${HERDR_NEW_LOG_DIR:-$HOME/.local/log/herdr-new}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# See if the executable exists
+__cmd_exists() {
+  local exitCode=0
+  [ -n "$1" ] || return 0
+  for cmd in "$@"; do
+    if builtin command -v "$cmd" &>/dev/null; then
+      exitCode=$((exitCode + 0))
+    else
+      exitCode=$((exitCode + 1))
+    fi
+  done
+  [ $exitCode -eq 0 ] || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep -- '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_column() { tee | column -t; }
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color printf functions
+printf_blue() { printf_color "$1\n" 4; }
+printf_cyan() { printf_color "$1\n" 6; }
+printf_green() { printf_color "$1\n" 2; }
+printf_yellow() { printf_color "$1\n" 3; }
+printf_red() { printf_color "$1\n" 1; }
+printf_purple() { printf_color "$1\n" 5; }
+printf_exit() { printf_red "$1" && exit ${2:-1}; }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "herdr-new:  Create and attach named herdr sessions - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: herdr-new [options] [preset|command] [tab:command ...]"
+  __printf_line "Sessions:"
+  __printf_line "herdr-new <preset> [tab:command ...]    - create (or attach) a session from a preset"
+  __printf_line "herdr-new --name <name> <preset>        - override the auto-derived session name"
+  __printf_line "herdr-new list                          - list sessions"
+  __printf_line "herdr-new attach <session>              - attach to a running or stopped session"
+  __printf_line "herdr-new show                          - list sessions with their attach commands"
+  __printf_line "herdr-new status                        - show herdr server status"
+  __printf_line "herdr-new kill <session>                - stop and delete a session"
+  __printf_line "herdr-new kill all                      - stop every running session"
+  __printf_line "herdr-new kill workspace <session> <id> - close a workspace in a session"
+  __printf_line "herdr-new kill tab <session> <id>       - close a tab in a session"
+  __printf_line "herdr-new kill pane <session> <id>      - close a pane in a session"
+  __printf_line ""
+  __printf_line "Presets:"
+  __printf_line "single shell ai dev go rust python node bun deno devops monitoring"
+  __printf_line "database build test default"
+  __printf_line ""
+  __printf_line "Configuration:"
+  __printf_line "herdr-new config check                  - validate config.toml"
+  __printf_line "herdr-new config create                 - write herdr's default config.toml if missing"
+  __printf_line "herdr-new config edit                   - edit config.toml"
+  __printf_line "herdr-new config reload [session]       - reload config in a running server"
+  __printf_line "herdr-new config reset-keys             - back up config.toml and remove custom keybindings"
+  __printf_line ""
+  __printf_line "Exec Commands:"
+  __printf_line "herdr-new --exec git [path]             - git status for repo at [path]"
+  __printf_line "herdr-new --exec uptime                 - show system uptime"
+  __printf_line "herdr-new --exec weather [width]        - show weather"
+  __printf_line "herdr-new --exec keybindings            - show configured herdr keybindings"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                                 - Shows this message"
+  __printf_line "--version                              - Show script version"
+  __printf_line "--debug                                - Enables script debugging"
+  __printf_line "--no-color                             - Disable ANSI color output"
+  __printf_line "--name <session-name>                  - override the auto-derived session name"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Session name from the preset and the current directory, limited to characters herdr accepts
+__session_name() {
+  local raw="$1"
+  raw="${raw//[^A-Za-z0-9_-]/-}"
+  printf '%s' "$raw"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run herdr against one session, or against the default session when no name is given
+__herdr() {
+  local session="$1"
+  shift 1
+  if [ -n "$session" ]; then
+    herdr --session "$session" "$@"
+  else
+    herdr "$@"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# True when the named session has a running server
+__session_running() {
+  __herdr "" session list --json 2>/dev/null | jq -e --arg n "$1" '.sessions[] | select(.name == $n and .running == true)' &>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Start a headless server for the session, then wait until it reports running
+__session_start() {
+  local name="$1"
+  [ -d "$HERDR_NEW_LOG_DIR" ] || mkdir -p "$HERDR_NEW_LOG_DIR"
+  __herdr "$name" server >"$HERDR_NEW_LOG_DIR/$name.log" 2>&1 &
+  local tries=0
+  while [ $tries -lt 40 ]; do
+    __session_running "$name" && return 0
+    sleep 0.25
+    tries=$((tries + 1))
+  done
+  printf_red "herdr session $name did not start, see $HERDR_NEW_LOG_DIR/$name.log"
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Window definitions for each preset, one "tab:command" per line.
+# The command $SHELL means "leave the tab at its shell prompt".
+__preset_windows() {
+  case "$1" in
+  single | shell) printf '%s\n' "main:$SHELL" ;;
+  ai) printf '%s\n' "ai:$SHELL" ;;
+  dev) printf '%s\n' "dev:$SHELL" "editor:$SHELL" "logging:$SHELL" "server:$SHELL" ;;
+  go) printf '%s\n' "main:go run ." "test:go test ./..." "mod:go mod tidy" "editor:$SHELL" "docs:go doc" ;;
+  rust) printf '%s\n' "build:cargo build" "run:cargo run" "test:cargo test" "editor:$SHELL" "clippy:cargo clippy" "fmt:cargo fmt" ;;
+  python) printf '%s\n' "main:python main.py" "test:python -m pytest" "venv:python -m venv venv && source venv/bin/activate" "editor:$SHELL" "jupyter:jupyter notebook" ;;
+  node) printf '%s\n' "devel:$SHELL" "editor:$SHELL" "client:$SHELL" "server:$SHELL" "database:$SHELL" ;;
+  bun | deno) printf '%s\n' "devel:$SHELL" "editor:$SHELL" "server:$SHELL" "database:$SHELL" ;;
+  devops) printf '%s\n' "kubectl:kubectl get pods" "docker:docker ps" "terraform:terraform plan" "ansible:$SHELL" ;;
+  monitoring) printf '%s\n' "htop:htop" "logs:journalctl -f" "docker:docker stats" "network:watch ss -tuln" "disk:watch df -h" ;;
+  database) printf '%s\n' "mysql:mysql -u root" "postgres:psql" "redis:redis-cli" "mongo:mongosh" "editor:$SHELL" ;;
+  build) printf '%s\n' "build:$SHELL" "edit:$SHELL" "test:$SHELL" "log:$SHELL" ;;
+  test) printf '%s\n' "1:$SHELL" "2:$SHELL" ;;
+  default) printf '%s\n' "1:$SHELL" "2:$SHELL" "3:$SHELL" ;;
+  *) return 1 ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create a workspace and one tab per window, running each window's command in its pane
+__session_build() {
+  local name="$1" spec="" tab_label="" cmd="" pane_id="" tab_id="" ws_id="" first=1
+  local cwd="$PWD"
+  shift 1
+  local out
+  out="$(__herdr "$name" workspace create --cwd "$cwd" --label "$name" --no-focus 2>/dev/null)" || return 1
+  ws_id="$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty')"
+  pane_id="$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty')"
+  tab_id="$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty')"
+  [ -n "$ws_id" ] && [ -n "$pane_id" ] || { printf_red "Could not create workspace in $name"; return 1; }
+  for spec in "$@"; do
+    tab_label="${spec%%:*}"
+    cmd="${spec#*:}"
+    if [ "$first" -eq 1 ]; then
+      first=0
+      __herdr "$name" tab rename "$tab_id" "$tab_label" &>/dev/null
+    else
+      out="$(__herdr "$name" tab create --workspace "$ws_id" --cwd "$cwd" --label "$tab_label" --no-focus 2>/dev/null)" || continue
+      pane_id="$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty')"
+    fi
+    [ -n "$pane_id" ] || continue
+    [ "$cmd" = "$SHELL" ] || __herdr "$name" pane run "$pane_id" "$cmd" &>/dev/null
+  done
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Attach the user's terminal to a session
+__session_attach() {
+  local name="$1"
+  if [ -t 0 ] && [ -t 1 ]; then
+    __herdr "" session attach "$name"
+  else
+    printf_yellow "Session $name is ready. Attach with: $APPNAME attach $name"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Preset entry point: reuse a running session, otherwise build one from the preset
+__launch() {
+  local preset="$1" name="" tabs=() spec
+  shift 1
+  name="${HERDR_NEW_NAME:-$(__session_name "$preset-${PWD##*/}")}"
+  if __session_running "$name"; then
+    printf_cyan "Session $name is already running"
+    __session_attach "$name"
+    return $?
+  fi
+  printf_green "Starting herdr session $name"
+  __session_start "$name" || return 1
+  # a stopped session that exists already has its layout persisted by herdr
+  if [ "$(__herdr "$name" workspace list 2>/dev/null | jq -r '.result.workspaces | length' 2>/dev/null)" != "0" ]; then
+    __session_attach "$name"
+    return $?
+  fi
+  if [ $# -gt 0 ]; then
+    tabs=("$@")
+  else
+    while IFS= read -r spec; do tabs+=("$spec"); done < <(__preset_windows "$preset")
+  fi
+  __session_build "$name" "${tabs[@]}" || return 1
+  __session_attach "$name"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__config_check() { __herdr "" config check; }
+__config_create() {
+  if [ -f "$HERDR_NEW_CONFIG_FILE" ]; then
+    printf_yellow "$HERDR_NEW_CONFIG_FILE already exists"
+    return 0
+  fi
+  [ -d "$HERDR_NEW_CONFIG_DIR" ] || mkdir -p "$HERDR_NEW_CONFIG_DIR"
+  herdr --default-config >"$HERDR_NEW_CONFIG_FILE" && printf_green "Created $HERDR_NEW_CONFIG_FILE"
+}
+__config_edit() {
+  __config_create || return 1
+  ${EDITOR:-vi} "$HERDR_NEW_CONFIG_FILE"
+}
+__config_reload() { __herdr "$1" server reload-config; }
+__config_reset_keys() { __herdr "" config reset-keys; }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Exec helpers, run inside a pane or from the shell
+__exec_git() {
+  local dir="${1:-$PWD}" topdir="" branch=""
+  topdir="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || { printf_red "$dir is not a git repository"; return 1; }
+  branch="$(git -C "$topdir" symbolic-ref --short HEAD 2>/dev/null)" || branch="$(git -C "$topdir" rev-parse --short HEAD 2>/dev/null)"
+  printf_cyan "Repo: $topdir  Branch: $branch"
+  git -C "$topdir" status --short
+}
+__exec_uptime() { uptime -p 2>/dev/null || uptime; }
+__exec_weather() {
+  local width="${1:-}" weather=""
+  weather="$(curl -q -LSsf -m 2 "https://wttr.in/?u&format=3" 2>/dev/null | sed 's/:/ /g;s/°F/F/g')"
+  [ -n "$weather" ] || { printf_red "Weather unavailable"; return 1; }
+  if [ -n "$width" ]; then printf '%s\n' "$weather" | cut -c1-"$width"; else printf '%s\n' "$weather"; fi
+}
+__exec_keybindings() {
+  if [ -f "$HERDR_NEW_CONFIG_FILE" ]; then
+    sed -n '/^\[keys\]/,/^\[/p' "$HERDR_NEW_CONFIG_FILE" | sed '$d'
+  else
+    herdr --default-config | sed -n '/^\[keys\]/,/^\[/p' | sed '$d'
+  fi
+}
+__exec() {
+  case "$1" in
+  git) shift 1 && __exec_git "$@" ;;
+  uptime) __exec_uptime ;;
+  weather) shift 1 && __exec_weather "$@" ;;
+  keybindings) __exec_keybindings ;;
+  *) printf_exit "Unknown exec command: ${1:-}" 1 ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Kill helpers
+__kill_session() {
+  local name="$1"
+  [ -n "$name" ] || printf_exit "Usage: $APPNAME kill <session>" 1
+  __herdr "$name" server stop &>/dev/null
+  __herdr "" session delete "$name" &>/dev/null
+  printf_green "Killed session $name"
+}
+__kill_all() {
+  local name
+  while IFS= read -r name; do
+    [ -n "$name" ] && __herdr "$name" server stop &>/dev/null && printf_green "Stopped session $name"
+  done < <(__herdr "" session list --json 2>/dev/null | jq -r '.sessions[] | select(.running == true) | .name')
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Parse arguments
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on" && shift 1
+[ "$1" = "--no-color" ] && export SHOW_RAW="true" && shift 1
+[ "$1" = "--help" ] && __help && exit 0
+[ "$1" = "--version" ] && __version && exit 0
+if [ "$1" = "--name" ]; then
+  HERDR_NEW_NAME="$(__session_name "$2")"
+  shift 2
+fi
+__cmd_exists herdr || printf_exit "herdr is not installed" 3
+__cmd_exists jq || printf_exit "jq is required" 3
+# pipes fail
+set -o pipefail
+case "${1:-}" in
+"") __help ;;
+list) shift 1 && __herdr "" session list ;;
+show) shift 1 && __herdr "" session list ;;
+attach) shift 1 && __session_attach "${1:?Usage: $APPNAME attach <session>}" ;;
+status) shift 1 && __herdr "" status ;;
+kill)
+  shift 1
+  case "${1:-}" in
+  all) shift 1 && __kill_all ;;
+  workspace) shift 1 && __herdr "$1" workspace close "$2" ;;
+  tab) shift 1 && __herdr "$1" tab close "$2" ;;
+  pane) shift 1 && __herdr "$1" pane close "$2" ;;
+  *) __kill_session "${1:-}" ;;
+  esac
+  ;;
+config)
+  shift 1
+  case "${1:-}" in
+  check) __config_check ;;
+  create) __config_create ;;
+  edit) __config_edit ;;
+  reload) shift 1 && __config_reload "${1:-}" ;;
+  reset-keys) __config_reset_keys ;;
+  *) printf_exit "Usage: $APPNAME config [check|create|edit|reload|reset-keys]" 1 ;;
+  esac
+  ;;
+--exec)
+  shift 1
+  __exec "$@"
+  ;;
+*)
+  preset="$1"
+  shift 1
+  if __preset_windows "$preset" >/dev/null; then
+    __launch "$preset" "$@"
+  else
+    printf_exit "Unknown preset or command: $preset" 1
+  fi
+  ;;
+esac
+exit $?
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

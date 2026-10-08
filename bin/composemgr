@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609241943-git
+##@Version           :  202610080907-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Nov 01, 2024 16:56 EDT
 # @@File             :  composemgr
 # @@Description      :
-# @@Changelog        :  Pass project .env to docker compose with --env-file when present
+# @@Changelog        :  Add explicit --migrate for /var/lib/srv/*/composemgr; fix nginx proxy filename detection
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329,SC2063
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202609241943-git"
+VERSION="202610080907-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -344,6 +344,7 @@ __help() {
   __printf_line "--devel                                - Use development run level"
   __printf_line "--silent                               - Suppress output"
   __printf_line "--force                                - Force operations"
+  __printf_line "--migrate                              - Migrate /var/lib/srv/<user>/composemgr to the new base dir"
   __printf_line "--no-env                               - Disable environment loading"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
@@ -1095,12 +1096,15 @@ __generate_nginx_proxy() {
   local exitCode=0
   local nginx_vhost_name="${1:-$BASE_HOST_NAME}"
   local nginx_proxy_url="${2:-$NGINX_PROXY_URL}"
-  local nginx_app_name="$(grep -sh 'container_name' "$COMPOSEMGR_CWD/docker-compose.yaml" | sed "s|.*container_name: ||g;s|\"||g;s|'||g")"
+  # Detect the actual compose file name (compose.yaml, docker-compose.yml, etc.) instead of
+  # assuming docker-compose.yaml, which silently finds nothing on every other naming convention.
+  __get_docker_compose "$COMPOSEMGR_CWD" || return 1
+  local nginx_app_name="$(grep -sh 'container_name' "$COMPOSEMGR_CWD/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME" | sed "s|.*container_name: ||g;s|\"||g;s|'||g")"
   export NGINX_PROXY_URL="$nginx_proxy_url"
   __cmd_exists nginx || printf_exit "The command nginx was not found"
   __cmd_exists gen-nginx || printf_exit "The command gen-nginx was not found"
-  if [ -z "$nginx_proxy_url" ] && [ -f "$COMPOSEMGR_CWD/docker-compose.yaml" ]; then
-    nginx_proxy_url="$(grep -sh 'nginx proxy address' "$COMPOSEMGR_CWD/docker-compose.yaml" | awk -F '-' '{print $2}' | sed 's| ||g')"
+  if [ -z "$nginx_proxy_url" ] && [ -f "$COMPOSEMGR_CWD/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME" ]; then
+    nginx_proxy_url="$(grep -sh 'nginx proxy address' "$COMPOSEMGR_CWD/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME" | awk -F '-' '{print $2}' | sed 's| ||g')"
   fi
   [ -n "$nginx_vhost_name" ] || printf_exit "Can not determine the server address"
   [ -n "$nginx_proxy_url" ] || printf_exit "Can not determine the address to proxy to"
@@ -1296,69 +1300,107 @@ RFC2136_TSIG_SECRET="${RFC2136_TSIG_SECRET:-}"
 # Generate config files
 [ -f "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Migrate compose data from legacy /srv/$USER/composemgr or /var/lib/srv/$USER/composemgr
-# to the resolved compose dir (/srv/$USER/compose, or $HOME/.local/srv/compose as fallback)
-__migrate_srv_base() {
-  [ "${COMPOSEMGR_MIGRATING:-}" = "1" ] && return 0
-  __cmd_exists rsync || return 0
-  local new_dir="$(__resolve_compose_dir)"
-  local marker="$new_dir/.composemgr_migrated"
-  [ -f "$marker" ] && return 0
-  local old_dir=""
-  if [ -d "/var/lib/srv/$USER/composemgr" ]; then
-    old_dir="/var/lib/srv/$USER/composemgr"
-  elif [ -d "/srv/$USER/composemgr" ]; then
-    old_dir="/srv/$USER/composemgr"
-  fi
-  [ -n "$old_dir" ] || return 0
-  local new_parent="$(dirname -- "$new_dir")"
-  mkdir -p "$new_parent" 2>/dev/null
-  if [ ! -w "$new_parent" ]; then
-    printf_red "Migration skipped: no write access to $new_parent"
-    return 1
-  fi
-  if [ ! -w "$(dirname -- "$old_dir")" ]; then
-    printf_red "Migration skipped: no write access to $(dirname -- "$old_dir") (cannot remove $old_dir)"
-    return 1
-  fi
-  if [ -d "$new_dir" ]; then
-    printf_yellow "Skipping $old_dir: $new_dir already exists"
-    : >"$marker" 2>/dev/null
+# Rewrite bind-mount/env references to a project's old absolute path after a move,
+# so volumes still resolve once the project lives under the new base directory.
+__migrate_rewrite_paths() {
+  local project_dir="$1" old_path="$2" new_path="$3" sudo_cmd="${4:-}" f
+  find "$project_dir" -maxdepth 1 \( -name "compose.yaml" -o -name "compose.yml" -o -name "docker-compose.yaml" \
+    -o -name "docker-compose.yml" -o -name "*.env" \) 2>/dev/null | while read -r f; do
+    grep -ql -- "$old_path" "$f" 2>/dev/null && $sudo_cmd sed -i "s|$old_path|$new_path|g" "$f"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Migrate every project under one system user's legacy /var/lib/srv/<user>/composemgr
+# to /srv/<user>/compose (or the resolved fallback when migrating the invoking
+# user's own projects). Every project is stopped first, the whole directory is
+# rsynced in one shot (overwriting the destination), then every project is
+# restarted from its new location. The old directory is only removed once every
+# stop and every restart succeeded — a failure leaves it in place for a re-run.
+__migrate_user_compose() {
+  local sys_user="$1"
+  local old_dir="/var/lib/srv/$sys_user/composemgr"
+  [ -d "$old_dir" ] || return 0
+  if [ -z "$(ls -A -- "$old_dir" 2>/dev/null)" ]; then
+    printf_yellow "Nothing to migrate for $sys_user ($old_dir is empty), removing it"
+    __rmf "$old_dir"
     return 0
   fi
-  printf_yellow "Migrating $old_dir → $new_dir"
-  local stack_name=""
-  for stack_dir in "$old_dir"/*/; do
-    [ -d "$stack_dir" ] || continue
-    [ -f "${stack_dir}compose.yaml" ] || [ -f "${stack_dir}docker-compose.yaml" ] || continue
-    stack_name="${stack_dir%/}"
-    stack_name="${stack_name##*/}"
-    printf_yellow "  Stopping: $stack_name"
-    COMPOSEMGR_MIGRATING=1 composemgr --dir "${stack_dir%/}" down >/dev/null 2>&1
-  done
-  mkdir -p "$new_dir"
-  if rsync -a "$old_dir/" "$new_dir/"; then
-    find "$new_dir" \( -name "compose.yaml" -o -name "docker-compose.yaml" -o -name "*.env" \) | while read -r f; do
-      grep -ql -- "$old_dir" "$f" 2>/dev/null && sed -i "s|$old_dir|$new_dir|g" "$f"
-    done
-    rm -rf "$old_dir"
-    for stack_dir in "$new_dir"/*/; do
-      [ -d "$stack_dir" ] || continue
-      [ -f "${stack_dir}compose.yaml" ] || [ -f "${stack_dir}docker-compose.yaml" ] || continue
-      stack_name="${stack_dir%/}"
-      stack_name="${stack_name##*/}"
-      printf_yellow "  Starting: $stack_name"
-      COMPOSEMGR_MIGRATING=1 composemgr --dir "${stack_dir%/}" up >/dev/null 2>&1
-    done
-    : >"$marker" 2>/dev/null
-    printf_green "Migrated: $new_dir"
+  local new_dir="" uid="" gid="" SUDO=""
+  if [ "$sys_user" = "$USER" ]; then
+    new_dir="$(__resolve_compose_dir)"
   else
-    printf_red "Migration failed: rsync error for $old_dir"
+    __user_is_root || SUDO="sudo"
+    if ! uid="$(id -u -- "$sys_user" 2>/dev/null)"; then
+      printf_red "No such system user: $sys_user, skipping $old_dir"
+      return 1
+    fi
+    gid="$(id -g -- "$sys_user" 2>/dev/null)"
+    new_dir="/srv/$sys_user/compose"
+    $SUDO mkdir -p -- "/srv/$sys_user" "$new_dir" 2>/dev/null
+    $SUDO chown -- "$uid:$gid" "/srv/$sys_user" "$new_dir" 2>/dev/null
+  fi
+  printf_cyan "Migrating compose projects for $sys_user: $old_dir -> $new_dir"
+  local exitCode=0 project_dir name
+  for project_dir in "$old_dir"/*/; do
+    [ -d "$project_dir" ] || continue
+    [ -f "${project_dir}compose.yaml" ] || [ -f "${project_dir}compose.yml" ] || [ -f "${project_dir}docker-compose.yaml" ] ||
+      [ -f "${project_dir}docker-compose.yml" ] || continue
+    name="${project_dir%/}"
+    name="${name##*/}"
+    printf_yellow "  Stopping: $name"
+    if ! COMPOSEMGR_MIGRATING=1 $SUDO composemgr --dir "${project_dir%/}" down >/dev/null 2>&1; then
+      printf_red "  Failed to stop $name"
+      exitCode=1
+    fi
+  done
+  if [ $exitCode -ne 0 ]; then
+    printf_red "Migration aborted for $sys_user: fix the stack(s) above and re-run --migrate"
     return 1
   fi
-  return 0
+  $SUDO mkdir -p -- "$new_dir"
+  if ! $SUDO rsync -a --delete -- "$old_dir/" "$new_dir/"; then
+    printf_red "Migration failed: rsync error for $old_dir -> $new_dir"
+    return 1
+  fi
+  for project_dir in "$new_dir"/*/; do
+    [ -d "$project_dir" ] || continue
+    [ -f "${project_dir}compose.yaml" ] || [ -f "${project_dir}compose.yml" ] || [ -f "${project_dir}docker-compose.yaml" ] ||
+      [ -f "${project_dir}docker-compose.yml" ] || continue
+    __migrate_rewrite_paths "${project_dir%/}" "$old_dir" "$new_dir" "$SUDO"
+    name="${project_dir%/}"
+    name="${name##*/}"
+    printf_yellow "  Starting: $name"
+    if ! COMPOSEMGR_MIGRATING=1 $SUDO composemgr --dir "${project_dir%/}" up >/dev/null 2>&1; then
+      printf_red "  Failed to start $name"
+      exitCode=1
+    fi
+  done
+  if [ $exitCode -eq 0 ]; then
+    __rmf "$old_dir"
+    printf_green "Migration complete for $sys_user, removed $old_dir"
+  else
+    printf_red "Migration incomplete for $sys_user: $old_dir was NOT removed, fix the failed stack(s) and re-run --migrate"
+  fi
+  return $exitCode
 }
-__migrate_srv_base || true
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Entry point for --migrate. Root (or passwordless sudo) migrates every system
+# user found under /var/lib/srv/*/composemgr; anyone else only migrates their own.
+__migrate_compose_dirs() {
+  __cmd_exists rsync || printf_exit "rsync is required to migrate compose directories"
+  local exitCode=0 user_dir sys_user
+  if __user_is_root || { __cmd_exists sudo && sudo -n true 2>/dev/null; }; then
+    for user_dir in /var/lib/srv/*/; do
+      [ -d "$user_dir" ] || continue
+      sys_user="${user_dir%/}"
+      sys_user="${sys_user##*/}"
+      __migrate_user_compose "$sys_user" || exitCode=1
+    done
+  else
+    __migrate_user_compose "$USER" || exitCode=1
+  fi
+  return $exitCode
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$COMPOSEMGR_RUN_DIR" ] || mkdir -p "$COMPOSEMGR_RUN_DIR" |& __devnull
@@ -1379,7 +1421,7 @@ SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 GET_OPTIONS_NO="no-env"
 GET_OPTIONS_YES="yes-*"
-LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,no-color,version,silent,force"
+LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,no-color,version,silent,force,migrate"
 LONGOPTS+=",project:,name:,env,prod,devel"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="install,remove,up,down,restart,ps,logs,network,cat,init,new,edit,show,get,env"
@@ -1481,6 +1523,11 @@ while :; do
   --force)
     shift 1
     export FORCE_INSTALL="true"
+    ;;
+  --migrate)
+    shift 1
+    __migrate_compose_dirs
+    exit $?
     ;;
   --dir)
     CWD_IS_SET="true"

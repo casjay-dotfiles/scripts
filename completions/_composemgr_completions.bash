@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607112300-git
+##@Version           :  202610080907-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -50,7 +50,7 @@ _composemgr_completion() {
   SHORTOPTS=""
   SHORTOPTS+=""
   #####################################################################
-  LONGOPTS="--completions --config --reset-config --debug --dir --help --options --no-color --version --silent --force --no- --yes- "
+  LONGOPTS="--completions --config --reset-config --debug --dir --help --options --no-color --version --silent --force --migrate --no- --yes- "
   LONGOPTS+="--project --name --env --prod --devel"
   #####################################################################
   ARRAY="init install remove up down ps logs new edit show env get generate backup network cat nginx repo restart"

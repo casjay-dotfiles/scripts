@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609040502-git
+##@Version           :  202610081005-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -10,7 +10,7 @@
 # @Created           :  Saturday, Aug 28, 2021 19:04 EDT
 # @File              :  dockermgr
 # @Description       :  docker script to manage containers
-# @Changelog         :  Fix __docker eval double-parsing dropping quotes on args with spaces
+# @Changelog         :  Redesign --migrate: loop all containers, system-wide root migration, overwrite semantics for /var/lib/srv/*/docker
 # @TODO              :
 # @Other             :
 # @Resource          :
@@ -18,7 +18,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202609040502-git"
+VERSION="202610081005-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -231,7 +231,7 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "--help                                 - Shows this message"
   __printf_line "--config                               - Generate user config file"
-  __printf_line "--migrate                              - Migrate data from legacy /var/lib/srv/$USER/docker to /srv/$USER/docker"
+  __printf_line "--migrate                              - Migrate /var/lib/srv/<user>/docker to the new /srv/<user>/docker base dir"
   __printf_line "--version                              - Show script version"
   __printf_line "--options                              - Shows all available options"
   __printf_line "--debug                                - Enables script debugging"
@@ -3014,74 +3014,123 @@ DOCKERMGR_SHOW_USAGE="${DOCKERMGR_SHOW_USAGE:-yes}"
 DOCKERMGR_DEFAULT_MANIFEST_FILE="${DOCKERMGR_DEFAULT_MANIFEST_FILE:-$HOME/Documents/docker-migrate.txt}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Detect legacy /var/lib/srv data and point at --migrate; read-only, safe to
-# run automatically on every invocation - the marker file keeps it silent
-# once migrated so it never nags on a normal run
+# run automatically on every invocation - once a user's directory is migrated
+# it no longer exists, so this naturally stops nagging without a marker file
 __check_srv_migration() {
   local old_dir="/var/lib/srv/$USER/docker"
-  local new_dir="/srv/$USER/docker"
   [ -d "$old_dir" ] || return 0
-  [ -f "$new_dir/.dockermgr_migrated" ] && return 0
-  printf_yellow "Legacy data found at $old_dir - run 'dockermgr --migrate' to convert it to $new_dir"
+  printf_yellow "Legacy data found at $old_dir - run 'dockermgr --migrate' to convert it to /srv/$USER/docker"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Migrate data from legacy /var/lib/srv base to /srv - destructive (stops
-# containers, rsync, rm -rf old_dir), so it only runs via the --migrate flag
-__migrate_srv_base() {
-  [ "${DOCKERMGR_MIGRATING:-}" = "1" ] && return 0
-  __cmd_exists rsync || { printf_red "rsync is required to migrate"; return 1; }
-  local old_dir="/var/lib/srv/$USER/docker"
-  local new_dir="/srv/$USER/docker"
-  local marker="$new_dir/.dockermgr_migrated"
-  if [ ! -d "$old_dir" ]; then
-    printf_yellow "Nothing to migrate: $old_dir does not exist"
+# Rewrite references to a user's old absolute docker dir after a move, so
+# container configs/env files and generated run scripts still resolve once
+# the data lives under the new base directory
+__migrate_rewrite_docker_paths() {
+  local new_dir="$1" old_dir="$2" sudo_cmd="${3:-}" f
+  find "$new_dir" \( -name "*.env" -o -name "*.conf" -o -name "*.yaml" -o -name "*.yml" \) 2>/dev/null | while read -r f; do
+    grep -ql -- "$old_dir" "$f" 2>/dev/null && $sudo_cmd sed -i "s|$old_dir|$new_dir|g" "$f"
+  done
+  if [ -d "$DOCKERMGR_CONFIG_DIR/scripts" ]; then
+    find "$DOCKERMGR_CONFIG_DIR/scripts" -type f 2>/dev/null | while read -r f; do
+      grep -ql -- "$old_dir" "$f" 2>/dev/null && $sudo_cmd sed -i "s|$old_dir|$new_dir|g" "$f"
+    done
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Migrate every container's data under one system user's legacy
+# /var/lib/srv/<user>/docker to /srv/<user>/docker. Every container whose
+# mounts reference the old path is stopped first, the whole directory is
+# rsynced in one shot (overwriting the destination), then every one of those
+# containers is restarted from its new location. The old directory is only
+# removed once every stop and every restart succeeded - a failure leaves it
+# in place for a re-run.
+__migrate_user_docker() {
+  local sys_user="$1"
+  local old_dir="/var/lib/srv/$sys_user/docker"
+  [ -d "$old_dir" ] || return 0
+  if [ -z "$(ls -A -- "$old_dir" 2>/dev/null)" ]; then
+    printf_yellow "Nothing to migrate for $sys_user ($old_dir is empty), removing it"
+    rm -rf -- "$old_dir"
     return 0
   fi
-  if [ -d "$new_dir" ]; then
-    printf_yellow "Skipping migration: $new_dir already exists"
-    : >"$marker" 2>/dev/null
-    return 0
+  local new_dir="" uid="" gid="" SUDO=""
+  if [ "$sys_user" = "$USER" ]; then
+    new_dir="/srv/$sys_user/docker"
+  else
+    __user_is_root || SUDO="sudo"
+    if ! uid="$(id -u -- "$sys_user" 2>/dev/null)"; then
+      printf_red "No such system user: $sys_user, skipping $old_dir"
+      return 1
+    fi
+    gid="$(id -g -- "$sys_user" 2>/dev/null)"
+    new_dir="/srv/$sys_user/docker"
+    $SUDO mkdir -p -- "/srv/$sys_user" "$new_dir" 2>/dev/null
+    $SUDO chown -- "$uid:$gid" "/srv/$sys_user" "$new_dir" 2>/dev/null
   fi
-  printf_yellow "Migrating $old_dir → $new_dir"
-  # Stop containers whose mounts reference the old path
-  if command -v docker >/dev/null 2>&1; then
-    docker ps --format '{{.Names}}' 2>/dev/null | while read -r container; do
+  printf_cyan "Migrating docker data for $sys_user: $old_dir -> $new_dir"
+  local exitCode=0 container
+  if __cmd_exists docker; then
+    while read -r container; do
+      [ -n "$container" ] || continue
       if docker inspect "$container" --format '{{range .Mounts}}{{.Source}} {{end}}' 2>/dev/null | grep -q -- "$old_dir"; then
         printf_yellow "  Stopping: $container"
-        DOCKERMGR_MIGRATING=1 docker stop "$container" >/dev/null 2>&1
-      fi
-    done
-  fi
-  mkdir -p "/srv/$USER"
-  if rsync -a "$old_dir/" "$new_dir/"; then
-    # Rewrite old path in any config/env files under the new tree
-    find "$new_dir" \( -name "*.env" -o -name "*.conf" -o -name "*.yaml" -o -name "*.yml" \) | while read -r f; do
-      grep -ql -- "$old_dir" "$f" 2>/dev/null && sed -i "s|$old_dir|$new_dir|g" "$f"
-    done
-    # Rewrite old path in the generated per-container run scripts too
-    if [ -d "$DOCKERMGR_CONFIG_DIR/scripts" ]; then
-      find "$DOCKERMGR_CONFIG_DIR/scripts" -type f | while read -r f; do
-        grep -ql -- "$old_dir" "$f" 2>/dev/null && sed -i "s|$old_dir|$new_dir|g" "$f"
-      done
-    fi
-    rm -rf "$old_dir"
-    # Restart containers that were stopped and now have mounts in the new path
-    if command -v docker >/dev/null 2>&1; then
-      docker ps -a --format '{{.Names}} {{.Status}}' 2>/dev/null | while read -r name status; do
-        if docker inspect "$name" --format '{{range .Mounts}}{{.Source}} {{end}}' 2>/dev/null | grep -q -- "$new_dir"; then
-          if echo "$status" | grep -qi -- 'exited'; then
-            printf_yellow "  Starting: $name"
-            docker start "$name" >/dev/null 2>&1
-          fi
+        if ! DOCKERMGR_MIGRATING=1 $SUDO docker stop "$container" >/dev/null 2>&1; then
+          printf_red "  Failed to stop $container"
+          exitCode=1
         fi
-      done
-    fi
-    : >"$marker" 2>/dev/null
-    printf_green "Migrated: $new_dir"
-    rmdir "/srv/$USER" 2>/dev/null || true
-  else
-    printf_red "Migration failed: rsync error for $old_dir"
+      fi
+    done < <(docker ps --format '{{.Names}}' 2>/dev/null)
+  fi
+  if [ $exitCode -ne 0 ]; then
+    printf_red "Migration aborted for $sys_user: fix the container(s) above and re-run --migrate"
     return 1
   fi
+  $SUDO mkdir -p -- "$new_dir"
+  if ! $SUDO rsync -a --delete -- "$old_dir/" "$new_dir/"; then
+    printf_red "Migration failed: rsync error for $old_dir -> $new_dir"
+    return 1
+  fi
+  __migrate_rewrite_docker_paths "$new_dir" "$old_dir" "$SUDO"
+  if __cmd_exists docker; then
+    while read -r name status; do
+      [ -n "$name" ] || continue
+      if docker inspect "$name" --format '{{range .Mounts}}{{.Source}} {{end}}' 2>/dev/null | grep -q -- "$new_dir"; then
+        if printf '%s' "$status" | grep -qi -- 'exited'; then
+          printf_yellow "  Starting: $name"
+          if ! DOCKERMGR_MIGRATING=1 $SUDO docker start "$name" >/dev/null 2>&1; then
+            printf_red "  Failed to start $name"
+            exitCode=1
+          fi
+        fi
+      fi
+    done < <(docker ps -a --format '{{.Names}} {{.Status}}' 2>/dev/null)
+  fi
+  if [ $exitCode -eq 0 ]; then
+    $SUDO rm -rf -- "$old_dir"
+    printf_green "Migration complete for $sys_user, removed $old_dir"
+  else
+    printf_red "Migration incomplete for $sys_user: $old_dir was NOT removed, fix the failed container(s) and re-run --migrate"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Entry point for --migrate. Root (or passwordless sudo) migrates every
+# system user found under /var/lib/srv/*/docker; anyone else only migrates
+# their own.
+__migrate_srv_base() {
+  __cmd_exists rsync || { printf_red "rsync is required to migrate"; return 1; }
+  local exitCode=0 user_dir sys_user
+  if __user_is_root || { __cmd_exists sudo && sudo -n true 2>/dev/null; }; then
+    for user_dir in /var/lib/srv/*/; do
+      [ -d "${user_dir}docker" ] || continue
+      sys_user="${user_dir%/}"
+      sys_user="${sys_user##*/}"
+      __migrate_user_docker "$sys_user" || exitCode=1
+    done
+  else
+    __migrate_user_docker "$USER" || exitCode=1
+  fi
+  return $exitCode
 }
 __check_srv_migration
 # - - - - - - - - - - - - - - - - - - - - - - - - -

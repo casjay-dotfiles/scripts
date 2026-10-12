@@ -25,7 +25,7 @@ _gitcommit() {
   local SHOW_COMP_OPTS="default"
   local FILEDIR=""
   local OPTS=""
-  local LONGOPTS="--completions --debug --no-color --options --version --help --config --silent --dir --message --amend --force --all"
+  local LONGOPTS="--completions --debug --no-color --options --version --help --config --silent --dir --message --agent --amend --force --all"
   local SHORTOPTS="-m"
   local ARRAY="ai is all amend status s log l reset branch fixup fix fix-last squash push pull merge merge-resolve "
   local ARRAY+="version files modified updated deleted added renamed changed restored spelling changelog spec "
@@ -55,6 +55,11 @@ _gitcommit() {
     --config)
       local prev="--config"
       COMPREPLY=($(compgen -W '' -- "${cur}"))
+      ;;
+
+    --agent)
+      local prev="--agent"
+      COMPREPLY=($(compgen -W 'ollama llama-cli llama-cpp llamafile lms claude codex copilot gemini omp pi opencode' -- "${cur}"))
       ;;
 
     --help)

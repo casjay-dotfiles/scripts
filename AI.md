@@ -118,6 +118,8 @@ Dependency graph takes priority over label order. Numbered/lettered sequence is 
 
 ## Git & Commit Workflow
 
+The `bin/gitcommit` wrapper must not be inspected during ordinary commit tasks. When the user explicitly requests debugging or changes to that script, inspect and edit it as needed; the commit workflow restriction is not a blanket prohibition on maintaining the wrapper.
+
 ### The only commit path
 
 ```bash

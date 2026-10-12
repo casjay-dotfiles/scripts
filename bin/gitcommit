@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608311420-git
+##@Version           :  202610121408-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Fix E2BIG on huge commits: -F instead of -m, cap file lists in message bodies, never rewrite a user-authored COMMIT_MESS, drop message-var exports.
+# @@Changelog        :  Add --agent provider selection for AI-generated commits
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608311420-git"
+VERSION="202610121408-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -471,6 +471,7 @@ __help() {
   __printf_line "--force                                - Force changes and push"
   __printf_line "--all                                  - Commit every changed/untracked file (overrides selector)"
   __printf_line "--dir [path]                           - Sets the working directory"
+  __printf_line "--agent [name]                         - Generate a commit with a selected AI provider"
   __printf_line "--silent                               - Suppress non-error output"
   __printf_line "--completions [s|l|a|list]             - Print short/long/array option lists"
   __printf_line "--help                                 - Shows this message"
@@ -3062,10 +3063,17 @@ __ai_try_result() {
   __parse_ai_result "$result" "$display_name"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Return the identifier of a loaded LM Studio model without entering its
+# interactive model picker.
+__ai_lms_loaded_model() {
+  lms ps 2>/dev/null | sed -n 's/^[[:space:]]*Identifier:[[:space:]]*//p' | head -n1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __ai_commit_message() {
   local ai_output_file="${1:-}"
   local diff_content="" prompt="" result="" changed_files=""
-  local short_msg="" long_msg="" preferred_ai=""
+  local short_msg="" long_msg="" preferred_ai="" lms_model=""
+  GITCOMMIT_AI_RATE_LIMITED=""
 
   # Get the diff for context
   changed_files="$(__changed_files all)"
@@ -3331,17 +3339,10 @@ Output only the commit message, nothing else."
         fi
         ;;
       claude)
-        [ -z "$ai_args" ] && ai_args="-p --allowedTools \"\""
+        [ -z "$ai_args" ] && ai_args="-p"
         error_output="$(mktemp)"
-        result="$(claude $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
-        if [ -s "$error_output" ]; then
-          if ! __check_ai_error "claude" "$(<"$error_output")" "Claude AI"; then
-            rm -f "$error_output"
-            printf_yellow "Falling back to alternative methods..."
-          fi
-        fi
-        rm -f "$error_output"
-        if __parse_ai_result "$result"; then
+        result="$(claude $ai_args --tools "" "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        if __ai_try_result "$result" "Claude AI" "$error_output"; then
           return 0
         else
           printf_yellow "⚠️  claude failed to generate message, trying fallbacks..."
@@ -3350,7 +3351,7 @@ Output only the commit message, nothing else."
       codex)
         [ -z "$ai_args" ] && ai_args="exec"
         error_output="$(mktemp)"
-        result="$(codex $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        result="$(codex $ai_args --sandbox read-only "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "Codex AI" "$error_output"; then
           return 0
         else
@@ -3358,13 +3359,53 @@ Output only the commit message, nothing else."
         fi
         ;;
       copilot)
-        [ -z "$ai_args" ] && ai_args="-p --allow-all-tools"
+        [ -z "$ai_args" ] && ai_args="-p"
         error_output="$(mktemp)"
-        result="$(copilot $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        result="$(copilot $ai_args --available-tools='' "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "GitHub Copilot" "$error_output"; then
           return 0
         else
           printf_yellow "⚠️  copilot failed to generate message, trying fallbacks..."
+        fi
+        ;;
+      gemini)
+        [ -z "$ai_args" ] && ai_args="-p --approval-mode=plan"
+        error_output="$(mktemp)"
+        result="$(gemini $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        if __ai_try_result "$result" "Gemini CLI" "$error_output"; then
+          return 0
+        else
+          printf_yellow "⚠️  gemini failed to generate message, trying fallbacks..."
+        fi
+        ;;
+      omp)
+        [ -z "$ai_args" ] && ai_args="--tools read,grep,find -p"
+        error_output="$(mktemp)"
+        result="$(omp $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        if __ai_try_result "$result" "Oh My Pi" "$error_output"; then
+          return 0
+        else
+          printf_yellow "⚠️  omp failed to generate message, trying fallbacks..."
+        fi
+        ;;
+      pi)
+        [ -z "$ai_args" ] && ai_args="--no-tools --print"
+        error_output="$(mktemp)"
+        result="$(pi $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        if __ai_try_result "$result" "Pi" "$error_output"; then
+          return 0
+        else
+          printf_yellow "⚠️  pi failed to generate message, trying fallbacks..."
+        fi
+        ;;
+      opencode)
+        [ -z "$ai_args" ] && ai_args="run --agent plan"
+        error_output="$(mktemp)"
+        result="$(opencode $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        if __ai_try_result "$result" "OpenCode" "$error_output"; then
+          return 0
+        else
+          printf_yellow "⚠️  opencode failed to generate message, trying fallbacks..."
         fi
         ;;
       llama-cli | llama-cpp | llamafile)
@@ -3377,23 +3418,27 @@ Output only the commit message, nothing else."
           printf_yellow "⚠️  $ai_cmd failed to generate message, trying fallbacks..."
         fi
         ;;
-      gpt4all-cli)
-        error_output="$(mktemp)"
-        result="$(gpt4all-cli ${ai_args:-} "$prompt" 2>"$error_output" | __grep -v -- '^$')"
-        if __ai_try_result "$result" "GPT4All" "$error_output"; then
-          return 0
+      lms)
+        lms_model="$(__ai_lms_loaded_model)"
+        if [ -n "$ai_args" ]; then
+          error_output="$(mktemp)"
+          result="$(lms $ai_args --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        elif [ -n "$lms_model" ]; then
+          error_output="$(mktemp)"
+          result="$(lms chat "$lms_model" --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         else
-          printf_yellow "⚠️  gpt4all-cli failed to generate message, trying fallbacks..."
+          printf_yellow "⚠️  LM Studio has no loaded model, trying fallbacks..."
+        fi
+        if [ -n "$error_output" ]; then
+          if __ai_try_result "$result" "LM Studio" "$error_output"; then
+            return 0
+          else
+            printf_yellow "⚠️  lms failed to generate message, trying fallbacks..."
+          fi
         fi
         ;;
-      lms)
-        error_output="$(mktemp)"
-        result="$(echo "$prompt" | lms ${ai_args:-chat} 2>"$error_output" | __grep -v -- '^$')"
-        if __ai_try_result "$result" "LM Studio" "$error_output"; then
-          return 0
-        else
-          printf_yellow "⚠️  lms failed to generate message, trying fallbacks..."
-        fi
+      gpt4all-cli)
+        printf_yellow "⚠️  GPT4All CLI is interactive and cannot generate a one-shot response; trying fallbacks..."
         ;;
       *)
         # Generic command - user provides full args
@@ -3413,13 +3458,11 @@ Output only the commit message, nothing else."
     fi
   fi
 
-  # Reset rate limit flag at start
-  GITCOMMIT_AI_RATE_LIMITED=""
-
-  # Try local AI clients first (prefer local over cloud)
+  # Try every available client after a failure, including rate limits, so
+  # another provider can still generate the commit message.
 
   # Try ollama
-  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists ollama; then
+  if __cmd_exists ollama; then
     local ollama_model=""
     ollama_model="$(ollama list 2>/dev/null | tail -n +2 | head -n1 | awk '{print $1}')"
     if [ -n "$ollama_model" ]; then
@@ -3430,67 +3473,83 @@ Output only the commit message, nothing else."
   fi
 
   # Try llama.cpp (llama-cli or main)
-  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists llama-cli; then
+  if __cmd_exists llama-cli; then
     error_output="$(mktemp)"
     result="$(llama-cli -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Llama.cpp CLI" "$error_output" && return 0
-  elif [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists llama-cpp; then
+  elif __cmd_exists llama-cpp; then
     error_output="$(mktemp)"
     result="$(llama-cpp -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Llama.cpp" "$error_output" && return 0
   fi
 
   # Try llamafile
-  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists llamafile; then
+  if __cmd_exists llamafile; then
     error_output="$(mktemp)"
     result="$(llamafile -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Llamafile" "$error_output" && return 0
   fi
 
-  # Try gpt4all
-  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists gpt4all-cli; then
-    error_output="$(mktemp)"
-    result="$(gpt4all-cli "$prompt" 2>"$error_output" | __grep -v -- '^$')"
-    __ai_try_result "$result" "GPT4All" "$error_output" && return 0
-  fi
-
   # Try lmstudio CLI
-  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists lms; then
-    error_output="$(mktemp)"
-    result="$(echo "$prompt" | lms chat 2>"$error_output" | __grep -v -- '^$')"
-    __ai_try_result "$result" "LM Studio" "$error_output" && return 0
+  if __cmd_exists lms; then
+    lms_model="$(__ai_lms_loaded_model)"
+    if [ -n "$lms_model" ]; then
+      error_output="$(mktemp)"
+      result="$(lms chat "$lms_model" --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+      __ai_try_result "$result" "LM Studio" "$error_output" && return 0
+    fi
   fi
 
-  # Try cloud AI clients (skip if rate limited from local attempts)
+  # Try cloud and agent CLIs after local clients, even if an earlier provider
+  # reported a rate limit or another API error.
 
   # Try claude CLI
-  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists claude; then
+  if __cmd_exists claude; then
     error_output="$(mktemp)"
-    result="$(claude -p "$prompt" --allowedTools "" 2>"$error_output" | __grep -v -- '^$')"
-    [ -s "$error_output" ] && __check_ai_error "claude" "$(<"$error_output")" "Claude AI"
-    rm -f "$error_output"
-    __parse_ai_result "$result" "Claude AI" && return 0
+    result="$(claude -p --tools "" "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    __ai_try_result "$result" "Claude AI" "$error_output" && return 0
   fi
 
   # Try codex CLI
-  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists codex; then
+  if __cmd_exists codex; then
     error_output="$(mktemp)"
-    result="$(codex exec "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    result="$(codex exec --sandbox read-only "$prompt" 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Codex AI" "$error_output" && return 0
   fi
 
   # Try GitHub Copilot CLI
-  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists copilot; then
+  if __cmd_exists copilot; then
     error_output="$(mktemp)"
-    result="$(copilot -p "$prompt" --allow-all-tools 2>"$error_output" | __grep -v -- '^$')"
+    result="$(copilot -p --available-tools='' "$prompt" 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "GitHub Copilot" "$error_output" && return 0
   fi
 
-  # Try GitHub Copilot via gh extension
-  if [ "$GITCOMMIT_AI_RATE_LIMITED" != "true" ] && __cmd_exists gh && gh extension list 2>/dev/null | __grep -q -- 'copilot'; then
+  # Try Gemini CLI in read-only plan mode
+  if __cmd_exists gemini; then
     error_output="$(mktemp)"
-    result="$(echo "$prompt" | gh copilot suggest -t shell 2>"$error_output" | __grep -v -- '^$')"
-    __ai_try_result "$result" "GitHub Copilot (via gh)" "$error_output" && return 0
+    result="$(gemini --approval-mode=plan -p "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    __ai_try_result "$result" "Gemini CLI" "$error_output" && return 0
+  fi
+
+  # Try OMP with read-only tools enabled
+  if __cmd_exists omp; then
+    error_output="$(mktemp)"
+    result="$(omp --tools read,grep,find -p "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    __ai_try_result "$result" "Oh My Pi" "$error_output" && return 0
+  fi
+
+  # Try Pi in print mode with tools disabled
+  if __cmd_exists pi; then
+    error_output="$(mktemp)"
+    result="$(pi --no-tools --print "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    __ai_try_result "$result" "Pi" "$error_output" && return 0
+  fi
+
+  # Try OpenCode's read-only planning agent
+  if __cmd_exists opencode; then
+    error_output="$(mktemp)"
+    result="$(opencode run --agent plan "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    __ai_try_result "$result" "OpenCode" "$error_output" && return 0
   fi
 
   # Fallback to auto-generated message
@@ -3851,11 +3910,12 @@ GITCOMMIT_GITHUB_TOKEN="${GITCOMMIT_GITHUB_TOKEN:-$GITHUB_ACCESS_TOKEN}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
 GITCOMMIT_SETARGS=("$@")
+GITCOMMIT_AGENT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 GITCOMMIT_SHORTOPTS=""
 GITCOMMIT_SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-GITCOMMIT_LONGOPTS="completions:,config,debug,dir:,help,options,no-color,version,silent"
+GITCOMMIT_LONGOPTS="agent:,completions:,config,debug,dir:,help,options,no-color,version,silent"
 GITCOMMIT_LONGOPTS+=",mess:,message:,amend,force,all"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 GITCOMMIT_ARRAY="s status l log is search init setup reset branch pull push merge merge-resolve "
@@ -3950,6 +4010,14 @@ while :; do
     shift 1
     GITCOMMIT_SILENT="true"
     ;;
+  --agent)
+    GITCOMMIT_AGENT="$2"
+    case "$GITCOMMIT_AGENT" in
+      ollama | llama-cli | llama-cpp | llamafile | lms | claude | codex | copilot | gemini | omp | pi | opencode) ;;
+      *) printf_exit "Unsupported agent '$GITCOMMIT_AGENT'. Choose: ollama, llama-cli, llama-cpp, llamafile, lms, claude, codex, copilot, gemini, omp, pi, opencode" ;;
+    esac
+    shift 2
+    ;;
   --dir)
     GITCOMMIT_CWD_IS_SET="TRUE"
     GITCOMMIT_CWD="$2"
@@ -3979,6 +4047,14 @@ while :; do
     ;;
   esac
 done
+if [ -n "$GITCOMMIT_AGENT" ]; then
+  GITCOMMIT_DEFAULT_AI_COMMAND="$GITCOMMIT_AGENT"
+  if [ $# -eq 0 ]; then
+    set -- ai
+  elif [ "$1" != "ai" ]; then
+    printf_exit "Usage: $APPNAME --agent {ollama|llama-cli|llama-cpp|llamafile|lms|claude|codex|copilot|gemini|omp|pi|opencode} [ai]"
+  fi
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get directory from args
 # set -- "$@"
@@ -4550,9 +4626,9 @@ fixed | fixes)
 release)
   shift 1
   [ "$1" = "help" ] && printf_exit "Usage: $APPNAME release [version] [message]"
-  local release_version="${1:-}"
-  local release_message="${2:-}"
-  local release_txt="$GITCOMMIT_ROOT_DIR/release.txt"
+  release_version="${1:-}"
+  release_message="${2:-}"
+  release_txt="$GITCOMMIT_ROOT_DIR/release.txt"
   if [ -z "$release_version" ]; then
     if [ -f "$release_txt" ] && [ -s "$release_txt" ]; then
       release_version="$(head -n1 "$release_txt" | tr -d '[:space:]')"

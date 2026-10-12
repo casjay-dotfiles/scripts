@@ -60,7 +60,7 @@ _setupmgr() {
   ARRAY+="fastfetch fd fnm fx fzf garage gemini gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron "
   ARRAY+="grpcurl grype gvm hadolint helix helm herdr httpie hyperfine incus jekyll jless jnv jq just k6 k9s kimchi kind "
   ARRAY+="kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua markdownlint mc "
-  ARRAY+="miller minikube mise mods nix nodejs npm-check-updates nushell nvm oha ollama opencode openclaw opentofu "
+  ARRAY+="miller minikube mise mods nix nodejs npm-check-updates nushell nvm oha ollama omp opencode openclaw opentofu "
   ARRAY+="packer pi pipx plandex powershell prettier procs rbenv ripgrep ruff rustfs rustup rvm sd shellcheck shfmt "
   ARRAY+="skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tilt tldr traefik "
   ARRAY+="trivy trufflehog uv vagrant vale vegeta vercel vfox viddy watchexec webhookd xcaddy xh yq zed zellij zig "

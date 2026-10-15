@@ -30,7 +30,7 @@ _latest-iso() {
   local LONGOPTS="--no-color --debug --completions --options --version --help --config --silent --dir --force --all --ask --filename --arch --release --name --test"
   local SUBCMDS="all gui custom server"
   local ARRAY="aeryn alma alpine arch archcraft artix bazzite blackarch cachy centos chimera clonezilla debian endeavour fedora flatcar "
-  local ARRAY+="freebsd freenas garuda gentoo ghostbsd gparted heads hirens kali macos mageia manjaro netbsd nixos nobara "
+  local ARRAY+="freebsd freenas garuda gentoo ghostbsd gparted heads hirens kali libernt macos mageia manjaro netbsd nixos nobara "
   local ARRAY+="omnios openindiana openbsd opensuse openvz parrot pearos peppermint pfsense photon popos proxmox redcore rocky "
   local ARRAY+="slackware smartos solus tails tiny ubuntu vanilla void xcp-ng"
 

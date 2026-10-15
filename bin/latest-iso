@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202610101805-git
+##@Version           :  202610151459-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 12, 2022 15:05 EDT
 # @@File             :  latest-iso
 # @@Description      :  Find and download the latest ISO for a given distro
-# @@Changelog        :  man page: add missing gentoo entry to sync with __help/completions
+# @@Changelog        :  Add LiberNT ISO downloads from GitHub releases
 # @@TODO             :  Refactor code
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202610101805-git"
+VERSION="202610151459-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -319,6 +319,9 @@ __help() {
   __printf_line "vanilla                                - Download Vanilla OS"
   __printf_line "void                                   - Download Void Linux"
   __printf_line ""
+  __printf_line "Other operating systems:"
+  __printf_line "libernt                                - Download LiberNT installer ISO"
+  __printf_line ""
   __printf_line "macOS:"
   __printf_line "macos                                  - Download macOS recovery (BaseSystem.dmg)"
   __printf_line ""
@@ -351,6 +354,8 @@ __help() {
   __printf_line ""
   __printf_line "Version pinning: append =VERSION to any distro name (e.g. alma=9, debian=12, rocky=8)."
   __printf_line "Pinned saves use {name}.{version}.{arch}.iso to avoid overwriting the latest copy."
+  __printf_line "LATEST_ISO_GITHUB_RELEASE_MODE=stable|prerelease|all (default stable; LiberNT defaults to all)"
+  __printf_line "LATEST_ISO_LIBERNT_GITHUB_RELEASE_MODE overrides the release mode for LiberNT."
   __printf_line "URL resolution tries .iso -> .torrent automatically when upstream only has torrents."
   __printf_line "Torrent fallback requires aria2c, transadd, or transmission-remote."
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -708,18 +713,41 @@ __parse_json() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # GitHub releases API
-# Usage: __github <owner/repo> [include_pattern] [exclude_pattern]
+# Usage: __github <owner/repo> [include_pattern] [exclude_pattern] [stable|prerelease|all] [tag]
 __github() {
   local repo="${1:-}"
   local include="${2:-\.iso}"
   local exclude="${3:-^$}"
-  local api_url="" result=""
+  local release_mode="${4:-${LATEST_ISO_GITHUB_RELEASE_MODE:-stable}}"
+  local release_tag="${5:-}"
+  local api_url="" result="" jq_filter=""
   [ -n "$repo" ] || return 1
   # Clean repo format (remove URL parts if full URL given)
   repo="${repo##*github.com/}"
   repo="${repo%%/}"
-  api_url="https://api.github.com/repos/$repo/releases/latest"
-  result="$(__curl -H "Accept: application/vnd.github+json" "$api_url" | jq -r '.assets[].browser_download_url' 2>/dev/null | __grep -E -- "$include" | __grep -vE -- "$exclude" | __filter_stable | sort -rV | __test_arch | head -n1)"
+  case "$release_mode" in
+  stable)
+    if [ -z "$release_tag" ]; then
+      api_url="https://api.github.com/repos/$repo/releases/latest"
+      jq_filter='.assets[].browser_download_url'
+    else
+      api_url="https://api.github.com/repos/$repo/releases?per_page=100"
+      jq_filter='[.[] | select(.draft == false and .prerelease == false) | select(.tag_name == $tag) | .assets[].browser_download_url][]'
+    fi
+    ;;
+  prerelease | all)
+    api_url="https://api.github.com/repos/$repo/releases?per_page=100"
+    if [ "$release_mode" = "prerelease" ]; then
+      jq_filter='[.[] | select(.draft == false and .prerelease == true) | select($tag == "" or .tag_name == $tag) | .assets[].browser_download_url][]'
+    else
+      jq_filter='[.[] | select(.draft == false) | select($tag == "" or .tag_name == $tag) | .assets[].browser_download_url][]'
+    fi
+    ;;
+  *)
+    return 2
+    ;;
+  esac
+  result="$( __curl -H "Accept: application/vnd.github+json" "$api_url" | jq -r --arg tag "$release_tag" "$jq_filter" 2>/dev/null | __grep -E -- "$include" | __grep -vE -- "$exclude" | { if [ "$release_mode" = "stable" ]; then __filter_stable | sort -rV; else cat; fi; } | __test_arch | head -n1)"
   [ -n "$result" ] && echo "$result"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1512,6 +1540,16 @@ __distro_arch_schema() {
     case "$system_arch" in
     x86_64 | amd64) echo "x86_64" ;;
     aarch64 | arm64) echo "aarch64" ;;
+    *) echo "$system_arch" ;;
+    esac
+    ;;
+  libernt)
+    case "$system_arch" in
+    x86_64 | amd64) echo "amd64" ;;
+    aarch64 | arm64) echo "arm64" ;;
+    ppc | powerpc | ppc64 | ppc64le) echo "ppc" ;;
+    riscv64) echo "riscv64" ;;
+    riscv64jh7110 | jh7110) echo "riscv64jh7110" ;;
     *) echo "$system_arch" ;;
     esac
     ;;
@@ -2374,6 +2412,18 @@ __latest_list() {
     ISOFILE="$(__iso_filename "opensuse" "$version")"
     real_url="$LATEST_ISO_OPENSUSE_URL"
     __latest_iso "$LATEST_ISO_OPENSUSE_URL" "$ISOFILE"
+    statusCode=$(($? + $statusCode))
+    ;;
+  libernt|libernt=*)
+    shift 1
+    local version="" libernt_arch="" release_mode="" libernt_url=""
+    __parse_version "$system_iso" "LATEST_ISO_LIBERNT_RELEASE"; version="$LATEST_ISO_VERSION"
+    libernt_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "libernt")"
+    ISOFILE="$(__iso_filename "libernt" "$version")"
+    real_url="https://github.com/ahmedarif193/LiberNT/releases"
+    release_mode="${LATEST_ISO_LIBERNT_GITHUB_RELEASE_MODE:-${LATEST_ISO_GITHUB_RELEASE_MODE:-all}}"
+    libernt_url="$(LATEST_ISO_SYSTEM_ARCH="$libernt_arch" __github "${LATEST_ISO_LIBERNT_REPO:-ahmedarif193/LiberNT}" "bootcd-iso-.*-${libernt_arch}-.*\.zip$" "^$" "$release_mode" "$version")"
+    __latest_iso "$libernt_url" "$ISOFILE"
     statusCode=$(($? + $statusCode))
     ;;
   parrot|parrot=*)

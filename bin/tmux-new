@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202610191345-git
+##@Version           :  202610191410-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  "kill server" hints at "kill session" when the name is a session, not a server
+# @@Changelog        :  kill session/all/server now purges resurrect state instead of a dead no-op cleanup path
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202610191345-git"
+VERSION="202610191410-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -687,12 +687,7 @@ __tmux_kill_all() {
     if [ -n "$session_name" ]; then
       printf_cyan "Killing session: $session_name (path: $session_path)"
       __tmux kill-session -t "$session_name" &>/dev/null
-
-      # Clean up resurrect data
-      local resurrect_dir="${TMUX_NEW_CONFIG_DIR}/resurrect/${session_name}"
-      if [ -d "$resurrect_dir" ]; then
-        rm -rf "$resurrect_dir"
-      fi
+      __tmux_purge_session_state "$session_name"
 
       # Extract session type from name (e.g., "single-scripts" -> "single")
       if [[ "$session_name" =~ ^([a-z]+)- ]]; then
@@ -798,6 +793,10 @@ __tmux_kill() {
       if [ -n "$found_sockpath" ]; then
         command tmux -S "$found_sockpath" kill-server &>/dev/null
         retval=$?
+        # The whole server (every session on it) is gone - purge that socket's
+        # entire saved state so none of it comes back via `tmux-new restore`.
+        # No new snapshot is taken; the user killed it on purpose.
+        [ $retval -eq 0 ] && rm -rf "${TMUX_NEW_CONFIG_DIR}/sessions/${arg}" 2>/dev/null
       else
         # "server" and "session" names are easy to confuse here: most session
         # types (ssh, build, deno, etc.) only ever set the SESSION name and
@@ -827,11 +826,7 @@ __tmux_kill() {
         retval=$?
         exitCode=$((exitCode + retval))
         if [ $retval -eq 0 ]; then
-          local resurrect_dir="${TMUX_NEW_CONFIG_DIR}/resurrect/${arg}"
-          if [ -d "$resurrect_dir" ]; then
-            printf_cyan "Cleaning up resurrect data for $arg"
-            rm -rf "$resurrect_dir"
-          fi
+          __tmux_purge_session_state "$arg"
         fi
       else
         printf_yellow "The session $arg does not exist"
@@ -1013,6 +1008,21 @@ __tmux_save_state() {
       win_name="${win_name//$'\t'/ }"
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sess" "$win_idx" "$win_name" "$pane_idx" "$pane_path" "$cmd" "$win_layout"
     done >"$tmp_file" 2>/dev/null && mv -f "$tmp_file" "$state_file" 2>/dev/null || rm -f "$tmp_file" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Remove one session's rows from this socket's state.txt so an explicitly killed
+# session can never come back via `tmux-new restore` — the next scheduled autosave
+# would eventually drop it too (it only ever captures currently-live panes), but a
+# server/machine restart between now and that tick would otherwise resurrect
+# something the user just killed. No new snapshot is taken — purge only.
+__tmux_purge_session_state() {
+  local target_session="$1"
+  local state_file="$TMUX_NEW_RESURRECT_DIR/state.txt"
+  [ -n "$target_session" ] || return 0
+  [ -f "$state_file" ] || return 0
+  local tmp_file="${state_file}.tmp"
+  awk -F'\t' -v s="$target_session" '$1 != s' "$state_file" >"$tmp_file" 2>/dev/null \
+    && mv -f "$tmp_file" "$state_file" 2>/dev/null || rm -f "$tmp_file" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Recreate sessions/windows/panes from state.txt and replay commands - the sole restore

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609171227-git
+##@Version           :  202610191310-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  __exec_weather falls back to wttr.in when TMUX_WEATHER_SERVER fails
+# @@Changelog        :  Fix "kill server <name>" only checking the default tmux socket dir
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202609171227-git"
+VERSION="202610191310-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -780,16 +780,30 @@ __tmux_kill() {
     shift
     [ $# -ne 0 ] || printf_cyan "Usage: $APPNAME kill server [name]"
     for arg in "$@"; do
-      local retval=0 sockpath
+      local retval=0 sockpath found_sockpath=""
       printf_cyan "Killing server $arg"
       # kill-server takes no session/target argument - it always kills the server
-      # named by -L, so the target socket must be selected explicitly per $arg
-      command tmux -L "$arg" kill-server &>/dev/null
-      retval=$?
+      # named by -L/-S, so the actual socket path must be resolved first. A bare
+      # "tmux -L $arg" only ever looks in the default ${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/
+      # dir, but __tmux_server_find/__tmux_resolve_sockpath show sessions created
+      # by this script may instead live under a relocated TMUX_TMPDIR, the legacy
+      # /tmp path, or the custom TMUX_NEW_SOCKET_DIR - check all three, same as
+      # those functions, instead of silently failing on anything but the default.
+      for sockpath in "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/${arg}" "/tmp/tmux-$(id -u)/${arg}" "$TMUX_NEW_SOCKET_DIR/${arg}"; do
+        if [ -S "$sockpath" ]; then
+          found_sockpath="$sockpath"
+          break
+        fi
+      done
+      if [ -n "$found_sockpath" ]; then
+        command tmux -S "$found_sockpath" kill-server &>/dev/null
+        retval=$?
+      else
+        printf_yellow "No running server found for $arg"
+        retval=1
+      fi
       exitCode=$((exitCode + retval))
-      sockpath="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/${arg}"
-      [ -S "$sockpath" ] || sockpath="$TMUX_NEW_SOCKET_DIR/${arg}"
-      __tmux_socket_unlink "$sockpath"
+      __tmux_socket_unlink "${found_sockpath:-$TMUX_NEW_SOCKET_DIR/${arg}}"
     done
     return $exitCode
     ;;

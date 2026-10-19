@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202610191130-git
+##@Version           :  202610191245-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Tuesday, Aug 16, 2022 23:02 EDT
 # @@File             :  sshto
 # @@Description      :  Menu driven ssh client
-# @@Changelog        :  Fix invalid-hostname parsing and unrecoverable Ctrl+C in the menu
+# @@Changelog        :  Fix upload/download filename word-splitting; add dialog/ssh dependency checks; narrow ssh config glob
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :  https://github.com/vaniacer/sshto
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202610191130-git"
+VERSION="202610191245-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -353,6 +353,7 @@ cmdlist_renew() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_sshto() {
+  __cmd_exists dialog || printf_exit "dialog is required but was not found in PATH"
   printf '\033[?1049h'
   # Restore the terminal out of the alternate screen buffer before exiting
   # on Ctrl+C, instead of leaving SIGINT ignored for the rest of the run
@@ -360,7 +361,17 @@ __execute_sshto() {
   __colors
   IFSOLD=$IFS
   IFS=$'\n'
-  hosts="$(grep -h "Host " ~/.ssh/config* | sed '/\*/d; s/Host //g;')"
+  # Only the real config and an optional config.d/ drop-in dir - a bare
+  # "config*" glob also matches editor/backup files (config.bak, config~,
+  # etc.) and would inject stale or duplicate host entries into the menu.
+  sshconfigfiles=()
+  for sshconfigfile in ~/.ssh/config ~/.ssh/config.d/*; do
+    case "$sshconfigfile" in
+    *.bak | *.old | *.orig | *.swp | *.swo | *~) continue ;;
+    esac
+    [ -f "$sshconfigfile" ] && sshconfigfiles+=("$sshconfigfile")
+  done
+  hosts="$(grep -h "Host " "${sshconfigfiles[@]}" 2>/dev/null | sed '/\*/d; s/Host //g;')"
   for host in $hosts; do
     name="${host// #*/}" # Get HostName
     desc="${host//*#/}"  # Get Description
@@ -368,8 +379,10 @@ __execute_sshto() {
     # " #*" only strips from the space adjacent to the first "#", so any
     # extra spaces before it are left dangling on the end of $name, which
     # then reaches ssh as part of the target and fails with an invalid
-    # hostname. Trim trailing whitespace.
+    # hostname. Trim trailing whitespace, and the leading space left on
+    # $desc by the same comment marker.
     name="${name%"${name##*[![:space:]]}"}"
+    desc="${desc#"${desc%%[![:space:]]*}"}"
     case $name in
     '#DUMMY')
       desc="${host%\#*}"
@@ -595,9 +608,31 @@ downpath() {
   SSHTO_DEST_DIR=${new_path:-$SSHTO_DEST_DIR}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Build "$filelist" as (name, size) pairs from "ls -sh1" output (minus its
+# "total NNN" header line, read on stdin). Splits each line only on its
+# FIRST space, so a size like "4.0K" is separated from the rest of the
+# line without breaking filenames that themselves contain spaces - unlike
+# the old `$(... | awk '{print $2,$1}')` into an array, which word-split
+# on every space and silently corrupted the whole list once any one
+# filename had an embedded space.
+__build_filelist() {
+  local line size name header_skipped=""
+  filelist=()
+  while IFS= read -r line; do
+    if [ -z "$header_skipped" ]; then
+      header_skipped=1
+      continue
+    fi
+    [ -n "$line" ] || continue
+    size="${line%% *}"
+    name="${line#* }"
+    filelist+=("$name" "$size")
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 upload() {
-  filelist=($(ls -sh1 $PWD | awk '{print $2,$1}'))
-  filename=$(dialog --output-fd 1 --ok-label "UPLOAD" --cancel-label "BACK" --menu "Select file\folder to upload:" 0 0 0 "${filelist[@]:2}")
+  __build_filelist < <(ls -sh1 "$PWD")
+  filename=$(dialog --output-fd 1 --ok-label "UPLOAD" --cancel-label "BACK" --menu "Select file\folder to upload:" 0 0 0 "${filelist[@]}")
   case $filename:$? in
   *:0) [[ $filename ]] && scp -r $SSH_OPT "$filename" "$target:$SSHTO_DEST_DIR/" ;;
   *:*) return ;;
@@ -605,10 +640,14 @@ upload() {
   upload
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-dlst() { filelist=($(__ssh $SSH_OPT "$target" ls -sh1 "$SSHTO_DEST_DIR" | awk '{print $2,$1}')) || second_dialog; }
+dlst() {
+  local output
+  output="$(__ssh $SSH_OPT "$target" ls -sh1 "$SSHTO_DEST_DIR")" || { second_dialog; return; }
+  __build_filelist <<<"$output"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 down() {
-  filename=$(dialog --output-fd 1 --ok-label "DOWNLOAD" --cancel-label "BACK" --menu "Select file\folder to download:" 0 0 0 "${filelist[@]:2}")
+  filename=$(dialog --output-fd 1 --ok-label "DOWNLOAD" --cancel-label "BACK" --menu "Select file\folder to download:" 0 0 0 "${filelist[@]}")
   case $filename:$? in
   *:0) [[ $filename ]] && scp -r $SSH_OPT "$target:$SSHTO_DEST_DIR/$filename" . ;;
   *:*) return ;;
@@ -887,7 +926,8 @@ export SSHTO_CWD
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-SSHTO_SSH_BIN_FILE="$(type -P ssh || echo 'false')"
+SSHTO_SSH_BIN_FILE="$(type -P ssh)"
+[ -n "$SSHTO_SSH_BIN_FILE" ] || printf_exit "ssh is required but was not found in PATH"
 [ -n "$1" ] && SSHTO_RUN_CUSTOM="${*}" || SSHTO_RUN_CUSTOM="pkmgr update"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env

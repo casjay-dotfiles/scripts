@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207042244-git
+##@Version           :  202610261214-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  LICENSE.md
@@ -155,6 +155,15 @@ run_postinst() {
   get_pam_files_to_edit="$(grep -shRl 'dir=/var/spool/mail' /etc/pam.d/*)"
   [ -f "/etc/hostname" ] && export HOSTNAME="$(<"/etc/hostname")"
   [ -d "/etc/profile.d" ] && printf '%s\n' '[ -f "/etc/hostname" ] && export HOSTNAME="'$HOSTNAME'"' >"/etc/profile.d/00-hostname"
+  if [ -d "/etc/profile.d" ]; then
+    cat >"/etc/profile.d/00-append_path.sh" <<'EOF'
+# Load append_path as a function before profile snippets invoke it.
+if [ -r "/usr/local/bin/append_path" ]; then
+  . /usr/local/bin/append_path
+fi
+EOF
+    chmod 644 "/etc/profile.d/00-append_path.sh"
+  fi
   [ -f "/etc/casjaysdev/.legal_updated" ] || [ "$RESET_LEGAL" != "yes" ] || { [ -f "$motdDir/legal/000.txt" ] && rm -Rf "$motdDir/legal/000.txt"; }
   ln_rm "$SHARE/applications/"
   git config --global pull.rebase 'true'

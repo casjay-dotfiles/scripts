@@ -52,6 +52,9 @@ Manual update:
 ```shell
 sudo git -C /usr/local/share/CasjaysDev/scripts pull
 ```
+
+To add a directory to the current shell's PATH manually, source
+`/usr/local/bin/append_path` and then run `append_path /path/to/directory`.
   
   
 <p align="center">

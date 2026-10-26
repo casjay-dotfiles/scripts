@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202610261214-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -16,20 +16,16 @@
 # @@sudo/root        :  no
 # @@Template         :  completions/system
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-_append_path_completion() {
-  ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
+_append_path() {
   local CONFDIR="$HOME/.config/myscripts/append_path"
-  local SEARCHDIR="${CONFDIR:-$HOME/.config/myscripts/append_path}"
-  local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
-  local CONFFILE="settings.conf"
   local cur prev words cword opts split
   local cur="${COMP_WORDS[$COMP_CWORD]}"
   local prev="${COMP_WORDS[$COMP_CWORD - 1]}"
   #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1" | sort -u)"
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
-  local LONGOPTS="--completions --debug --no-color --options --config --version --help --silent --verbose --dir "
-  local SHORTOPTS=""
+  local LONGOPTS="--help --version --options --completions --silent --verbose --"
+  local SHORTOPTS="-h"
   local ARRAY=""
 
   _init_completion || return
@@ -44,15 +40,16 @@ _append_path_completion() {
   elif [[ ${cur} == -* ]]; then
     COMPREPLY=($(compgen -W '${SHORTOPTS:---}' -- ${cur})) && compopt -o nospace
   else
-    case "${COMP_WORDS[1]:-$prev}" in
-    --debug | --no-color | --help | --version | --config | --options)
-      COMPREPLY=($(compgen -W '${ARRAY} ${LONGOPTS} ${SHORTOPTS}' -- ${cur}))
+    case "${prev}" in
+    --completions)
+      COMPREPLY=($(compgen -W 'short long' -- "$cur"))
       return 0
       ;;
-    --dir)
-      prev="dir"
-      [ "$cword" -le 2 ] && _filedir -d ||
-        COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))
+    esac
+    case "${COMP_WORDS[1]:-$prev}" in
+    --help | -h | --version | --options)
+      COMPREPLY=($(compgen -W '${ARRAY} ${LONGOPTS} ${SHORTOPTS}' -- ${cur}))
+      return 0
       ;;
     *)
       [ "$cword" -le 2 ] && _filedir -d ||
@@ -106,4 +103,4 @@ _append_path_completion() {
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions
-  complete -F _append_path_completion append_path
+  complete -F _append_path append_path

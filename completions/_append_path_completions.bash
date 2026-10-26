@@ -28,7 +28,7 @@ _append_path_completion() {
   #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1" | sort -u)"
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
-  local LONGOPTS="--completions --debug --no-color --options --config --version --help --silent --dir "
+  local LONGOPTS="--completions --debug --no-color --options --config --version --help --silent --verbose --dir "
   local SHORTOPTS=""
   local ARRAY=""
 

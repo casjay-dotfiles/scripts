@@ -37,6 +37,7 @@ repo:           https://github.com/casjay-dotfiles/scripts
 - One script per concern — no monolithic tools
 - Self-contained: no runtime deps beyond bash 4+ and standard POSIX utilities
 - Consistent UX: every script supports `--help`, `--version`, `--debug`, and `--color auto|yes|no`
+- `append_path` is quiet by default for shell startup use; `--verbose` enables status output
 - `NO_COLOR` env var honored per no-color.org spec
 - Portable across `linux/amd64`, `linux/arm64`, `linux/arm` (armv7l)
 - Installable system-wide or per-user via `install.sh`

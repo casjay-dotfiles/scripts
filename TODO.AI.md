@@ -838,3 +838,35 @@ slackware) — confirmed via `script-lint` that these predate the diff.
       convention (AI.md's inline `printf_*` suite template), so any fix
       needs a coordinated rename across every script that defines/calls
       these, not a one-off change here.
+
+## bin/setupmgr: archived or dead upstreams still installable
+
+Found by the official-source audit (202610291552-git); every item below
+still downloads and runs today, but the upstream is archived or abandoned.
+Needs a keep/remove decision per tool.
+
+- `mc` (minio/mc): repo archived, last release 2025-08-13.
+- `mods` (charmbracelet/mods): repo archived (successor is `crush`).
+- `charm` (charmbracelet/charm): repo archived.
+- `cortex` (npm `cortexso`, last published 2024-08; janhq/cortex.cpp
+  archived 2025-07). Its only Linux binary is amd64.
+- `cody` (npm `@sourcegraph/cody`): last published 2026-06; check whether
+  Sourcegraph still supports the standalone CLI.
+
+## bin/setupmgr: `hermes` pipx package lags upstream
+
+`__setup_hermes` installs PyPI `hermes-agent` (0.19.0) while the official
+GitHub release is v0.22.5. The official install.sh is a git clone plus uv
+venv (no binary). Decide whether to pin pipx to the git tag instead.
+
+## bin/setupmgr: `nix` uses the Determinate installer
+
+`__setup_nix` downloads the Determinate Systems `nix-installer` binary,
+not the upstream nixos.org release tarball (which ships its own
+`install` script). Decide whether "official" means nixos.org here.
+
+## bin/setupmgr: tools with no Linux arm64 release asset
+
+`jless` (amd64 only; also needs libxcb at runtime) and `cortex` (amd64
+only). `setupmgr` on aarch64 fails for these with "Could not find latest
+release asset".

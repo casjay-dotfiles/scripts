@@ -839,19 +839,10 @@ slackware) — confirmed via `script-lint` that these predate the diff.
       needs a coordinated rename across every script that defines/calls
       these, not a one-off change here.
 
-## bin/setupmgr: archived or dead upstreams still installable
+## bin/setupmgr: `cody` upstream status unverified
 
-Found by the official-source audit (202610291552-git); every item below
-still downloads and runs today, but the upstream is archived or abandoned.
-Needs a keep/remove decision per tool.
-
-- `mc` (minio/mc): repo archived, last release 2025-08-13.
-- `mods` (charmbracelet/mods): repo archived (successor is `crush`).
-- `charm` (charmbracelet/charm): repo archived.
-- `cortex` (npm `cortexso`, last published 2024-08; janhq/cortex.cpp
-  archived 2025-07). Its only Linux binary is amd64.
-- `cody` (npm `@sourcegraph/cody`): last published 2026-06; check whether
-  Sourcegraph still supports the standalone CLI.
+`cody` installs npm `@sourcegraph/cody` (last published 2026-06). Check
+whether Sourcegraph still supports the standalone CLI; remove it if not.
 
 ## bin/setupmgr: `hermes` pipx package lags upstream
 
@@ -867,6 +858,5 @@ not the upstream nixos.org release tarball (which ships its own
 
 ## bin/setupmgr: tools with no Linux arm64 release asset
 
-`jless` (amd64 only; also needs libxcb at runtime) and `cortex` (amd64
-only). `setupmgr` on aarch64 fails for these with "Could not find latest
-release asset".
+`jless` ships amd64 only (and needs libxcb at runtime), so `setupmgr jless`
+on aarch64 fails with "Could not find latest release asset".

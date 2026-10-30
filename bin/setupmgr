@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202610292014-git
+##@Version           :  202610292025-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  mc -> pgsty/mc fork, add rc, mods -> panjie fork, remove charm and cortex
+# @@Changelog        :  nix via official release tarball, remove cody, jless arm message
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202610292014-git"
+VERSION="202610292025-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 # When invoked via sudo, $HOME points at /root by default. Re-anchor it on
@@ -367,7 +367,7 @@ __help() {
   __printf_line "Supported Architectures: x86_64 (amd64), aarch64 (arm64), armv7 (arm), armv6"
   __printf_line ""
   __printf_line "Package Installation Commands:"
-  __printf_line "9router,act,age,aichat,aider,ali,antigravity,asdf,atuin,bandwhich,bat,bob,bombardier,bottom,broot,btop,buf,bun,caddy,claude,coder,codex,cody"
+  __printf_line "9router,act,age,aichat,aider,ali,antigravity,asdf,atuin,bandwhich,bat,bob,bombardier,bottom,broot,btop,buf,bun,caddy,claude,coder,codex"
   __printf_line "continue,copilot,cosign,crush,ctlptl,ctop,curlie,dasel,delta,deno,devbox,difftastic,direnv,distrobox,dive,dnsglobe,dotnet,droast,dua,duf,dust"
   __printf_line "earthly,eslint,evans,eza,fabric,fastfetch,fd,fnm,fx,fzf,garage,gemini,gh,ghz,git-cliff,gitleaks,gitui,glow,go,gohttpserver,gpt,grex,gron,grpcurl,grype"
   __printf_line "gvm,hadolint,helix,helm,herdr,httpie,hyperfine,incus,jekyll,jless,jnv,jq,just,k6,k9s,kimchi,kind,kompose,kubectl,kubectx,kubens,lapce,lazydocker,lazygit,lf"
@@ -1066,7 +1066,6 @@ __configure_tool() {
   ollama) __configure_ollama "$@" ;;
   tabby) __configure_tabby "$@" ;;
   continue) __configure_continue "$@" ;;
-  cody) __configure_cody "$@" ;;
   mise) __configure_mise "$@" ;;
   sops) __configure_sops "$@" ;;
   age) __configure_age "$@" ;;
@@ -1257,20 +1256,6 @@ CONTINUECFG
   printf_green "Continue is ready"
   printf_cyan "Config location: $config_dir/config.json"
   printf_cyan "Edit config to add models and providers"
-  return 0
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__configure_cody() {
-  printf_cyan "Configuring cody..."
-  if ! __cmd_exists cody; then
-    printf_red "cody is not installed"
-    return 1
-  fi
-  printf_green "Cody is ready"
-  printf_cyan "To authenticate:"
-  printf_cyan "  cody auth login"
-  printf_cyan "To start using:"
-  printf_cyan "  cody chat"
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3274,6 +3259,12 @@ __setup_rustup() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_jless() {
+  case "$(uname -m)" in
+  aarch64 | arm64 | armv7l | armv6l)
+    printf_red "jless publishes no official Linux arm release binary"
+    return 1
+    ;;
+  esac
   __install_from_archive "jless" "PaulJuliusMartinez/jless" "$SETUPMGR_DEFAULT_BIN_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4151,7 +4142,8 @@ __setup_devbox() {
 # package-manager delegation.
 __setup_nix() {
   local exitCode=0 install_rc=0
-  local name="nix" arch_tag="" installer_url="" stage_dir=""
+  local name="nix" arch_tag="" version="${NIX_VERSION:-}" release_url="" stage_dir=""
+  local tarball="" expected="" actual=""
 
   case "$(uname -s)/$(uname -m)" in
   Linux/x86_64)         arch_tag="x86_64-linux" ;;
@@ -4164,34 +4156,68 @@ __setup_nix() {
     return 1
     ;;
   esac
-  installer_url="https://github.com/${NIX_INSTALLER_GITREPO}/releases/latest/download/nix-installer-${arch_tag}"
-
-  if __cmd_exists "$name"; then
-    printf_green "Updating $name to latest release"
-  else
-    printf_green "Installing $name (latest release)"
+  if ! __cmd_exists xz || ! __cmd_exists tar; then
+    printf_red "tar and xz are required to unpack the nix release tarball"
+    __message_installed_failed "$name"
+    return 1
   fi
 
-  # Download the Determinate nix-installer binary directly. It's a real ELF
-  # executable, not a shell script — the curl|sh URL we previously used was
-  # a thin wrapper that just downloaded this same binary.
+  # The latest stable release is the highest plain x.y.z tag of NixOS/nix; NIX_VERSION pins one
+  if [ -z "$version" ]; then
+    version="$(__curl "https://api.github.com/repos/NixOS/nix/tags?per_page=100" | grep -o -- '"name" *: *"[0-9][0-9.]*"' | cut -d '"' -f 4)"
+    version="$(echo "$version" | grep -E -- '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)"
+  fi
+  if [ -z "$version" ]; then
+    printf_red "Could not determine the latest nix release"
+    __message_installed_failed "$name"
+    return 1
+  fi
+  release_url="https://releases.nixos.org/nix/nix-${version}/nix-${version}-${arch_tag}.tar.xz"
+
+  if __cmd_exists "$name"; then
+    printf_green "Updating $name to $version"
+  else
+    printf_green "Installing $name ($version)"
+  fi
+
   if ! stage_dir="$(mktemp -d -t nix-stage-XXXXXX 2>/dev/null)"; then
     stage_dir="/tmp/nix-stage-$$" && mkdir -p "$stage_dir"
   fi
-  local installer_bin="$stage_dir/nix-installer"
-  if ! __download_to_file "$installer_url" "$installer_bin"; then
-    printf_red "Download failed: $installer_url"
+  tarball="$stage_dir/nix.tar.xz"
+  if ! __download_to_file "$release_url" "$tarball" || ! __download_to_file "$release_url.sha256" "$stage_dir/nix.sha256"; then
+    printf_red "Download failed: $release_url"
     __message_installed_failed "$name"
     rm -rf "$stage_dir"
     return 1
   fi
-  chmod 755 "$stage_dir" "$installer_bin"
 
-  # The installer creates /nix and a system-wide daemon. It uses sudo
-  # internally, so it should run as the regular user (not as root) so that
-  # interactive sudo prompts are bound to that user. --no-confirm runs
-  # non-interactively when sudo is already validated.
-  __run_as_user "$installer_bin" install --no-confirm </dev/null
+  # The sha256 file published next to the tarball is the upstream integrity check
+  expected="$(awk '{print $1; exit}' "$stage_dir/nix.sha256")"
+  if __cmd_exists sha256sum; then
+    actual="$(sha256sum "$tarball" | cut -d ' ' -f 1)"
+  else
+    actual="$(shasum -a 256 "$tarball" | cut -d ' ' -f 1)"
+  fi
+  if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+    printf_red "Checksum verification failed for $release_url"
+    __message_installed_failed "$name"
+    rm -rf "$stage_dir"
+    return 1
+  fi
+  if ! tar -xJf "$tarball" -C "$stage_dir" || [ ! -x "$stage_dir/nix-${version}-${arch_tag}/install" ]; then
+    printf_red "Could not unpack the nix release tarball"
+    __message_installed_failed "$name"
+    rm -rf "$stage_dir"
+    return 1
+  fi
+
+  # Flakes and the nix command stay enabled by default, as they were with the previous installer
+  printf '%s\n' "experimental-features = nix-command flakes" >"$stage_dir/nix-extra.conf"
+  chmod 755 "$stage_dir" "$stage_dir/nix-${version}-${arch_tag}" "$stage_dir/nix-extra.conf"
+
+  # The release installer sets up the multi-user daemon and uses sudo internally,
+  # so run it as the regular user (not root) so sudo prompts are bound to that user
+  __run_as_user "$stage_dir/nix-${version}-${arch_tag}/install" --daemon --yes --nix-extra-conf-file "$stage_dir/nix-extra.conf" </dev/null
   install_rc=$?
   rm -rf "$stage_dir"
 
@@ -7137,9 +7163,9 @@ if [ -z "$SETUPMGR_DEFAULT_SHARE_DIR" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 SETUPMGR_ALL_TOOLS_DEFAULT=""
-SETUPMGR_ALL_TOOLS_DEFAULT+="9router act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign "
+SETUPMGR_ALL_TOOLS_DEFAULT+="9router act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder continue cosign "
 SETUPMGR_ALL_TOOLS_DEFAULT+="ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dnsglobe dotnet droast dua duf dust earthly evans eza fabric fastfetch fd fnm "
-SETUPMGR_ALL_TOOLS_DEFAULT+="fzf fx garage gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron grype grpcurl gvm hadolint helix helm herdr httpie hyperfine"
+SETUPMGR_ALL_TOOLS_DEFAULT+="fzf fx garage gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron grype grpcurl gvm hadolint helix helm herdr httpie hyperfine "
 SETUPMGR_ALL_TOOLS_DEFAULT+="incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua mc "
 SETUPMGR_ALL_TOOLS_DEFAULT+="crush kimchi miller mise minikube mods nix nodejs nushell nvm oha ollama opencode omp opentofu packer pi pipx plandex powershell procs rbenv rc "
 SETUPMGR_ALL_TOOLS_DEFAULT+="ripgrep ruff rustfs "
@@ -7209,7 +7235,7 @@ VOLTA_HOME="${VOLTA_HOME:-$HOME/.local/share/nodejs/volta}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 DEVBOX_GITREPO="${DEVBOX_GITREPO:-jetify-com/devbox}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-NIX_INSTALLER_GITREPO="${NIX_INSTALLER_GITREPO:-DeterminateSystems/nix-installer}"
+NIX_VERSION="${NIX_VERSION:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 PLANDEX_GITREPO="${PLANDEX_GITREPO:-plandex-ai/plandex}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -7293,7 +7319,7 @@ ARRAY="9router,act,aichat,asdf,bat,bob,bun,caddy,coder,delta,deno,devbox,direnv,
 ARRAY+="crush,gpt,gvm,helm,incus,jekyll,jless,just,kind,kimchi,kubectl,lapce,lazydocker,lazygit,lima,llama-cpp,llm,lua,mc,minikube,mods,nix,nodejs,nvm,ollama,"
 ARRAY+="opencode,omp,opentofu,packer,pi,pipx,powershell,procs,rbenv,rc,ripgrep,ruff,rustfs,rvm,speedtest,starship,traefik,uv,vagrant,vfox,webhookd,yq,zed,zoxide,"
 ARRAY+="claude,copilot,codex,openclaw,vercel,prettier,eslint,npm-check-updates,"
-ARRAY+="age,aider,ali,atuin,bandwhich,bombardier,bottom,broot,btop,buf,cody,continue,cosign,ctlptl,ctop,curlie,dasel,difftastic,dive,dnsglobe,droast,dua,duf,"
+ARRAY+="age,aider,ali,atuin,bandwhich,bombardier,bottom,broot,btop,buf,continue,cosign,ctlptl,ctop,curlie,dasel,difftastic,dive,dnsglobe,droast,dua,duf,"
 ARRAY+="earthly,evans,fx,gemini,ghz,git-cliff,gitleaks,gitui,grex,gron,grpcurl,grype,hadolint,helix,herdr,httpie,hyperfine,jnv,jq,k6,k9s,kompose,kubectx,kubens,lf,localai,"
 ARRAY+="lsd,markdownlint,miller,mise,nushell,oha,plandex,rustup,sd,shellcheck,shfmt,skaffold,sops,sq,stern,syft,tabby,task,terminal-browser,tgpt,tilt,tldr,trivy,"
 ARRAY+="trufflehog,vale,vegeta,viddy,watchexec,xcaddy,xh,zellij,zig,"
@@ -7552,11 +7578,6 @@ while [ $# -gt 0 ]; do
   gemini)
     shift 1
     __execute_npm "gemini" "@google/gemini-cli"
-    SETUPMGR_EXIT_STATUS=$?
-    ;;
-  cody)
-    shift 1
-    __execute_npm "cody" "@sourcegraph/cody"
     SETUPMGR_EXIT_STATUS=$?
     ;;
   continue)
@@ -8365,7 +8386,7 @@ while [ $# -gt 0 ]; do
       printf_cyan "Example: setupmgr configure minikube"
       printf_cyan "Supported tools:"
       printf_cyan "  Infrastructure: minikube, garage, tilt, skaffold"
-      printf_cyan "  AI/LLM: localai, llama-cpp, ollama, tabby, continue, cody"
+      printf_cyan "  AI/LLM: localai, llama-cpp, ollama, tabby, continue"
       printf_cyan "  Dev Tools: mise"
       printf_cyan "  Security: age, sops"
       SETUPMGR_EXIT_STATUS=1

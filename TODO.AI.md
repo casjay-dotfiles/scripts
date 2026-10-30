@@ -839,24 +839,13 @@ slackware) — confirmed via `script-lint` that these predate the diff.
       needs a coordinated rename across every script that defines/calls
       these, not a one-off change here.
 
-## bin/setupmgr: `cody` upstream status unverified
-
-`cody` installs npm `@sourcegraph/cody` (last published 2026-06). Check
-whether Sourcegraph still supports the standalone CLI; remove it if not.
-
 ## bin/setupmgr: `hermes` pipx package lags upstream
 
-`__setup_hermes` installs PyPI `hermes-agent` (0.19.0) while the official
-GitHub release is v0.22.5. The official install.sh is a git clone plus uv
-venv (no binary). Decide whether to pin pipx to the git tag instead.
-
-## bin/setupmgr: `nix` uses the Determinate installer
-
-`__setup_nix` downloads the Determinate Systems `nix-installer` binary,
-not the upstream nixos.org release tarball (which ships its own
-`install` script). Decide whether "official" means nixos.org here.
-
-## bin/setupmgr: tools with no Linux arm64 release asset
-
-`jless` ships amd64 only (and needs libxcb at runtime), so `setupmgr jless`
-on aarch64 fails with "Could not find latest release asset".
+`__setup_hermes` installs PyPI `hermes-agent` (0.19.0, last upload
+2026-07-20) while the GitHub release is v0.22.5. Installing the git tag
+with pip/pipx is not possible: upstream's build backend refuses with
+"Building wheels or sdists for hermes-agent is not supported". The only
+supported Linux install is its install.sh (git clone to
+~/.hermes/hermes-agent plus a uv venv and a ~/.local/bin/hermes wrapper).
+setupmgr never installs from source, so it keeps the PyPI package (the only
+published artifact) until upstream ships a binary or a newer PyPI release.

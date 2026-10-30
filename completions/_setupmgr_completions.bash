@@ -55,7 +55,7 @@ _setupmgr() {
   #####################################################################
   ARRAY=""
   ARRAY+="9router act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun "
-  ARRAY+="caddy claude cody codex coder continue copilot cosign crush ctlptl ctop curlie dasel delta deno "
+  ARRAY+="caddy claude codex coder continue copilot cosign crush ctlptl ctop curlie dasel delta deno "
   ARRAY+="devbox difftastic direnv distrobox dive dnsglobe dotnet droast dua duf dust earthly eslint evans eza fabric "
   ARRAY+="fastfetch fd fnm fx fzf garage gemini gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron "
   ARRAY+="grpcurl grype gvm hadolint helix helm herdr httpie hyperfine incus jekyll jless jnv jq just k6 k9s kimchi kind "

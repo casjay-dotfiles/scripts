@@ -849,3 +849,4 @@ supported Linux install is its install.sh (git clone to
 ~/.hermes/hermes-agent plus a uv venv and a ~/.local/bin/hermes wrapper).
 setupmgr never installs from source, so it keeps the PyPI package (the only
 published artifact) until upstream ships a binary or a newer PyPI release.
+- bin/gitcommit line ~1146 is 195 characters (pre-existing, over the 180 limit); wrap it

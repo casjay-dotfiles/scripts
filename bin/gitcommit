@@ -318,6 +318,9 @@ GITCOMMIT_CHANGELOG_ICON="${GITCOMMIT_CHANGELOG_ICON:-}"
 GITCOMMIT_DEFAULT_COMMIT_FILE="${GITCOMMIT_DEFAULT_COMMIT_FILE:-}"
 GITCOMMIT_DEFAULT_AI_COMMAND="${GITCOMMIT_DEFAULT_AI_COMMAND:-}"
 GITCOMMIT_DEFAULT_AI_ARGS="${GITCOMMIT_DEFAULT_AI_ARGS:-}"
+GITCOMMIT_AI_TIMEOUT="${GITCOMMIT_AI_TIMEOUT:-120}"
+GITCOMMIT_AI_COOLDOWN="${GITCOMMIT_AI_COOLDOWN:-1800}"
+GITCOMMIT_AI_PREFLIGHT="${GITCOMMIT_AI_PREFLIGHT:-true}"
 GITCOMMIT_LOG_SHOW_EXCLUDE="${GITCOMMIT_LOG_SHOW_EXCLUDE:-Version Bump:}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -497,6 +500,13 @@ __help() {
   __printf_line "target, the file is left alone. Target value: \$GITCOMMIT_GPG"
   __printf_line "_CACHE_TTL (default 28800 = 8h). Set to 0/no/off/skip to"
   __printf_line "disable the gpg-agent.conf update entirely."
+  __printf_line ""
+  __printf_line "AI safety checks: each AI CLI is checked for a login and for a"
+  __printf_line "recorded rate-limit/account cooldown before it is used, runs"
+  __printf_line "with stdin closed, and is stopped after \$GITCOMMIT_AI_TIMEOUT"
+  __printf_line "seconds (default 120). \$GITCOMMIT_AI_COOLDOWN sets the skip time"
+  __printf_line "after a rate limit (default 1800). \$GITCOMMIT_AI_PREFLIGHT=false"
+  __printf_line "skips only the login check."
   __printf_line ""
   __printf_line "Non-interactive contexts (CI/CD, AI agents): set ONE of these"
   __printf_line "and gitcommit will inject the passphrase automatically:"
@@ -2927,56 +2937,69 @@ __curl_branch() {
   return $GITCOMMIT_EXITCODE
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Classify an AI error message. Sets GITCOMMIT_AI_ERR_KIND (account|rate|auth|net|model|service|policy|other),
+# prints the user-facing line and returns 1 when the text is an error, 0 when it is not.
+__ai_classify_error() {
+  local text="$1" display_name="${2:-AI}" level="${3:-stderr}"
+  GITCOMMIT_AI_ERR_KIND=""
+  [ -n "$text" ] || return 0
+  local account_pat='subscription.{0,20}(expired|inactive|required|cancel)|(account|organization|org).{0,20}(suspended|disabled|deactivated|banned|blocked)'
+  account_pat+='|trial.{0,15}(ended|expired)|(payment|billing).{0,20}(failed|required|issue|problem|past.?due)|insufficient.{0,15}(credits?|balance|funds)'
+  account_pat+='|out of (credits?|quota)|credit balance.{0,20}(low|too low|zero)|plan.{0,20}(does not include|not include|upgrade)|upgrade (your )?(plan|account)'
+  account_pat+='|not entitled|no active (subscription|plan)|\b402\b|payment required|insufficient_quota|billing_not_active'
+  local rate_pat='rate.?limit|limit.?reached|reached.{0,25}limit|too many requests|quota.?(exceeded|exhausted)|usage.?limit|spending.?limit'
+  rate_pat+='|(daily|weekly|monthly|hourly|5.?hour|session).{0,12}limit|limit.{0,20}(will )?reset|resets? (at|in|on)|try again (in|after|at)|retry.?after'
+  rate_pat+='|credits?.?(exhausted|exceeded|limit)|usage.?cap|overloaded|server.?busy|\b429\b|rate_limit_error|overloaded_error|resource.?exhausted|throttl'
+  local auth_pat='unauthori[sz]ed|authentication|invalid.?(token|key|api|credentials)|api.?key|credentials|\b40[13]\b|permission.?denied|access.?denied'
+  auth_pat+='|not.?authori[sz]ed|not (logged|signed) in|logged out|please run.*(login|auth)|please.*(sign|log).?in|(login|sign.?in) (is )?required|please.*authenticate'
+  auth_pat+='|(token|session|credentials?|login).{0,15}(expired|revoked|invalid)|re-?authenticat|refresh.?token|no (api.?key|credentials|auth)|set an auth method'
+  auth_pat+='|oauth.{0,20}(fail|error|expired)|missing.{0,10}(api.?key|token|credentials)'
+  local net_pat='timeout|timed.?out|connection.?(refused|reset|failed|closed)|network.?error|unable to connect|unreachable|\bdns\b|could not resolve|getaddrinfo'
+  net_pat+='|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|certificate|ssl'
+  local model_pat='model.?(not.?found|unavailable|does.?not.?exist|not supported)|no.?model|invalid.?model|unknown.?model|model_not_found|no models? (loaded|available)'
+  local svc_pat='\b50[0234]\b|service.?unavailable|internal.?(server.?)?error|server.?error|maintenance|temporarily.?unavailable|bad gateway|upstream'
+  local policy_pat='content.?policy|safety|filtered|inappropriate|policy violation|refus'
+  if echo "$text" | __grep -qiE -- "$account_pat"; then
+    GITCOMMIT_AI_ERR_KIND="account"
+    printf_red "❌ $display_name: Account, plan or billing problem (subscription inactive, out of credits, or payment required)."
+  elif echo "$text" | __grep -qiE -- "$rate_pat"; then
+    GITCOMMIT_AI_ERR_KIND="rate"
+    printf_red "❌ $display_name: Rate limit or quota exceeded. Please try again later."
+    GITCOMMIT_AI_RATE_LIMITED="true"
+    export GITCOMMIT_AI_RATE_LIMITED
+  elif echo "$text" | __grep -qiE -- "$auth_pat"; then
+    GITCOMMIT_AI_ERR_KIND="auth"
+    printf_red "❌ $display_name: Not logged in or authentication failed. Log in again with the CLI."
+  elif echo "$text" | __grep -qiE -- "$net_pat"; then
+    GITCOMMIT_AI_ERR_KIND="net"
+    printf_yellow "⚠️  $display_name: Network error or timeout."
+  elif echo "$text" | __grep -qiE -- "$model_pat"; then
+    GITCOMMIT_AI_ERR_KIND="model"
+    printf_yellow "⚠️  $display_name: Model not found or unavailable."
+  elif echo "$text" | __grep -qiE -- "$svc_pat"; then
+    GITCOMMIT_AI_ERR_KIND="service"
+    printf_yellow "⚠️  $display_name: Service temporarily unavailable."
+  elif echo "$text" | __grep -qiE -- "$policy_pat"; then
+    GITCOMMIT_AI_ERR_KIND="policy"
+    printf_yellow "⚠️  $display_name: Request blocked by content policy."
+  elif [ "$level" = "stderr" ] && echo "$text" | __grep -qiE -- 'not found|command not found|no such file|cannot find|not.?installed'; then
+    GITCOMMIT_AI_ERR_KIND="other"
+    printf_yellow "⚠️  $display_name: Command not found or not properly installed."
+  elif [ "$level" = "stderr" ] && echo "$text" | __grep -qiE -- '^error|failed|exception|fatal|exited with status'; then
+    GITCOMMIT_AI_ERR_KIND="other"
+    printf_yellow "⚠️  $display_name: $(echo "$text" | head -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  else
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_ai_error() {
   local cmd_name="$1"
   local error_output="$2"
   local display_name="${3:-$cmd_name}"
-  if [ -z "$error_output" ]; then
-    return 0
-  fi
-  # Rate limit patterns (various providers)
-  local rate_limit_pat='rate.?limit|limit.?reached|too many requests|quota.?exceeded|usage.?limit|spending.?limit|billing'
-  rate_limit_pat+='|credits?.?(exhausted|exceeded|limit)|usage.?cap|overloaded|server.?busy|capacity|429|rate_limit_error'
-  rate_limit_pat+='|overloaded_error|resource.?exhausted|throttl'
-  # Authentication/authorization patterns (including CLI "not logged in" messages)
-  local auth_err_pat='unauthorized|authentication|invalid.?(token|key|api)|api.?key|credentials|403|401|permission.?denied'
-  auth_err_pat+='|access.?denied|not.?authorized|not logged in|please run.*login|please.*sign in|login required|please.*authenticate'
-  # Network/connectivity patterns
-  local net_err_pat='timeout|timed.?out|connection.?(refused|reset|failed)|network.?error|unable to connect|unreachable|dns'
-  net_err_pat+='|resolve|ECONNREFUSED|ETIMEDOUT|ENOTFOUND'
-  if echo "$error_output" | __grep -qiE -- "$rate_limit_pat"; then
-    printf_red "❌ $display_name: Rate limit or quota exceeded. Please try again later."
-    GITCOMMIT_AI_RATE_LIMITED="true"
-    export GITCOMMIT_AI_RATE_LIMITED
-    return 1
-  elif echo "$error_output" | __grep -qiE -- "$auth_err_pat"; then
-    printf_red "❌ $display_name: Authentication failed. Check your API credentials."
-    return 1
-  elif echo "$error_output" | __grep -qiE -- "$net_err_pat"; then
-    printf_yellow "⚠️  $display_name: Network error or timeout."
-    return 1
-  # Command/installation patterns
-  elif echo "$error_output" | __grep -qiE -- 'not found|command not found|no such file|cannot find|not.?installed'; then
-    printf_yellow "⚠️  $display_name: Command not found or not properly installed."
-    return 1
-  # Model availability patterns
-  elif echo "$error_output" | __grep -qiE -- 'model.?(not.?found|unavailable|does.?not.?exist)|no.?model|invalid.?model|unknown.?model'; then
-    printf_yellow "⚠️  $display_name: Model not found or unavailable."
-    return 1
-  # Service unavailable patterns
-  elif echo "$error_output" | __grep -qiE -- '500|502|503|504|service.?unavailable|internal.?error|server.?error|maintenance|temporarily.?unavailable'; then
-    printf_yellow "⚠️  $display_name: Service temporarily unavailable."
-    return 1
-  # Content policy / safety patterns
-  elif echo "$error_output" | __grep -qiE -- 'content.?policy|safety|blocked|filtered|inappropriate|violation'; then
-    printf_yellow "⚠️  $display_name: Request blocked by content policy."
-    return 1
-  # Generic error patterns
-  elif echo "$error_output" | __grep -qiE -- '^error|failed|exception|fatal'; then
-    printf_yellow "⚠️  $display_name: $(echo "$error_output" | head -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    return 1
-  fi
-  return 0
+  [ -n "$error_output" ] || return 0
+  __ai_classify_error "$error_output" "$display_name" stderr
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if AI result itself contains error indicators
@@ -2986,21 +3009,19 @@ __check_ai_result_for_errors() {
   if [ -z "$result" ]; then
     return 1
   fi
-  # Rate limit / quota
-  local result_rate_pat='rate.?limit|quota.?exceeded|too many requests|limit.?reached|try again later|overloaded|capacity'
-  result_rate_pat+='|throttl|rate_limit_error|overloaded_error|resource.?exhausted'
-  if echo "$result" | __grep -qiE -- "$result_rate_pat"; then
-    printf_red "❌ $display_name: Rate limit detected in response."
-    GITCOMMIT_AI_RATE_LIMITED="true"
-    export GITCOMMIT_AI_RATE_LIMITED
-    return 1
-  fi
-  # Authentication errors surfaced in the body (including CLI stdout "not logged in" messages)
-  local result_auth_pat='invalid.?(api.?key|token|credentials)|authentication.?error|invalid_api_key|authentication_error'
-  result_auth_pat+='|insufficient_quota|permission.?denied|access.?denied|not logged in|please run.*login|login required'
-  result_auth_pat+='|please.*sign in|please.*authenticate'
-  if echo "$result" | __grep -qiE -- "$result_auth_pat"; then
-    printf_red "❌ $display_name: Authentication or quota error in response."
+  # A commit message never mentions these, so any hit in the body is a CLI error leaking to stdout
+  local result_err_pat='^(error|fatal)[: ]|^(api|http|request) error|invalid_api_key|authentication_error|insufficient_quota|not logged in|login required'
+  result_err_pat+='|please run.*login|please.*(sign|log).?in|please.*authenticate|you.?ve (hit|reached)|usage limit|rate.?limit(ed)?|quota.?exceeded|too many requests'
+  result_err_pat+='|limit.?reached|try again (later|in|after)|overloaded|resource.?exhausted|throttl|credit balance|subscription.{0,20}(expired|inactive|required)'
+  result_err_pat+='|payment required|upgrade (your )?plan'
+  # A reply that already opens with a conventional "type: description" line is a real message, even if it mentions rate limits
+  local conv_pat='^[[:space:]]*[^[:alnum:]]*[[:space:]]*(fix|feat|docs|refactor|chore|test|build|ci|perf|style|revert|security)(\([^)]*\))?!?:[[:space:]]'
+  if ! echo "$result" | __grep -v -- '^[[:space:]]*$' | head -n1 | __grep -qiE -- "$conv_pat" && echo "$result" | __grep -qiE -- "$result_err_pat"; then
+    __ai_classify_error "$result" "$display_name" result
+    [ -n "$GITCOMMIT_AI_ERR_KIND" ] || {
+      GITCOMMIT_AI_ERR_KIND="other"
+      printf_yellow "⚠️  $display_name: Error text detected in response."
+    }
     return 1
   fi
   # Empty-diff / no-changes responses that are not valid commit messages
@@ -3011,14 +3032,17 @@ __check_ai_result_for_errors() {
     return 1
   fi
   # Provider-specific error type fields (JSON, single or multi-line)
-  local provider_err_pat='"type"\s*:\s*"error"|"status"\s*:\s*"error"|invalid_request_error|authentication_error'
-  provider_err_pat+='|insufficient_quota|model_not_found|overloaded_error|rate_limit_error|server_error|api_error'
+  local provider_err_pat='"type"\s*:\s*"error"|"status"\s*:\s*"error"|invalid_request_error|model_not_found|overloaded_error|rate_limit_error|server_error|api_error'
   if echo "$result" | __grep -qiE -- "$provider_err_pat"; then
+    __ai_classify_error "$result" "$display_name" result || return 1
+    GITCOMMIT_AI_ERR_KIND="other"
     printf_yellow "⚠️  $display_name: API error type detected in response."
     return 1
   fi
   # JSON error object — "error": { or "error": "message"
   if echo "$result" | __grep -qE -- '"error"\s*:\s*[\{"]'; then
+    __ai_classify_error "$result" "$display_name" result || return 1
+    GITCOMMIT_AI_ERR_KIND="other"
     printf_yellow "⚠️  $display_name: JSON error object detected in response."
     return 1
   fi
@@ -3031,17 +3055,219 @@ __check_ai_result_for_errors() {
   fi
   # HTTP error status at start of line (API gateway errors surfaced in stdout)
   if echo "$result" | __grep -qE -- '^[45][0-9]{2}[[:space:]]|^HTTP/[0-9.]+ [45][0-9]{2}'; then
+    __ai_classify_error "$result" "$display_name" result || return 1
+    GITCOMMIT_AI_ERR_KIND="service"
     printf_yellow "⚠️  $display_name: HTTP error status code in response."
     return 1
   fi
   # curl / wget errors piped through to stdout
   if echo "$result" | __grep -qiE -- '^curl:[[:space:]]*\([0-9]+\)|^wget:[[:space:]]|^Failed to connect|^Connection refused'; then
+    GITCOMMIT_AI_ERR_KIND="net"
     printf_yellow "⚠️  $display_name: Network error output in response."
     return 1
   fi
   # HTML error page
   if echo "$result" | __grep -qiE -- '^<!DOCTYPE|^<html|<title>[^<]*error[^<]*</title>|<h1>[^<]*error[^<]*</h1>'; then
+    GITCOMMIT_AI_ERR_KIND="service"
     printf_yellow "⚠️  $display_name: Received HTML error page instead of response."
+    return 1
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run an AI CLI bounded by GITCOMMIT_AI_TIMEOUT seconds with stdin closed so a login prompt can never hang the
+# commit. A non-zero exit is reported on stderr, where the error classifier picks it up.
+__ai_exec() {
+  local rc=0
+  if __cmd_exists timeout; then
+    timeout -k 5 "${GITCOMMIT_AI_TIMEOUT:-120}" "$@" </dev/null
+  else
+    "$@" </dev/null
+  fi
+  rc=$?
+  if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then
+    echo "$1 timed out after ${GITCOMMIT_AI_TIMEOUT:-120}s" >&2
+  elif [ $rc -ne 0 ]; then
+    echo "$1 exited with status $rc" >&2
+  fi
+  return $rc
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__ai_cooldown_file() { printf '%s/ai-cooldown/%s' "$GITCOMMIT_CACHE_DIR" "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Seconds to wait, read from a provider message such as "try again in 3 hours"; falls back to GITCOMMIT_AI_COOLDOWN
+__ai_cooldown_seconds() {
+  local match="" num="" unit=""
+  match="$(printf '%s' "$1" | __grep -oiE -- '(try again|retry|reset|available)[^0-9]{0,25}[0-9]+ ?(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)' | head -n1)"
+  num="$(printf '%s' "$match" | __grep -oE -- '[0-9]+' | tail -n1)"
+  unit="$(printf '%s' "$match" | __grep -oiE -- '(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)$' | cut -c1-1 | tr 'A-Z' 'a-z')"
+  case "$unit" in
+  s) echo "$num" ;;
+  m) echo $((num * 60)) ;;
+  h) echo $((num * 3600)) ;;
+  d) echo $((num * 86400)) ;;
+  *) echo "${GITCOMMIT_AI_COOLDOWN:-1800}" ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Remember that a CLI failed: for this run always, and across runs for rate-limit/account/auth failures
+__ai_note_failure() {
+  local cli="$1" kind="$2" text="$3" secs=0 file=""
+  [ -n "$cli" ] && [ -n "$kind" ] || return 0
+  GITCOMMIT_AI_FAILED="$GITCOMMIT_AI_FAILED $cli "
+  case "$kind" in
+  rate) secs="$(__ai_cooldown_seconds "$text")" ;;
+  account) secs=3600 ;;
+  auth) secs=600 ;;
+  *) return 0 ;;
+  esac
+  [ "$secs" -gt 0 ] 2>/dev/null || secs="${GITCOMMIT_AI_COOLDOWN:-1800}"
+  [ "$secs" -le 604800 ] || secs=604800
+  file="$(__ai_cooldown_file "$cli")"
+  mkdir -p "${file%/*}" 2>/dev/null
+  printf '%s|%s\n' "$(($(date +%s) + secs))" "$kind" >"$file" 2>/dev/null
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Return 0 (and set GITCOMMIT_AI_COOLDOWN_UNTIL / _KIND) while a CLI is still inside a recorded cooldown
+__ai_cooldown_active() {
+  local file="" until_ts="" kind=""
+  file="$(__ai_cooldown_file "$1")"
+  [ -f "$file" ] || return 1
+  IFS='|' read -r until_ts kind <"$file"
+  case "$until_ts" in '' | *[!0-9]*)
+    rm -f "$file"
+    return 1
+    ;;
+  esac
+  if [ "$until_ts" -gt "$(date +%s)" ]; then
+    GITCOMMIT_AI_COOLDOWN_UNTIL="$until_ts"
+    GITCOMMIT_AI_COOLDOWN_KIND="$kind"
+    return 0
+  fi
+  rm -f "$file"
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run a command bounded by N seconds when timeout(1) exists, otherwise run it unbounded. Usage: __ai_timeout 20 cmd args
+__ai_timeout() {
+  if __cmd_exists timeout; then
+    timeout "$@"
+  else
+    shift 1
+    "$@"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Cheap local login check for one CLI, no model call. Prints the reason on stdout.
+# Returns 0 = logged in, 1 = not logged in, 2 = cannot be checked (proceed and rely on error detection).
+__ai_auth_state() {
+  local cli="$1" out="" rc=0 key=""
+  case "$cli" in
+  claude)
+    out="$(__ai_timeout 20 claude auth status 2>&1 </dev/null)"
+    if echo "$out" | __grep -qE -- '"loggedIn"[[:space:]]*:[[:space:]]*true'; then
+      return 0
+    elif echo "$out" | __grep -qE -- '"loggedIn"[[:space:]]*:[[:space:]]*false'; then
+      echo "not logged in (run: claude auth login)"
+      return 1
+    fi
+    return 2
+    ;;
+  codex)
+    out="$(__ai_timeout 20 codex login status 2>&1 </dev/null)"
+    rc=$?
+    if echo "$out" | __grep -qiE -- 'not logged in|logged out'; then
+      echo "not logged in (run: codex login)"
+      return 1
+    elif [ $rc -eq 0 ] && echo "$out" | __grep -qiE -- '^logged in'; then
+      return 0
+    fi
+    return 2
+    ;;
+  copilot)
+    for key in COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN; do [ -n "${!key}" ] && return 0; done
+    [ -s "$HOME/.copilot/config.json" ] && __grep -qE -- 'logged_in_users|last_logged_in_user|copilot_tokens' "$HOME/.copilot/config.json" && return 0
+    __cmd_exists gh && __ai_timeout 20 gh auth status &>/dev/null </dev/null && return 0
+    echo "no login found (run: copilot login, or set COPILOT_GITHUB_TOKEN)"
+    return 1
+    ;;
+  gemini)
+    for key in GEMINI_API_KEY GOOGLE_API_KEY; do [ -n "${!key}" ] && return 0; done
+    [ "$GOOGLE_GENAI_USE_VERTEXAI" = "true" ] || [ "$GOOGLE_GENAI_USE_GCA" = "true" ] && return 0
+    [ -s "$HOME/.gemini/oauth_creds.json" ] && return 0
+    echo "no login found (run: gemini and sign in, or set GEMINI_API_KEY)"
+    return 1
+    ;;
+  opencode)
+    out="$(__ai_timeout 20 opencode auth list 2>&1 </dev/null | sed 's/\x1b\[[0-9;]*m//g')"
+    if echo "$out" | __grep -qE -- '[1-9][0-9]* credentials?'; then
+      return 0
+    fi
+    for key in ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY OPENROUTER_API_KEY; do [ -n "${!key}" ] && return 0; done
+    echo "no stored credentials (run: opencode auth login)"
+    return 1
+    ;;
+  pi)
+    for key in ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY; do [ -n "${!key}" ] && return 0; done
+    if [ -s "$HOME/.pi/agent/auth.json" ] && __grep -qE -- '"[^"]+"[[:space:]]*:' "$HOME/.pi/agent/auth.json"; then
+      return 0
+    fi
+    echo "no stored credentials (run: pi, then /login)"
+    return 1
+    ;;
+  omp)
+    for key in ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY; do [ -n "${!key}" ] && return 0; done
+    __cmd_exists jq || return 2
+    out="$(__ai_timeout 20 omp auth export 2>/dev/null </dev/null | jq -r '(.credentials // []) | length' 2>/dev/null)"
+    if [ "${out:-0}" -gt 0 ] 2>/dev/null; then
+      return 0
+    fi
+    echo "no stored credentials (run: omp login)"
+    return 1
+    ;;
+  ollama)
+    out="$(__ai_timeout 10 ollama list 2>&1 </dev/null)"
+    rc=$?
+    if [ $rc -ne 0 ]; then
+      echo "server is not running (start: ollama serve)"
+      return 1
+    elif [ "$(echo "$out" | tail -n +2 | __grep -c -- '.')" -eq 0 ]; then
+      echo "no models installed (run: ollama pull <model>)"
+      return 1
+    fi
+    return 0
+    ;;
+  lms)
+    if [ -z "$(__ai_lms_loaded_model)" ] && [ -z "$GITCOMMIT_DEFAULT_AI_ARGS" ]; then
+      echo "no model loaded (run: lms load <model>)"
+      return 1
+    fi
+    return 0
+    ;;
+  esac
+  return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Gate every AI CLI before use: installed, not already failed this run, not inside a rate-limit cooldown, and
+# logged in. Records the CLI in GITCOMMIT_AI_CURRENT so a later error is filed against it. Set
+# GITCOMMIT_AI_PREFLIGHT=false to skip only the login check. Usage: __ai_cli_ready claude "Claude AI"
+__ai_cli_ready() {
+  local cli="$1" display_name="${2:-$1}" reason="" rc=0 until_txt=""
+  GITCOMMIT_AI_CURRENT="$cli"
+  __cmd_exists "$cli" || return 1
+  case " $GITCOMMIT_AI_FAILED " in *" $cli "*) return 1 ;; esac
+  if __ai_cooldown_active "$cli"; then
+    until_txt="$(date -d "@$GITCOMMIT_AI_COOLDOWN_UNTIL" +%H:%M 2>/dev/null || date -r "$GITCOMMIT_AI_COOLDOWN_UNTIL" +%H:%M 2>/dev/null)"
+    printf_yellow "⚠️  $display_name: skipped, $GITCOMMIT_AI_COOLDOWN_KIND problem recorded earlier (retry after ${until_txt:-the cooldown})"
+    return 1
+  fi
+  [ "$GITCOMMIT_AI_PREFLIGHT" = "false" ] && return 0
+  reason="$(__ai_auth_state "$cli")"
+  rc=$?
+  if [ $rc -eq 1 ]; then
+    printf_yellow "⚠️  $display_name: skipped, $reason"
+    GITCOMMIT_AI_FAILED="$GITCOMMIT_AI_FAILED $cli "
     return 1
   fi
   return 0
@@ -3049,18 +3275,28 @@ __check_ai_result_for_errors() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Unified helper: check stderr + check result content + parse. Returns 0 only
 # when the result passes all checks and is successfully parsed as a commit message.
+# A rate-limit, account or login failure is recorded against GITCOMMIT_AI_CURRENT.
 # Callers: __ai_try_result "$result" "Display Name" "$error_output_tmpfile"
 __ai_try_result() {
   local result="$1"
   local display_name="${2:-AI}"
   local error_file="${3:-}"
-  local had_stderr_error=false
+  local had_stderr_error=false err_text=""
+  GITCOMMIT_AI_ERR_KIND=""
   if [ -n "$error_file" ] && [ -s "$error_file" ]; then
-    __check_ai_error "" "$(<"$error_file")" "$display_name" || had_stderr_error=true
+    err_text="$(<"$error_file")"
+    __check_ai_error "" "$err_text" "$display_name" || had_stderr_error=true
   fi
   [ -n "$error_file" ] && rm -f "$error_file"
-  $had_stderr_error && return 1
-  __parse_ai_result "$result" "$display_name"
+  if $had_stderr_error; then
+    __ai_note_failure "$GITCOMMIT_AI_CURRENT" "$GITCOMMIT_AI_ERR_KIND" "$err_text"
+    return 1
+  fi
+  if ! __parse_ai_result "$result" "$display_name"; then
+    __ai_note_failure "$GITCOMMIT_AI_CURRENT" "$GITCOMMIT_AI_ERR_KIND" "$result"
+    return 1
+  fi
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Return the identifier of a loaded LM Studio model without entering its
@@ -3074,6 +3310,7 @@ __ai_commit_message() {
   local diff_content="" prompt="" result="" changed_files=""
   local short_msg="" long_msg="" preferred_ai="" lms_model=""
   GITCOMMIT_AI_RATE_LIMITED=""
+  GITCOMMIT_AI_FAILED=""
 
   # Get the diff for context
   changed_files="$(__changed_files all)"
@@ -3314,6 +3551,8 @@ Output only the commit message, nothing else."
   if [ -n "$ai_cmd" ]; then
     if ! __cmd_exists "$ai_cmd"; then
       printf_yellow "⚠️  Configured AI command '$ai_cmd' not found, falling back to auto-detection"
+    elif ! __ai_cli_ready "$ai_cmd" "$ai_cmd"; then
+      printf_yellow "⚠️  Configured AI command '$ai_cmd' is not usable right now, trying fallbacks..."
     else
       printf_cyan "🤖 Using $ai_cmd to generate commit message..."
       case "$ai_cmd" in
@@ -3330,7 +3569,7 @@ Output only the commit message, nothing else."
         fi
         if [ -n "$ai_args" ]; then
           error_output="$(mktemp)"
-          result="$(ollama $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+          result="$(__ai_exec ollama $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
           if __ai_try_result "$result" "Ollama AI" "$error_output"; then
             return 0
           else
@@ -3341,7 +3580,7 @@ Output only the commit message, nothing else."
       claude)
         [ -z "$ai_args" ] && ai_args="-p"
         error_output="$(mktemp)"
-        result="$(claude $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        result="$(__ai_exec claude $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "Claude AI" "$error_output"; then
           return 0
         else
@@ -3351,7 +3590,7 @@ Output only the commit message, nothing else."
       codex)
         [ -z "$ai_args" ] && ai_args="exec"
         error_output="$(mktemp)"
-        result="$(codex $ai_args --sandbox read-only "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        result="$(__ai_exec codex $ai_args --sandbox read-only "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "Codex AI" "$error_output"; then
           return 0
         else
@@ -3360,7 +3599,7 @@ Output only the commit message, nothing else."
         ;;
       copilot)
         error_output="$(mktemp)"
-        result="$(copilot $ai_args --available-tools='' --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        result="$(__ai_exec copilot $ai_args --available-tools='' --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "GitHub Copilot" "$error_output"; then
           return 0
         else
@@ -3370,7 +3609,7 @@ Output only the commit message, nothing else."
       gemini)
         [ -z "$ai_args" ] && ai_args="--approval-mode=plan"
         error_output="$(mktemp)"
-        result="$(gemini $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        result="$(__ai_exec gemini $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "Gemini CLI" "$error_output"; then
           return 0
         else
@@ -3380,7 +3619,7 @@ Output only the commit message, nothing else."
       omp)
         [ -z "$ai_args" ] && ai_args="--tools read,grep,find -p"
         error_output="$(mktemp)"
-        result="$(omp $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        result="$(__ai_exec omp $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "Oh My Pi" "$error_output"; then
           return 0
         else
@@ -3390,7 +3629,7 @@ Output only the commit message, nothing else."
       pi)
         [ -z "$ai_args" ] && ai_args="--no-tools --print"
         error_output="$(mktemp)"
-        result="$(pi $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        result="$(__ai_exec pi $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "Pi" "$error_output"; then
           return 0
         else
@@ -3400,7 +3639,7 @@ Output only the commit message, nothing else."
       opencode)
         [ -z "$ai_args" ] && ai_args="run --agent plan"
         error_output="$(mktemp)"
-        result="$(opencode $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        result="$(__ai_exec opencode $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "OpenCode" "$error_output"; then
           return 0
         else
@@ -3410,7 +3649,7 @@ Output only the commit message, nothing else."
       llama-cli | llama-cpp | llamafile)
         [ -z "$ai_args" ] && ai_args="--no-display-prompt"
         error_output="$(mktemp)"
-        result="$($ai_cmd $ai_args -p "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+        result="$(__ai_exec $ai_cmd $ai_args -p "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         if __ai_try_result "$result" "$(echo $ai_cmd | tr '-' ' ' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2));}1')" "$error_output"; then
           return 0
         else
@@ -3421,10 +3660,10 @@ Output only the commit message, nothing else."
         lms_model="$(__ai_lms_loaded_model)"
         if [ -n "$ai_args" ]; then
           error_output="$(mktemp)"
-          result="$(lms $ai_args --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+          result="$(__ai_exec lms $ai_args --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         elif [ -n "$lms_model" ]; then
           error_output="$(mktemp)"
-          result="$(lms chat "$lms_model" --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+          result="$(__ai_exec lms chat "$lms_model" --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         else
           printf_yellow "⚠️  LM Studio has no loaded model, trying fallbacks..."
         fi
@@ -3443,7 +3682,7 @@ Output only the commit message, nothing else."
         # Generic command - user provides full args
         error_output="$(mktemp)"
         if [ -n "$ai_args" ]; then
-          result="$($ai_cmd $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+          result="$(__ai_exec $ai_cmd $ai_args "$prompt" 2>"$error_output" | __grep -v -- '^$')"
         else
           result="$(echo "$prompt" | $ai_cmd 2>"$error_output" | __grep -v -- '^$')"
         fi
@@ -3461,40 +3700,40 @@ Output only the commit message, nothing else."
   # another provider can still generate the commit message.
 
   # Try ollama
-  if __cmd_exists ollama; then
+  if __ai_cli_ready ollama "Ollama"; then
     local ollama_model=""
     ollama_model="$(ollama list 2>/dev/null | tail -n +2 | head -n1 | awk '{print $1}')"
     if [ -n "$ollama_model" ]; then
       error_output="$(mktemp)"
-      result="$(ollama run "$ollama_model" "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+      result="$(__ai_exec ollama run "$ollama_model" "$prompt" 2>"$error_output" | __grep -v -- '^$')"
       __ai_try_result "$result" "Ollama" "$error_output" && return 0
     fi
   fi
 
   # Try llama.cpp (llama-cli or main)
-  if __cmd_exists llama-cli; then
+  if __ai_cli_ready llama-cli "Llama.cpp CLI"; then
     error_output="$(mktemp)"
-    result="$(llama-cli -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v -- '^$')"
+    result="$(__ai_exec llama-cli -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Llama.cpp CLI" "$error_output" && return 0
-  elif __cmd_exists llama-cpp; then
+  elif __ai_cli_ready llama-cpp "Llama.cpp"; then
     error_output="$(mktemp)"
-    result="$(llama-cpp -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v -- '^$')"
+    result="$(__ai_exec llama-cpp -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Llama.cpp" "$error_output" && return 0
   fi
 
   # Try llamafile
-  if __cmd_exists llamafile; then
+  if __ai_cli_ready llamafile "Llamafile"; then
     error_output="$(mktemp)"
-    result="$(llamafile -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v -- '^$')"
+    result="$(__ai_exec llamafile -p "$prompt" --no-display-prompt 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Llamafile" "$error_output" && return 0
   fi
 
   # Try lmstudio CLI
-  if __cmd_exists lms; then
+  if __ai_cli_ready lms "LM Studio"; then
     lms_model="$(__ai_lms_loaded_model)"
     if [ -n "$lms_model" ]; then
       error_output="$(mktemp)"
-      result="$(lms chat "$lms_model" --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+      result="$(__ai_exec lms chat "$lms_model" --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
       __ai_try_result "$result" "LM Studio" "$error_output" && return 0
     fi
   fi
@@ -3503,51 +3742,51 @@ Output only the commit message, nothing else."
   # reported a rate limit or another API error.
 
   # Try claude CLI
-  if __cmd_exists claude; then
+  if __ai_cli_ready claude "Claude AI"; then
     error_output="$(mktemp)"
-    result="$(claude -p "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    result="$(__ai_exec claude -p "$prompt" 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Claude AI" "$error_output" && return 0
   fi
 
   # Try codex CLI
-  if __cmd_exists codex; then
+  if __ai_cli_ready codex "Codex AI"; then
     error_output="$(mktemp)"
-    result="$(codex exec --sandbox read-only "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    result="$(__ai_exec codex exec --sandbox read-only "$prompt" 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Codex AI" "$error_output" && return 0
   fi
 
   # Try GitHub Copilot CLI
-  if __cmd_exists copilot; then
+  if __ai_cli_ready copilot "GitHub Copilot"; then
     error_output="$(mktemp)"
-    result="$(copilot --available-tools='' --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    result="$(__ai_exec copilot --available-tools='' --prompt "$prompt" 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "GitHub Copilot" "$error_output" && return 0
   fi
 
   # Try Gemini CLI in read-only plan mode
-  if __cmd_exists gemini; then
+  if __ai_cli_ready gemini "Gemini CLI"; then
     error_output="$(mktemp)"
-    result="$(gemini --approval-mode=plan -p "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    result="$(__ai_exec gemini --approval-mode=plan -p "$prompt" 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Gemini CLI" "$error_output" && return 0
   fi
 
   # Try OMP with read-only tools enabled
-  if __cmd_exists omp; then
+  if __ai_cli_ready omp "Oh My Pi"; then
     error_output="$(mktemp)"
-    result="$(omp --tools read,grep,find -p "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    result="$(__ai_exec omp --tools read,grep,find -p "$prompt" 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Oh My Pi" "$error_output" && return 0
   fi
 
   # Try Pi in print mode with tools disabled
-  if __cmd_exists pi; then
+  if __ai_cli_ready pi "Pi"; then
     error_output="$(mktemp)"
-    result="$(pi --no-tools --print "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    result="$(__ai_exec pi --no-tools --print "$prompt" 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "Pi" "$error_output" && return 0
   fi
 
   # Try OpenCode's read-only planning agent
-  if __cmd_exists opencode; then
+  if __ai_cli_ready opencode "OpenCode"; then
     error_output="$(mktemp)"
-    result="$(opencode run --agent plan "$prompt" 2>"$error_output" | __grep -v -- '^$')"
+    result="$(__ai_exec opencode run --agent plan "$prompt" 2>"$error_output" | __grep -v -- '^$')"
     __ai_try_result "$result" "OpenCode" "$error_output" && return 0
   fi
 

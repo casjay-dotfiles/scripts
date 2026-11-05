@@ -28,7 +28,7 @@ _anime-dl_completion() {
   #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1" | sort -u)"
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
-  local LONGOPTS="--completions --debug --no-color --options --config --version --help --silent --dir --update "
+  local LONGOPTS="--completions --debug --no-color --options --config --version --help --silent --dir --update --quality --episode --range --select-nth --nextep-countdown --dub --skip --rofi --dmenu --no-detach --exit-after-play "
   local SHORTOPTS="-v -q -s -f -a -d -p -c -r "
   local ARRAY="${LONGOPTS} ${SHORTOPTS}"
 

@@ -27,14 +27,9 @@ RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 ANIME_DL_REQUIRE_SUDO="${ANIME_DL_REQUIRE_SUDO:-no}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Reopen in a terminal
-#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+exitCode=0
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set script title
-#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD/#$HOME/~} - $APPNAME"
-#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
-#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]0;%s\007' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
 export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initial debugging
@@ -122,7 +117,7 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
   ICON_ERROR="[ error ]"
   ICON_QUESTION="[ ? ]"
   printf_column() { tee | grep '^'; }
-  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
@@ -158,7 +153,6 @@ __gen_config() {
 ANIME_DL_SAVE_DIR="${ANIME_DL_SAVE_DIR:-}"
 ANIME_DL_SOURCE_FILE="${ANIME_DL_SOURCE_FILE:-}"
 ANIME_DL_UPDATE_URL="${ANIME_DL_UPDATE_URL:-}"
-ANIME_DL_UPDATE_FILE="${ANIME_DL_UPDATE_FILE:-}"
 ANIME_DL_DEFAULT_OPTS="${ANIME_DL_DEFAULT_OPTS:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -196,16 +190,21 @@ __help() {
   __printf_opts "anime-dl:  Search for anime to download or watch - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: anime-dl [options] [query]"
-  __printf_line "-q best|worst|360|480|720|1080         - Set video quality"
-  __printf_line "-p /path/to/dir                        - Download episode to specified directory"
-  __printf_line "-r [1-7]                               - Select provider to scrape first "
-  __printf_line "--dir [/path/to/dir]                   - Sets the working directory"
-  __printf_line "-c                                     - Continue watching anime from history"
+  __printf_line "-d                                     - Download episodes (default)"
+  __printf_line "-q best|worst|720p|1080p               - Set video quality"
+  __printf_line "--episode|-r|-a 1-4                    - Episode or range of episodes"
+  __printf_line "--select-nth 2                         - Select the nth search result"
+  __printf_line "-p /path/to/dir                        - Download folder (default: ~/Videos/Anime)"
+  __printf_line "--dir /path/to/dir                     - Sets the working directory"
+  __printf_line "-c                                     - Continue watching from history"
   __printf_line "-v                                     - Use VLC as the media player"
-  __printf_line "-s                                     - Watch anime together with friends, using Syncplay (mpv only)"
-  __printf_line "-f                                     - Use fzf for anime selection"
-  __printf_line "-a                                     - Specify episode to watch"
-  __printf_line "-d                                     - Download episode"
+  __printf_line "-s                                     - Watch together using Syncplay (mpv only)"
+  __printf_line "--nextep-countdown                     - Show a countdown to the next episode"
+  __printf_line "--dub                                  - Use the dubbed version"
+  __printf_line "--skip                                 - Skip the intro (mpv only, needs ani-skip)"
+  __printf_line "--rofi, --dmenu                        - Use rofi or dmenu instead of fzf"
+  __printf_line "--no-detach, --exit-after-play         - Keep the player in the terminal"
+  __printf_line "--update                               - Update ani-cli from the latest release"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -215,7 +214,6 @@ __help() {
   __printf_line "--options                              - Shows all available options"
   __printf_line "--debug                                - Enables script debugging"
   __printf_line "--no-color                             - Disable ANSI color output"
-
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -232,9 +230,20 @@ __user_is_not_root() {
   if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Check if user is a member of sudo
+# Check if user is a member of a group that grants sudo
 __sudo_group() {
-  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+  case " $(id -nG "${1:-$USER}" 2>/dev/null) " in
+  *" wheel "* | *" sudo "* | *" admin "*) return 0 ;;
+  esac
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo: passwordless sudo works, or the user is in a sudo group. Never prompts.
+__can_i_sudo() {
+  __cmd_exists sudo || return 1
+  sudo -n true &>/dev/null </dev/null && return 0
+  __sudo_group "${1:-$USER}" && return 0
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # # Get sudo password
@@ -246,12 +255,6 @@ __sudoask() {
 __sudorun() {
   __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
   return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Test if user has access to sudo
-__can_i_sudo() {
-  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
@@ -299,87 +302,118 @@ __trap_exit() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# User defined functions
-__update() {
-  printf_green "Updating $APPNAME"
-  curl -q -LSsf "$ANIME_DL_UPDATE_URL" -o '/tmp/anime-cli' 2>/dev/null
-  if [[ -f "/tmp/anime-cli" ]]; then
-    if echo "$ANIME_DL_SOURCE_FILE" | grep -q "$HOME/"; then
-      mv -f "/tmp/anime-cli" "$ANIME_DL_SOURCE_FILE"
-      exitCode=0
-    elif __sudoif; then
-      sudo mv -f "/tmp/anime-cli" "$ANIME_DL_SOURCE_FILE"
-      exitCode=0
-    else
-      printf_red "Updating $APPNAME requires sudo privileges"
-      exitCode=1
-    fi
+# Install a file with mode 0755, through sudo when the target directory is not writable by this user
+__install_file() {
+  local src="$1" dest="$2"
+  if [ -w "${dest%/*}" ] || { [ ! -e "${dest%/*}" ] && mkdir -p "${dest%/*}" 2>/dev/null; }; then
+    install -m 0755 "$src" "$dest"
+  elif __user_is_not_root && __can_i_sudo "${RUN_USER:-$USER}"; then
+    __sudo mkdir -p "${dest%/*}" && __sudo install -m 0755 "$src" "$dest"
   else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Print the ani-cli to run: ANIME_DL_SOURCE_FILE when it exists, otherwise an ani-cli found in PATH
+__find_ani_cli() {
+  local found=""
+  if [ -x "$ANIME_DL_SOURCE_FILE" ]; then
+    printf '%s\n' "$ANIME_DL_SOURCE_FILE"
+    return 0
+  fi
+  found="$(builtin type -P ani-cli 2>/dev/null)"
+  [ -n "$found" ] || return 1
+  printf '%s\n' "$found"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Fetch the latest ani-cli release asset into a temp file, check it looks like ani-cli, then install it
+__update() {
+  local tmp="" dest="$ANIME_DL_SOURCE_FILE"
+  printf_green "Updating ani-cli"
+  tmp="$(mktemp "$ANIME_DL_TEMP_DIR/ani-cli.XXXXXX" 2>/dev/null)" || {
+    printf_red "Failed to create a temp file in $ANIME_DL_TEMP_DIR"
+    return 1
+  }
+  if ! curl -q -LSsf "$ANIME_DL_UPDATE_URL" -o "$tmp" 2>/dev/null; then
     printf_yellow "Failed to download the anime client from:"
     printf_red "$ANIME_DL_UPDATE_URL"
-    exitCode=1
+    rm -f "$tmp"
+    return 1
   fi
-  if [ -f "$ANIME_DL_SOURCE_FILE" ] && [ $exitCode = 0 ]; then
-    sudo chmod +x "$ANIME_DL_SOURCE_FILE"
-    printf_green "Updated $APPNAME"
-  else
-    printf_red "Failed to update $APPNAME"
-    exitCode=1
+  if ! head -n1 "$tmp" | grep -q -- '^#!' || ! grep -q -- '^version_number=' "$tmp"; then
+    printf_red "The downloaded file is not ani-cli, not installing it"
+    rm -f "$tmp"
+    return 1
   fi
-  rm -Rf "/tmp/anime-cli" &>/dev/null
-  return ${exitCode:-0}
+  if ! __install_file "$tmp" "$dest"; then
+    dest="$HOME/.local/share/anime-dl/ani-cli"
+    printf_yellow "Could not install to ${ANIME_DL_SOURCE_FILE%/*}, using $dest instead"
+    __install_file "$tmp" "$dest" || {
+      printf_red "Failed to update $APPNAME"
+      rm -f "$tmp"
+      return 1
+    }
+    ANIME_DL_SOURCE_FILE="$dest"
+  fi
+  rm -f "$tmp"
+  printf_green "Updated ani-cli to $dest"
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Return 0 when the options ask to watch (-v, -s, -c) instead of download; anime-dl downloads by default
+__watch_mode() {
+  local opt=""
+  for opt in "${ANIME_DL_ARGS[@]}"; do
+    case "$opt" in -v | -s | -c) return 0 ;; esac
+  done
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# ani-cli needs curl, sed, grep and fzf; downloads need yt-dlp or ffmpeg. Missing tools are installed with setupmgr or pkmgr.
+__check_deps() {
+  local tool=""
+  for tool in curl sed grep; do
+    __cmd_exists "$tool" || { printf_red "$tool is required"; return 1; }
+  done
+  __cmd_exists fzf || pkmgr silent install fzf || { printf_red "fzf is required for the anime menu"; return 1; }
+  __watch_mode && return 0
+  __cmd_exists yt-dlp || { __cmd_exists setupmgr && setupmgr yt-dlp; }
+  __cmd_exists ffmpeg || { __cmd_exists setupmgr && setupmgr ffmpeg; }
+  __cmd_exists yt-dlp ffmpeg || __cmd_exists ffmpeg || { printf_red "yt-dlp or ffmpeg is required to download"; return 1; }
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run ani-cli with the parsed options and the query words. ani-cli saves into ANI_CLI_DOWNLOAD_DIR, one folder per query.
 __download() {
-  local query="$*"
-  local src="$ANIME_DL_SOURCE_FILE"
-  local get_opts="${CLI_OPTS:--d}"
-  local opts="${get_opts:-$ANIME_DL_DEFAULT_OPTS}"
-  local dir="${ANIME_DL_NEW_SAVE_DIR:-$ANIME_DL_SAVE_DIR}"
-  [ -d "$dir" ] || __mkd "$dir"
+  local src="$1" && shift 1
+  local query="$*" dir="${ANIME_DL_NEW_SAVE_DIR:-$ANIME_DL_SAVE_DIR}" name="" opts=("${ANIME_DL_ARGS[@]}") default_opts=()
+  if ! __watch_mode && [[ " ${opts[*]} " != *" -d "* ]]; then
+    read -ra default_opts <<<"${ANIME_DL_DEFAULT_OPTS:--d}"
+    opts=("${default_opts[@]}" "${opts[@]}")
+  fi
+  if [ -n "$query" ]; then
+    name="${query//[^A-Za-z0-9._-]/_}"
+    name="${name#"${name%%[!.]*}"}"
+    dir="$dir/${name:-anime}"
+  fi
+  mkdir -p "$dir" || printf_exit "Failed to create $dir"
+  cd "$dir" || printf_exit "Failed to enter $dir"
   printf_cyan "Setting download dir to $dir"
-  if [ ${#query} -eq 0 ] || [ "$query" = "" ]; then
-    if cd "$dir" &>/dev/null; then
-      eval $src $opts -p "$dir" 2>/dev/null
-      exitCode=$?
-      [ "$exitCode" = 0 ] && __notifications
-    else
-      printf_exit "Failed to create $dir"
-    fi
-  else
-    dir="$dir/$(basename ${query// /_})"
-    [ -d "$dir" ] || __mkd "$dir"
-    if cd "$dir" &>/dev/null; then
-      eval $src $opts -p "$dir" "$query" 2>/dev/null || { exitCode=1 && false; }
-      [ "$?" = 0 ] && exitCode=0 && __notifications "Download of $query has finished"
-    else
-      printf_exit "Failed to create $dir"
-    fi
+  ANI_CLI_DOWNLOAD_DIR="$dir" "$src" "${opts[@]}" "$@"
+  exitCode=$?
+  if [ $exitCode -eq 0 ]; then
+    [ -n "$query" ] && __notifications "Download of $query has finished" || __notifications
   fi
-  return ${exitCode:-0}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__aria2c() {
-  local exitCode=0
-  local pkg_list="aria2 axel"
-  local pkg_list_pretty="aria2,axel"
-  if __cmd_exists $pkg_list; then
-    return 0
-  elif __cmd_exists aria2c axel; then
-    return 0
-  else
-    printf_green "Installing ${pkg_list_pretty}"
-    pkmgr silent install ${pkg_list} || pkmgr silent install axel aria2c || exitCode=1
-    [ "$exitCode" = 0 ] && printf_cyan "${pkg_list_pretty} has been installed" ||
-      printf_red "${pkg_list_pretty} failed to install"
-    { __cmd_exists axel; } || { __cmd_exists aria2 || __cmd_exists aria2c; } || exit 1
-    return $exitCode
-  fi
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_ani_cli() {
-  [ -f "$ANIME_DL_SOURCE_FILE" ] || __update
-  __aria2c && __download "$@" && exitCode=0 || exitCode=1
+  local src=""
+  __check_deps || return 1
+  src="$(__find_ani_cli)" || { __update && src="$(__find_ani_cli)"; } || printf_exit "Could not find or install ani-cli"
+  [ $# -eq 0 ] || printf_yellow "Sending $* to: $src"
+  __download "$src" "$@"
+  exitCode=$?
   echo
   return $exitCode
 }
@@ -414,9 +448,10 @@ ANIME_DL_NOTIFY_CLIENT_URGENCY="${ANIME_DL_NOTIFY_CLIENT_URGENCY:-normal}"
 # Additional Variables
 ANIME_DL_SAVE_DIR="${ANIME_DL_SAVE_DIR:-$HOME/Videos/Anime}"
 ANIME_DL_SOURCE_FILE="${ANIME_DL_SOURCE_FILE:-$CASJAYSDEVDIR/sources/ani-cli}"
-ANIME_DL_UPDATE_URL="${ANIME_DL_UPDATE_URL:-https://github.com/pystardust/ani-cli/raw/master/ani-cli}"
-ANIME_DL_UPDATE_FILE="${ANIME_DL_UPDATE_FILE:-ani-cli}"
+ANIME_DL_UPDATE_URL="${ANIME_DL_UPDATE_URL:-https://github.com/pystardust/ani-cli/releases/latest/download/ani-cli}"
 ANIME_DL_DEFAULT_OPTS="${ANIME_DL_DEFAULT_OPTS:-}"
+ANIME_DL_NEW_SAVE_DIR=""
+ANIME_DL_ARGS=()
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$ANIME_DL_CONFIG_DIR/$ANIME_DL_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -460,7 +495,7 @@ SHORTOPTS="v,s,d,c,f,q:,a:,p:,r:"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,no-color,version,silent"
-LONGOPTS+=",update"
+LONGOPTS+=",update,quality:,episode:,range:,select-nth:,nextep-countdown,dub,skip,rofi,dmenu,no-detach,exit-after-play"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
 ARRAY+=""
@@ -496,7 +531,7 @@ while :; do
     ICON_ERROR="[ error ]"
     ICON_QUESTION="[ ? ]"
     printf_column() { tee | grep '^'; }
-    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
     shift 1
@@ -560,17 +595,32 @@ while :; do
     __update
     exit $?
     ;;
-  -v | -s | -d | -c | -f)
-    [[ -z "$CLI_OPTS" ]] && CLI_OPTS="$1 " || CLI_OPTS+="$1 "
+  -c | -d | -s | -v | --nextep-countdown)
+    ANIME_DL_ARGS+=("${1/--nextep-countdown/-N}")
+    shift 1
+    ;;
+  -f)
     shift 1
     ;;
   -p)
     ANIME_DL_NEW_SAVE_DIR="$2"
     shift 2
     ;;
-  -q | -a | -r)
-    [[ -z "$CLI_OPTS" ]] && CLI_OPTS="$1 $2 " || CLI_OPTS+="$1 $2 "
+  -q | --quality)
+    ANIME_DL_ARGS+=(-q "$2")
     shift 2
+    ;;
+  -r | -a | --episode | --range)
+    ANIME_DL_ARGS+=(-e "$2")
+    shift 2
+    ;;
+  --select-nth)
+    ANIME_DL_ARGS+=(-S "$2")
+    shift 2
+    ;;
+  --dub | --skip | --rofi | --dmenu | --no-detach | --exit-after-play)
+    ANIME_DL_ARGS+=("$1")
+    shift 1
     ;;
   --)
     shift 1
@@ -579,45 +629,20 @@ while :; do
   esac
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Get directory from args
-# set -- "$@"
-# for arg in "$@"; do
-# if [ -d "$arg" ]; then
-# ANIME_DL_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
-# elif [ -f "$arg" ]; then
-# ANIME_DL_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
-# else
-# SET_NEW_ARGS+=("$arg")
-# fi
-# done
-# set -- "${SET_NEW_ARGS[@]}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set directory to first argument
-# [ -d "$1" ] && __is_an_option "$1" && ANIME_DL_CWD="$1" && shift 1 || ANIME_DL_CWD="${ANIME_DL_CWD:-$PWD}"
-#ANIME_DL_CWD="$(realpath "${ANIME_DL_CWD:-$PWD}" 2>/dev/null)"
-# if [ -d "$ANIME_DL_CWD" ] && cd "$ANIME_DL_CWD"; then
-# if [ "$ANIME_DL_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
-# printf_cyan "Setting working dir to $ANIME_DL_CWD"
-# fi
-# else
-# printf_exit "💔 $ANIME_DL_CWD does not exist 💔"
-# fi
+# Set directory from --dir or the current directory
+ANIME_DL_CWD="$(realpath "${ANIME_DL_CWD:-$PWD}" 2>/dev/null)"
 export ANIME_DL_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
-#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
-#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 [ -d "$ANIME_DL_SAVE_DIR" ] || mkdir -p "$ANIME_DL_SAVE_DIR"
-[ $# -eq 0 ] || printf_yellow "Sending $* to: $ANIME_DL_SOURCE_FILE"
 cd "$ANIME_DL_SAVE_DIR" || printf_exit "Failed to cd into $ANIME_DL_SAVE_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions

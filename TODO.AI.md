@@ -854,3 +854,7 @@ published artifact) until upstream ships a binary or a newer PyPI release.
 - bin/ytda: YTDA_YOUTUBE_DL_CONF_DIR defaults to ~/.config/ytda/inc while every other path uses ~/.config/myscripts/ytda; left unchanged so existing music/nightcorea configs keep working
 - bin/setupmgr: __setup_omp and the nix/other libc probes at ~2780 duplicate the new __is_musl helper; switch them to it
 - bin/ytdv pre-existing lint: grep calls missing `--` (lines ~93, 118, 183, 302, 308, 374, 826); `requiresudo` lacks `__` prefix; `exitStatus` in __grab_file is global; basename fork at ~746; inline comment and `exit 3` on the cmd_exists line; bare `return` in __notifications; no --color option
+- bin/anime-dl: passes `-p <dir>` to ani-cli, which has no such option (v5.1), so `-p` and the path are folded into the search query; download dir must be set with ANI_CLI_DOWNLOAD_DIR; also `eval` with an unquoted query (command injection), `2>/dev/null` hides all ani-cli errors, hardcoded /tmp/anime-cli temp file, `sudo chmod` on user files, updates from raw master instead of the v5.1 release asset, and __aria2c installs aria2/axel which ani-cli no longer uses (it needs yt-dlp or ffmpeg, fzf, sed, grep, and a player)
+- bin/anime-cli does not exist; "anime-cli" is only a temp file name inside bin/anime-dl for upstream pystardust/ani-cli
+
+- bin/ytstream pre-existing lint: grep calls missing `--` (lines ~93, 118, 177, 290, 545); `requiresudo` lacks `__` prefix; bare `return` in __notifications; `exitCode=4` at ~93; no --color option

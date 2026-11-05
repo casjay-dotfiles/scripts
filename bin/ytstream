@@ -28,13 +28,7 @@ USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 YTSTREAM_REQUIRE_SUDO="${YTSTREAM_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Reopen in a terminal
-#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set script title
-#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD/#$HOME/~} - $APPNAME"
-#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
-#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]0;%s\007' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
 export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initial debugging
@@ -122,7 +116,7 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
   ICON_ERROR="[ error ]"
   ICON_QUESTION="[ ? ]"
   printf_column() { tee | grep '^'; }
-  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
@@ -160,8 +154,8 @@ YTSTREAM_DEFAULT_PLAYER_PIPE="${YTSTREAM_DEFAULT_PLAYER_PIPE:-}"
 YTSTREAM_DEFAULT_PLAYER_OPTIONS="${YTSTREAM_DEFAULT_PLAYER_OPTIONS:-}"
 YTSTREAM_DEFAULT_PLAYER_CONSOLE="${YTSTREAM_DEFAULT_PLAYER_CONSOLE:-}"
 YTSTREAM_DEFAULT_PLAYER_FORMAT="${YTSTREAM_DEFAULT_PLAYER_FORMAT:-}"
-YTSTREAM_YOUTUBE_DL_BIN="${YTSTREAM_YOUTUBE_DL_BIN:-}"
-YTSTREAM_YOUTUBE_DL_URL="${YTSTREAM_YOUTUBE_DL_URL:-}"
+YTSTREAM_COOKIE_FILE="${YTSTREAM_COOKIE_FILE:-}"
+YTSTREAM_JS_RUNTIME="${YTSTREAM_JS_RUNTIME:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 YTSTREAM_OUTPUT_COLOR_1="${YTSTREAM_OUTPUT_COLOR_1:-}"
@@ -197,30 +191,18 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "ytstream:  Open youtube video in media player - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: ytstream [options] [commands]"
-  __printf_line ""
-
-
-  __printf_line ""
-
-
-  __printf_line "--dir                                  - Sets the working directory"
-
+  __printf_line "Usage: ytstream [options] <url|id> [url|id ...]"
+  __printf_line "<url|id>                               - Play the video in the media player"
+  __printf_line "--dir <path>                           - Sets the working directory"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "--help                                 - Shows this message"
-
   __printf_line "--config                               - Generate user config file"
-
   __printf_line "--version                              - Show script version"
-
   __printf_line "--options                              - Shows all available options"
-
   __printf_line "--debug                                - Enables script debugging"
-
   __printf_line "--no-color                             - Disable ANSI color output"
-
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -237,9 +219,20 @@ __user_is_not_root() {
   if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Check if user is a member of sudo
+# Check if user is a member of a group that grants sudo
 __sudo_group() {
-  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+  case " $(id -nG "${1:-$USER}" 2>/dev/null) " in
+  *" wheel "* | *" sudo "* | *" admin "*) return 0 ;;
+  esac
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo: passwordless sudo works, or the user is in a sudo group. Never prompts.
+__can_i_sudo() {
+  __cmd_exists sudo || return 1
+  sudo -n true &>/dev/null </dev/null && return 0
+  __sudo_group "${1:-$USER}" && return 0
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # # Get sudo password
@@ -251,12 +244,6 @@ __sudoask() {
 __sudorun() {
   __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
   return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Test if user has access to sudo
-__can_i_sudo() {
-  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
@@ -304,127 +291,144 @@ __trap_exit() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# User defined functions
+# Pick the media player: the configured one when it is installed, otherwise the first of mpv, vlc, mplayer and cvlc.
+# mpv comes first because it resolves YouTube pages itself through yt-dlp.
 __get_player() {
-  if [[ -n "$YTSTREAM_DEFAULT_PLAYER" ]] && [ -f "$(builtin type -P "$YTSTREAM_DEFAULT_PLAYER" 2>/dev/null)" ]; then
+  local player=""
+  if [[ -n "$YTSTREAM_DEFAULT_PLAYER" ]] && __cmd_exists "$YTSTREAM_DEFAULT_PLAYER"; then
     return 0
-  else
-    if cmd_exists vlc; then
-      YTSTREAM_DEFAULT_PLAYER="vlc"
-      YTSTREAM_DEFAULT_PLAYER_PIPE="-"
-      YTSTREAM_DEFAULT_PLAYER_OPTIONS=""
-      YTSTREAM_DEFAULT_PLAYER_CONSOLE=""
-    elif cmd_exists mplayer; then
-      YTSTREAM_DEFAULT_PLAYER="mplayer"
-      YTSTREAM_DEFAULT_PLAYER_PIPE="-"
-      YTSTREAM_DEFAULT_PLAYER_OPTIONS=""
-      YTSTREAM_DEFAULT_PLAYER_CONSOLE=""
-    elif cmd_exists mpv; then
-      YTSTREAM_DEFAULT_PLAYER="mpv"
-      YTSTREAM_DEFAULT_PLAYER_PIPE="-"
-      YTSTREAM_DEFAULT_PLAYER_OPTIONS=""
-      YTSTREAM_DEFAULT_PLAYER_CONSOLE=""
-    elif cmd_exists cvlc; then
-      YTSTREAM_DEFAULT_PLAYER="cvlc"
-      YTSTREAM_DEFAULT_PLAYER_PIPE="-"
-      YTSTREAM_DEFAULT_PLAYER_OPTIONS=""
-      YTSTREAM_DEFAULT_PLAYER_CONSOLE="true"
-    else
-      YTSTREAM_DEFAULT_PLAYER=""
-      YTSTREAM_DEFAULT_PLAYER_PIPE=""
-      YTSTREAM_DEFAULT_PLAYER_OPTIONS=""
-      YTSTREAM_DEFAULT_PLAYER_CONSOLE=""
-    fi
   fi
+  YTSTREAM_DEFAULT_PLAYER=""
+  YTSTREAM_DEFAULT_PLAYER_CONSOLE=""
+  for player in mpv vlc mplayer cvlc; do
+    if __cmd_exists "$player"; then
+      YTSTREAM_DEFAULT_PLAYER="$player"
+      [ "$player" = "cvlc" ] && YTSTREAM_DEFAULT_PLAYER_CONSOLE="true"
+      break
+    fi
+  done
   if [[ -z "$YTSTREAM_DEFAULT_PLAYER" ]]; then
     printf_red "Can not find a media player"
-    printf_yellow "Please install vlc, mplayer, or mpv"
-    exit 1
+    printf_yellow "Please install mpv, vlc, or mplayer"
+    return 1
   fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__show_vars() {
-  if [ "$1" = "--console" ]; then
-    echo "$YTSTREAM_DEFAULT_PLAYER_CONSOLE"
-  fi
-  if [ "$1" = "--options" ]; then
-    echo "$YTSTREAM_DEFAULT_PLAYER_OPTIONS"
-  fi
-  if [ "$1" = "--player" ]; then
-    echo "$YTSTREAM_DEFAULT_PLAYER"
-  fi
-  if [ "$1" = "--pipe" ]; then
-    echo "$YTSTREAM_DEFAULT_PLAYER_PIPE"
-  fi
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __console_app() {
-  if [[ "$YTSTREAM_DEFAULT_PLAYER_CONSOLE" = "true" ]]; then
-    return 0
-  elif [[ "$YTSTREAM_DEFAULT_PLAYER_CONSOLE" = "yes" ]]; then
-    return 0
-  elif [[ -n "$YTSTREAM_DEFAULT_PLAYER_CONSOLE" ]]; then
-    return 0
+  [[ -n "$YTSTREAM_DEFAULT_PLAYER_CONSOLE" ]] && [[ "$YTSTREAM_DEFAULT_PLAYER_CONSOLE" != "no" ]]
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pick a JavaScript runtime for YouTube's challenges (yt-dlp only enables deno by default). Prints the extra
+# yt-dlp argument needed, nothing for deno, and returns 1 when no runtime is installed. Override with YTSTREAM_JS_RUNTIME.
+__js_runtime() {
+  local runtime="${YTSTREAM_JS_RUNTIME:-}" candidate=""
+  if [ -z "$runtime" ]; then
+    for candidate in deno node bun qjs; do
+      if __cmd_exists "$candidate"; then
+        runtime="$candidate"
+        break
+      fi
+    done
+  fi
+  [ -n "$runtime" ] || return 1
+  [ "$runtime" = "qjs" ] && runtime="quickjs"
+  [ "$runtime" = "deno" ] || printf '%s' "--js-runtimes $runtime"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options every yt-dlp call needs: the JavaScript runtime YouTube requires and the cookies file when there is one
+__ytdlp_args() {
+  local js="" js_args=()
+  YTSTREAM_YTDLP_ARGS=()
+  js="$(__js_runtime)"
+  read -ra js_args <<<"$js"
+  YTSTREAM_YTDLP_ARGS+=("${js_args[@]}")
+  [ -f "$YTSTREAM_COOKIE_FILE" ] && YTSTREAM_YTDLP_ARGS+=(--cookies "$YTSTREAM_COOKIE_FILE")
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Extra mpv options so its built-in yt-dlp hook gets the same JavaScript runtime, cookies and format
+__mpv_args() {
+  local js="" raw=""
+  local format="${YTSTREAM_DEFAULT_PLAYER_FORMAT:-bestvideo*+bestaudio/best}"
+  YTSTREAM_MPV_ARGS=("--ytdl-format=$format")
+  js="$(__js_runtime)"
+  [ -z "$js" ] || raw+="js-runtimes=${js##* },"
+  [ -f "$YTSTREAM_COOKIE_FILE" ] && raw+="cookies=$YTSTREAM_COOKIE_FILE,"
+  [ -z "$raw" ] || YTSTREAM_MPV_ARGS+=("--ytdl-raw-options=${raw%,}")
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Print what the player opens for one URL: mpv gets the page URL and resolves it itself, any other player gets a direct stream
+__stream_target() {
+  local url="$1" video_url="" target=""
+  local format="${YTSTREAM_DEFAULT_PLAYER_FORMAT:-best}"
+  if [[ "$url" == *"://"* ]]; then
+    video_url="$url"
   else
+    video_url="https://youtube.com/watch?v=$url"
+  fi
+  if [ "$YTSTREAM_DEFAULT_PLAYER" = "mpv" ]; then
+    printf '%s\n' "$video_url"
+    return 0
+  fi
+  target="$(yt-dlp "${YTSTREAM_YTDLP_ARGS[@]}" --quiet --no-warnings -f "$format" -g "$video_url" 2>"$YTSTREAM_TEMP_FILE" | head -n1)"
+  if [[ -z "$target" ]]; then
+    { echo "An error has occurred: $url"; cat "$YTSTREAM_TEMP_FILE"; } >>"$YTSTREAM_LOG_DIR/play.log" 2>/dev/null
     return 1
   fi
+  printf '%s\n' "$target"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__play_command() {
-  $YTSTREAM_DEFAULT_PLAYER "$play_url" &>>"$YTSTREAM_LOG_DIR/play.log" || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__play_vid() {
-  local exitCode=0
-  local format="${YTSTREAM_DEFAULT_PLAYER_FORMAT:-best}"
-  for url in "$@"; do
-    check_uri "$url" && set_video_url="$url" || set_video_url="https://youtube.com/watch?v=$url"
-    play_url="$(youtube-dl --quiet --no-warnings --format "$format" --get-url "$set_video_url" 2>/dev/null || echo "")"
-    if [[ -n "$play_url" ]]; then
-      echo "Playing $url" >>"$YTSTREAM_LOG_DIR/play.log"
-      date +'%m-%d-%Y at %H:%M' >>"$YTSTREAM_LOG_DIR/play.log"
-      if $YTSTREAM_DEFAULT_PLAYER "$play_url" &>>"$YTSTREAM_LOG_DIR/play.log"; then
-        exitCode=0
-      else
-        echo "Failed to play video from $url" >>"$YTSTREAM_LOG_DIR/play.log"
-        exitCode=$(( exitCode + 1 ))
-      fi
-    else
-      echo "An error has occurred: $url" >>"$YTSTREAM_LOG_DIR/play.log"
-      exitCode=5
+# Play every target one after another and return how many failed
+__play_targets() {
+  local target="" failed=0 log="$YTSTREAM_LOG_DIR/play.log" extra=()
+  [ "$YTSTREAM_DEFAULT_PLAYER" = "mpv" ] && extra=("${YTSTREAM_MPV_ARGS[@]}")
+  for target in "$@"; do
+    { echo "Playing $target"; date +'%m-%d-%Y at %H:%M'; } >>"$log"
+    # shellcheck disable=SC2086
+    if ! "$YTSTREAM_DEFAULT_PLAYER" $YTSTREAM_DEFAULT_PLAYER_OPTIONS "${extra[@]}" "$target" &>>"$log"; then
+      echo "Failed to play $target" >>"$log"
+      failed=$((failed + 1))
     fi
-    date +'%m-%d-%Y at %H:%M' >>"$YTSTREAM_LOG_DIR/play.log"
-    printf '\n' >>"$YTSTREAM_LOG_DIR/play.log"
+    { date +'%m-%d-%Y at %H:%M'; printf '\n'; } >>"$log"
   done
-  return ${exitCode:-0}
+  return $failed
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_youtubeDL() {
-  curl -q -LSsf "$YTSTREAM_YOUTUBE_DL_URL" >"$YTSTREAM_YOUTUBE_DL_BIN" 2>/dev/null &&
-    chmod a+rx "$YTSTREAM_YOUTUBE_DL_BIN" &>/dev/null ||
-    printf_exit "failed to download youtube-dl"
-}
+# Resolve every URL first so errors show right away, then play them; GUI players run in the background
 __execute_ytstream() {
-  __get_player
-  if [ $# -ne 0 ]; then
-    if __console_app; then
-      __play_vid "${shortcode:-$@}" 2>>"$YTSTREAM_LOG_DIR/play.log"
-    else
-      __play_vid "${shortcode:-$@}" &>>"$YTSTREAM_LOG_DIR/play.log" &
-    fi
-    if [[ $exitCode -ne 0 ]]; then
-      printf_red "Please look in $YTSTREAM_LOG_DIR/play.log"
-      exitCode=1
-    fi
-  else
+  local url="" target="" targets=()
+  if [ $# -eq 0 ]; then
     printf_red "No URL was provided"
     exitCode=1
+    return 1
   fi
+  __get_player || { exitCode=1; return 1; }
+  __ytdlp_args
+  __mpv_args
+  for url in "$@"; do
+    if target="$(__stream_target "$url")"; then
+      targets+=("$target")
+    else
+      printf_red "Could not get a stream for $url"
+      exitCode=69
+    fi
+  done
+  if [ ${#targets[@]} -eq 0 ]; then
+    printf_yellow "Please look in $YTSTREAM_LOG_DIR/play.log"
+    return $exitCode
+  fi
+  if __console_app; then
+    __play_targets "${targets[@]}" || { printf_red "Please look in $YTSTREAM_LOG_DIR/play.log"; exitCode=1; }
+  else
+    __play_targets "${targets[@]}" &
+  fi
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
-YTSTREAM_YOUTUBE_DL_URL="${YTSTREAM_YOUTUBE_DL_URL:-https://yt-dl.org/downloads/latest/youtube-dl}"
-YTSTREAM_YOUTUBE_DL_BIN="${YTSTREAM_YOUTUBE_DL_BIN:-$HOME/.local/bin/youtube-dl}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 YTSTREAM_CONFIG_FILE="${YTSTREAM_CONFIG_FILE:-settings.conf}"
@@ -451,13 +455,15 @@ YTSTREAM_NOTIFY_CLIENT_ICON="${YTSTREAM_NOTIFY_CLIENT_ICON:-notification-new}"
 YTSTREAM_NOTIFY_CLIENT_URGENCY="${YTSTREAM_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-YTSTREAM_YOUTUBE_DL_URL="${YTSTREAM_YOUTUBE_DL_URL:-https://yt-dl.org/downloads/latest/youtube-dl}"
-YTSTREAM_YOUTUBE_DL_BIN="${YTSTREAM_YOUTUBE_DL_BIN:-$HOME/.local/bin/youtube-dl}"
-YTSTREAM_DEFAULT_PLAYER="${YTSTREAM_DEFAULT_PLAYER:-$(__get_player && __show_vars --player)}"
-YTSTREAM_DEFAULT_PLAYER_PIPE="${YTSTREAM_DEFAULT_PLAYER_PIPE:-$__get_player && __show_vars --pipe}"
-YTSTREAM_DEFAULT_PLAYER_OPTIONS="${YTSTREAM_DEFAULT_PLAYER_OPTIONS:-$(__get_player && __show_vars --options)}"
-YTSTREAM_DEFAULT_PLAYER_CONSOLE="${YTSTREAM_DEFAULT_PLAYER_CONSOLE:-$(__get_player && __show_vars --console)}"
+YTSTREAM_DEFAULT_PLAYER="${YTSTREAM_DEFAULT_PLAYER:-}"
+YTSTREAM_DEFAULT_PLAYER_PIPE="${YTSTREAM_DEFAULT_PLAYER_PIPE:-}"
+YTSTREAM_DEFAULT_PLAYER_OPTIONS="${YTSTREAM_DEFAULT_PLAYER_OPTIONS:-}"
+YTSTREAM_DEFAULT_PLAYER_CONSOLE="${YTSTREAM_DEFAULT_PLAYER_CONSOLE:-}"
 YTSTREAM_DEFAULT_PLAYER_FORMAT="${YTSTREAM_DEFAULT_PLAYER_FORMAT:-}"
+YTSTREAM_COOKIE_FILE="${YTSTREAM_COOKIE_FILE:-$YTSTREAM_CONFIG_DIR/cookies.txt}"
+YTSTREAM_JS_RUNTIME="${YTSTREAM_JS_RUNTIME:-}"
+YTSTREAM_YTDLP_ARGS=()
+YTSTREAM_MPV_ARGS=()
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$YTSTREAM_CONFIG_DIR/$YTSTREAM_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -537,7 +543,7 @@ while :; do
     ICON_ERROR="[ error ]"
     ICON_QUESTION="[ ? ]"
     printf_column() { tee | grep '^'; }
-    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
     shift 1
@@ -603,44 +609,21 @@ while :; do
   esac
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Get directory from args
-# set -- "$@"
-# for arg in "$@"; do
-# if [ -d "$arg" ]; then
-# YTSTREAM_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
-# elif [ -f "$arg" ]; then
-# YTSTREAM_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
-# else
-# SET_NEW_ARGS+=("$arg")
-# fi
-# done
-# set -- "${SET_NEW_ARGS[@]}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set directory to first argument
-# [ -d "$1" ] && __is_an_option "$1" && YTSTREAM_CWD="$1" && shift 1 || YTSTREAM_CWD="${YTSTREAM_CWD:-$PWD}"
+# Set directory from --dir or the current directory
 YTSTREAM_CWD="$(realpath "${YTSTREAM_CWD:-$PWD}" 2>/dev/null)"
-# if [ -d "$YTSTREAM_CWD" ] && cd "$YTSTREAM_CWD"; then
-# if [ "$YTSTREAM_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
-# printf_cyan "Setting working dir to $YTSTREAM_CWD"
-# fi
-# else
-# printf_exit "💔 $YTSTREAM_CWD does not exist 💔"
-# fi
 export YTSTREAM_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
-#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
-#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-__cmd_exists youtube-dl || __get_youtubeDL || exit 1
+__cmd_exists yt-dlp || { __cmd_exists setupmgr && setupmgr yt-dlp; }
+__cmd_exists yt-dlp || printf_exit "yt-dlp is required, install it with: setupmgr yt-dlp" 1
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
 

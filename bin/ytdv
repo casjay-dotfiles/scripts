@@ -28,13 +28,7 @@ USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 YTDV_REQUIRE_SUDO="${YTDV_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Reopen in a terminal
-#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set script title
-#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD/#$HOME/~} - $APPNAME"
-#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
-#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]0;%s\007' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
 export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initial debugging
@@ -122,7 +116,7 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
   ICON_ERROR="[ error ]"
   ICON_QUESTION="[ ? ]"
   printf_column() { tee | grep '^'; }
-  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
@@ -161,6 +155,13 @@ YTDV_RETRY_LIMIT="${YTDV_RETRY_LIMIT:-}"
 YTDV_SLEEP_INTERVAL="${YTDV_SLEEP_INTERVAL:-}"
 YTDV_DEFAULT_URL="${YTDV_DEFAULT_URL:-}"
 YTDV_DOWNLOAD_DIR="${YTDV_DOWNLOAD_DIR:-}"
+YTDV_JS_RUNTIME="${YTDV_JS_RUNTIME:-}"
+YTDV_MAX_ERRORS="${YTDV_MAX_ERRORS:-}"
+YTDV_BIN_DIR="${YTDV_BIN_DIR:-}"
+YTDV_STRIP_TITLE="${YTDV_STRIP_TITLE:-}"
+YTDV_STRIP_WORDS="${YTDV_STRIP_WORDS:-}"
+YTDV_PREFER_OFFICIAL="${YTDV_PREFER_OFFICIAL:-}"
+YTDV_LIVE_REGEX="${YTDV_LIVE_REGEX:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 YTDV_OUTPUT_COLOR_1="${YTDV_OUTPUT_COLOR_1:-}"
@@ -192,15 +193,20 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Help function - Align to 50
-__help() { # video ytv nightcore *
+__help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "ytdv: Video downloader - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: ytdv [options] [commands]"
-  __printf_line "ytv                                    - Download"
-  __printf_line "video                                  - Download"
-  __printf_line "nightcore                              - Download"
-  __printf_line "--dir                                  - Sets the working directory"
+  __printf_line "<url|id|file>                          - Download the video (default)"
+  __printf_line "video <url|id|file>                    - Download the video"
+  __printf_line "best <url|id|file>                     - Best video and audio, merged"
+  __printf_line "nightcore <url|id|file>                - Nightcore video"
+  __printf_line "--dir <path>                           - Sets the working directory"
+  __printf_line "--username <user>                      - Site username"
+  __printf_line "--password <pass>                      - Site password"
+  __printf_line "--netrc                                - Use ~/.netrc credentials"
+  __printf_line "--silent                               - Reduce output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -226,9 +232,20 @@ __user_is_not_root() {
   if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Check if user is a member of sudo
+# Check if user is a member of a group that grants sudo
 __sudo_group() {
-  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+  case " $(id -nG "${1:-$USER}" 2>/dev/null) " in
+  *" wheel "* | *" sudo "* | *" admin "*) return 0 ;;
+  esac
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo: passwordless sudo works, or the user is in a sudo group. Never prompts.
+__can_i_sudo() {
+  __cmd_exists sudo || return 1
+  sudo -n true &>/dev/null </dev/null && return 0
+  __sudo_group "${1:-$USER}" && return 0
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # # Get sudo password
@@ -240,12 +257,6 @@ __sudoask() {
 __sudorun() {
   __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
   return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Test if user has access to sudo
-__can_i_sudo() {
-  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
@@ -288,7 +299,6 @@ __sudo() {
 __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$YTDV_TEMP_FILE" ] && rm -Rf "$YTDV_TEMP_FILE" &>/dev/null
-  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
 }
@@ -308,36 +318,43 @@ __youtube_dl() {
   local opts="${YTDL_OPTS:-}"
   local retries="${YTDV_RETRY_LIMIT:-15}"
   local sleep="${YTDV_SLEEP_INTERVAL:-5}"
+  local max_errors="${YTDV_MAX_ERRORS:-10}"
   local ytbdl_bin="$YTDV_BIN_FILE"
-  $ytbdl_bin --restrict-filenames --no-progress --mark-watched --ignore-errors --continue --no-warnings --download-archive "$YTDV_CONFIG_DIR/archive/ytdv.txt" --sleep-interval $sleep --retries $retries $opts "$@"
+  local js_args="" skip_args=""
+  js_args="$(__js_runtime)"
+  [ "$max_errors" -gt 0 ] 2>/dev/null && skip_args="--skip-playlist-after-errors $max_errors"
+  $ytbdl_bin --restrict-filenames --no-progress --mark-watched --ignore-errors --continue \
+    --download-archive "$YTDV_CONFIG_DIR/archive/ytdv.txt" --sleep-interval $sleep --retries $retries $js_args $skip_args \
+    "${YTDV_PASS_ARGS[@]}" $opts "$@"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-nightcorev() {
-  local config="$YTDV_YOUTUBE_DL_CONF_DIR/nightcorev"
+__ytv_nightcore() {
+  local config="$YTDV_YOUTUBE_DL_CONF_DIR/nightcorev" opts=""
   local dir="$HOME/Videos/Music/Nightcore"
   local filename="%(artist)s - %(title)s.%(ext)s"
   __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
-  __youtube_dl -f bestvideo+bestaudio -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' --add-metadata $opts "$@"
+  __youtube_dl -f "bestvideo+bestaudio/best" -o "$dir/$filename" "${YTDV_STRIP_ARGS[@]}" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
+    --add-metadata $opts "$@"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ytv-best() {
-  local config="$YTDV_YOUTUBE_DL_CONF_DIR/videos"
+__ytv_best() {
+  local config="$YTDV_YOUTUBE_DL_CONF_DIR/videos" opts=""
   local dir="$YTDV_DOWNLOAD_DIR/$YTDV_FOLDER_FORMAT"
   local filename="%(artist)s - %(title)s.%(ext)s"
   __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
-  __youtube_dl -f bestvideo+bestaudio -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
+  __youtube_dl -f "bestvideo+bestaudio/best" -o "$dir/$filename" "${YTDV_STRIP_ARGS[@]}" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
     --add-metadata --embed-thumbnail $opts "$@"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-video() {
-  local config="$YTDV_YOUTUBE_DL_CONF_DIR/videos"
+__ytv_video() {
+  local config="$YTDV_YOUTUBE_DL_CONF_DIR/videos" opts=""
   local dir="$YTDV_DOWNLOAD_DIR/$YTDV_FOLDER_FORMAT"
   local filename="%(artist)s - %(title)s.%(ext)s"
   __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
-  __youtube_dl -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
+  __youtube_dl -o "$dir/$filename" "${YTDV_STRIP_ARGS[@]}" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
     --add-metadata --embed-thumbnail $opts --embed-subs --convert-subs srt "$@"
   return $?
 }
@@ -353,64 +370,80 @@ __grab_file() {
   return $exitStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__download() {
-  local exitCode=0 urls=""
-  local action="$1" && shift 1
-  local search_term=""
-  local archive_file=""
-  urls=$(echo "$@" | tr ',' '\n' | tr ' ' '\n' | sed "s|[']||g" | grep -Ev 'search=|q=|^$|^#|^--|^ -')
-  for url in $urls; do
-    pretty="${url//*:\/\//}"
-    if echo "$url" | grep -q 'list='; then
-      pretty="${pretty//\/*/}"
-      list="$(echo "$url" | awk -F 'list=' '{print $2}' | sed 's|?.*||g;s|&.*||g')"
-      search_term="$pretty: $list"
-      YTDV_FOLDER_FORMAT="%(creator,uploader)s/%(playlist_title)s"
-      archive_file="$YTDV_CONFIG_DIR/archive/playlists.txt"
-      printf '%b ' "🔻 ${CYAN}Downloading videos from playlist: $list${NC} 🔻 "
-      message="Successfully downloaded from $pretty"
-    else
-      search_term="$url"
-      YTDV_FOLDER_FORMAT="%(channel)s"
-      archive_file="$YTDV_CONFIG_DIR/archive/videos.txt"
-      printf '%b ' "🔻 ${CYAN}Downloading video from $pretty${NC} 🔻 "
-      message="Successfully downloaded $pretty"
-    fi
-    if __is_url "$url"; then
-      file_url="$url"
-    else
-      file_url="${YTDV_DEFAULT_URL}$url"
-    fi
-    grep -shq "$search_term" "$archive_file" || echo "$search_term" >>"$archive_file"
-    pretty="${file_url//*:\/\//}"
-    pretty="${pretty//\/*/}"
-    __grab_file "$action" "$file_url" "$message"
-    if [ $? -eq 0 ]; then
-      rm -Rf "$YTDV_YOUTUBE_DL_LOG_FILE"
-      printf_green "😀 $message 😀 "
-      exitCode=$(($exitCode + 0))
-    else
-      __show_error_log "$pretty"
-      exitCode=$(($exitCode + 1))
-    fi
-    printf '\n'
-  done
-  return $exitCode
+__gen_error_message() {
+  sed 's|\[.*\]||g;s/[^ ]* //;s|:||g;s|-||g;s|Downloading webpage||g' | tail -n2 | __find_error_message | tr '\n' '|' | awk -F '|' '{print $2" : "$1}' | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pick a JavaScript runtime for YouTube's challenges (yt-dlp only enables deno by default). Prints the extra
+# yt-dlp argument needed, nothing for deno, and returns 1 when no runtime is installed. Override with YTDV_JS_RUNTIME.
+__js_runtime() {
+  local runtime="${YTDV_JS_RUNTIME:-}" candidate=""
+  if [ -z "$runtime" ]; then
+    for candidate in deno node bun qjs; do
+      if __cmd_exists "$candidate"; then
+        runtime="$candidate"
+        break
+      fi
+    done
+  fi
+  [ -n "$runtime" ] || return 1
+  [ "$runtime" = "qjs" ] && runtime="quickjs"
+  [ "$runtime" = "deno" ] || printf '%s' "--js-runtimes $runtime"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Build the yt-dlp options that strip tags like (Official Video), [4K] or (Live) from the title, and so from file names and tags.
+# Only brackets made up entirely of noise words are removed, so (Live Forever) or (Live at Wembley) stay. Disable with
+# YTDV_STRIP_TITLE=no; the words come from YTDV_STRIP_WORDS, a regex alternation. Must come before --metadata-from-title.
+__strip_args() {
+  local words="$YTDV_STRIP_WORDS"
+  YTDV_STRIP_ARGS=()
+  [ "$YTDV_STRIP_TITLE" = "no" ] && return 0
+  YTDV_STRIP_ARGS=(
+    --replace-in-metadata title "(?i)\\s*[\\(\\[](?=[^\\)\\]]*\\b(?:$words)\\b)(?:[\\s,&/+-]|\\b(?:$words|(?:19|20)\\d\\d)\\b)+[\\)\\]]" ""
+    --replace-in-metadata title "(?i)\\s*[-–|:]\\s*(?:(?:$words)(?:\\s+|\$))+\$" ""
+    --replace-in-metadata title "\\s*[-–|:]+\\s*\$" ""
+    --replace-in-metadata title "\\s{2,}" " "
+  )
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Tell the user when YouTube reports the cookie file as expired, even if the download itself succeeded
+__warn_cookies() {
+  grep -qs -- 'cookies are no longer valid' "$YTDV_YOUTUBE_DL_LOG_FILE" || return 0
+  printf_yellow "YouTube says your cookies are no longer valid, they rotate while the browser session stays open"
+  printf_yellow "Export them again from a private window (close it right after) to $YTDV_COOKIE_FILE"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Explain errors that repeat for every URL (bot check, 403, rate limit). Returns 0 when the error is one of those.
+__error_hint() {
+  local error="$1" hint=""
+  echo "$error" | grep -qiE -- 'not a bot|HTTP Error 403|HTTP Error 429|Too Many Requests|rate.?limit' || return 1
+  if ! __js_runtime >/dev/null; then
+    hint="No JavaScript runtime found: install deno (or node 20+, bun, quickjs), YouTube needs one"
+  elif [ ! -f "$YTDV_COOKIE_FILE" ]; then
+    hint="Cookie file not found: $YTDV_COOKIE_FILE"
+  else
+    hint="Cookies may have expired or rotated: re-export them from a private window, and update yt-dlp"
+  fi
+  printf_yellow "$hint. If it keeps failing, YouTube may be blocking this network."
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __show_error_log() {
   local error=""
   local url="$1"
   if [ -f "$YTDV_YOUTUBE_DL_LOG_FILE" ]; then
-    #error="$(grep --no-filename -B5 '^ERROR: ' "$YTDV_YOUTUBE_DL_LOG_FILE" | __gen_error_message || echo '')"
-    error="$(grep --no-filename -B5 -E '^ERROR: |WARNING: ' "$YTDV_YOUTUBE_DL_LOG_FILE" | sed 's|\[.*\]||g;s/[^ ]* //;s|:||g;s|-||g;s|Downloading webpage||g' | tail -n1 || echo '')"
+    error="$(grep -E -- '^ERROR: ' "$YTDV_YOUTUBE_DL_LOG_FILE" | tail -n1 | sed 's/^ERROR: *//;s/^\[[^]]*\] *//')"
+    [ -n "$error" ] || error="$(grep -E -- '^WARNING: ' "$YTDV_YOUTUBE_DL_LOG_FILE" | tail -n1 | sed 's/^WARNING: *//;s/^\[[^]]*\] *//')"
     if [ -n "$error" ]; then
       printf_yellow "Full error is in $YTDV_YOUTUBE_DL_LOG_FILE"
-      if echo "$error" | grep -qi 'no space left on device'; then
+      if [[ "$error" == *"no space left on device"* ]]; then
         printf_red "💔 I'm sorry but an error has occurred : You have no space left 💔 "
       else
-        printf_red "💔 I'm sorry but an error has occurred : ${error:0:100} 💔 "
+        printf_red "💔 I'm sorry but an error has occurred : ${error:0:200} 💔 "
       fi
+      __error_hint "$error" && YTDV_FATAL_ERROR="true"
     else
       printf_yellow "💔 I'm sorry but an error has occurred: Full error is in $YTDV_YOUTUBE_DL_LOG_FILE 💔 "
     fi
@@ -420,36 +453,243 @@ __show_error_log() {
   return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__gen_error_message() {
-  sed 's|\[.*\]||g;s/[^ ]* //;s|:||g;s|-||g;s|Downloading webpage||g' | tail -n2 | __find_error_message | tr '\n' '|' | awk -F '|' '{print $2" : "$1}' | grep '^' || return 1
+# Warn when a cookie file is not in the Netscape format yt-dlp reads, or holds no youtube.com cookies
+__check_cookies() {
+  local file="$1"
+  head -n1 "$file" | grep -qE -- '^# (Netscape )?HTTP Cookie File' || printf_yellow "Cookie file is missing the '# Netscape HTTP Cookie File' header: $file"
+  grep -qE -- '(^|[[:space:]])\.?youtube\.com[[:space:]]' "$file" || printf_yellow "Cookie file has no youtube.com cookies: $file"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Fill YTDV_URL from stdin, a file of urls, or the remaining arguments
+__collect_urls() {
+  YTDV_URL=()
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    read -r -d '' -a YTDV_URL </dev/stdin || true
+  elif [ -f "$1" ]; then
+    read -r -d '' -a YTDV_URL <"$1" || true
+  fi
+  [ ${#YTDV_URL[@]} -gt 0 ] || [ $# -gt 0 ] || printf_exit "Usage: $APPNAME [command] <url|id|file>"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Return 0 when the binary runs; the result is cached per path and modification time so --version only runs once
+__bin_works() {
+  local bin="$1" stamp="$YTDV_CACHE_DIR/bin-ok" key=""
+  key="$bin:$(stat -c %Y "$bin" 2>/dev/null || stat -f %m "$bin" 2>/dev/null)"
+  [ -f "$stamp" ] && [ "$(<"$stamp")" = "$key" ] && return 0
+  "$bin" --version &>/dev/null || return 1
+  echo "$key" >"$stamp"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Name of the official standalone yt-dlp release asset for this OS, CPU and libc. A musl build only runs on
+# musl systems (its loader is /lib/ld-musl-*), so glibc and musl are told apart. Anything else gets the
+# platform-independent zipimport build, which needs Python 3.11+.
+__yt_dlp_asset() {
+  local arch="$(uname -m)" libc="glibc"
+  [ "$arch" = "arm64" ] && arch="aarch64"
+  case "$(uname -s)" in
+  Darwin)
+    echo "yt-dlp_macos"
+    return 0
+    ;;
+  Linux) ;;
+  *)
+    echo "yt-dlp"
+    return 0
+    ;;
+  esac
+  if ! getconf GNU_LIBC_VERSION &>/dev/null && compgen -G "/lib/ld-musl-*" >/dev/null; then
+    libc="musl"
+  fi
+  case "$libc-$arch" in
+  glibc-x86_64) echo "yt-dlp_linux" ;;
+  glibc-aarch64) echo "yt-dlp_linux_aarch64" ;;
+  musl-x86_64) echo "yt-dlp_musllinux" ;;
+  musl-aarch64) echo "yt-dlp_musllinux_aarch64" ;;
+  *) echo "yt-dlp" ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Directory for installed binaries: YTDV_BIN_DIR if set, /usr/local/bin for root or a user who can sudo, otherwise ~/.local/bin
+__bin_dir() {
+  if [ -n "$YTDV_BIN_DIR" ]; then
+    echo "$YTDV_BIN_DIR"
+  elif __user_is_root || __can_i_sudo "${RUN_USER:-$USER}"; then
+    echo "/usr/local/bin"
+  else
+    echo "$HOME/.local/bin"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Install a file with mode 0755, through sudo when the target directory is not writable by this user
+__install_file() {
+  local src="$1" dest="$2"
+  if [ -w "${dest%/*}" ] || { [ ! -e "${dest%/*}" ] && mkdir -p "${dest%/*}" 2>/dev/null; }; then
+    install -m 0755 "$src" "$dest"
+  elif __user_is_not_root && __can_i_sudo "${RUN_USER:-$USER}"; then
+    __sudo mkdir -p "${dest%/*}" && __sudo install -m 0755 "$src" "$dest"
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Install the official yt-dlp release binary and verify it against the published SHA2-256SUMS
+__install_yt_dlp() {
+  local base="https://github.com/yt-dlp/yt-dlp/releases/latest/download"
+  local dest="$(__bin_dir)/yt-dlp" asset="" tmp="" want="" got=""
+  asset="$(__yt_dlp_asset)"
+  if [ "$asset" = "yt-dlp" ] && ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' &>/dev/null; then
+    printf_red "No standalone yt-dlp build for $(uname -s) $(uname -m) and Python 3.11+ was not found"
+    return 1
+  fi
+  tmp="$(mktemp -d "$YTDV_TEMP_DIR/install.XXXXXX" 2>/dev/null)" || return 1
+  if ! curl -q -LSsf "$base/$asset" -o "$tmp/$asset" 2>>"$YTDV_YOUTUBE_DL_LOG_FILE" ||
+    ! curl -q -LSsf "$base/SHA2-256SUMS" -o "$tmp/SHA2-256SUMS" 2>>"$YTDV_YOUTUBE_DL_LOG_FILE"; then
+    rm -Rf "$tmp"
+    return 1
+  fi
+  want="$(awk -v a="$asset" '$2 == a {print $1}' "$tmp/SHA2-256SUMS")"
+  got="$({ sha256sum "$tmp/$asset" 2>/dev/null || shasum -a 256 "$tmp/$asset" 2>/dev/null; } | awk '{print $1}')"
+  if [ -z "$want" ] || [ "$want" != "$got" ]; then
+    printf_red "Checksum verification failed for $asset"
+    rm -Rf "$tmp"
+    return 1
+  fi
+  if ! __install_file "$tmp/$asset" "$dest"; then
+    printf_yellow "Could not install to ${dest%/*}, using $HOME/.local/bin instead"
+    dest="$HOME/.local/bin/yt-dlp"
+    __install_file "$tmp/$asset" "$dest" || { rm -Rf "$tmp"; return 1; }
+  fi
+  rm -Rf "$tmp"
+  YTDV_BIN_FILE="$dest"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Download one URL for one pass. The official pass holds back titles tagged Live with --match-filters; the live pass takes only
+# those. Sets YTDV_URL_DEFERRED when live titles were held back, and YTDV_FATAL_ERROR for errors that repeat for every URL.
+__download_one() {
+  local action="$1" url="$2" pass="$3"
+  local search_term="" archive_file="" pretty="" list="" message="" file_url="" label="video" new="" grabbed=1
+  local before=0 produced="false"
+  YTDV_URL_DEFERRED="false"
+  [ "$pass" = "live" ] && label="live video"
+  pretty="${url//*:\/\//}"
+  if [[ "$url" == *"list="* ]]; then
+    pretty="${pretty//\/*/}"
+    list="$(echo "$url" | awk -F 'list=' '{print $2}' | sed 's|?.*||g;s|&.*||g')"
+    search_term="$pretty: $list"
+    YTDV_FOLDER_FORMAT="%(creator,uploader)s/%(playlist_title)s"
+    archive_file="$YTDV_CONFIG_DIR/archive/playlists.txt"
+    printf '%b ' "🔻 ${CYAN}Downloading $label from playlist: $list${NC} 🔻 "
+    message="Successfully downloaded from $pretty"
+  else
+    search_term="$url"
+    YTDV_FOLDER_FORMAT="%(channel)s"
+    archive_file="$YTDV_CONFIG_DIR/archive/videos.txt"
+    printf '%b ' "🔻 ${CYAN}Downloading $label from $pretty${NC} 🔻 "
+    message="Successfully downloaded $pretty"
+  fi
+  if __is_url "$url"; then
+    file_url="$url"
+  else
+    file_url="${YTDV_DEFAULT_URL}$url"
+  fi
+  pretty="${file_url//*:\/\//}"
+  pretty="${pretty//\/*/}"
+  YTDV_PASS_ARGS=()
+  if [ "$YTDV_PREFER_OFFICIAL" != "no" ]; then
+    if [ "$pass" = "live" ]; then
+      YTDV_PASS_ARGS=(--match-filters "title ~= $YTDV_LIVE_REGEX")
+    else
+      YTDV_PASS_ARGS=(--match-filters "title !~= $YTDV_LIVE_REGEX")
+    fi
+  fi
+  [ -f "$YTDV_YOUTUBE_DL_LOG_FILE" ] && before="$(wc -l <"$YTDV_YOUTUBE_DL_LOG_FILE")"
+  __grab_file "$action" "$file_url" "$message" && grabbed=0
+  new="$(tail -n +$((before + 1)) "$YTDV_YOUTUBE_DL_LOG_FILE" 2>/dev/null)"
+  __warn_cookies
+  [[ "$new" == *"does not pass filter"* ]] && [ "$pass" = "official" ] && YTDV_URL_DEFERRED="true"
+  if [ $grabbed -ne 0 ]; then
+    __show_error_log "$pretty"
+    return 1
+  fi
+  echo "$new" | grep -qE -- 'Destination:|has already been downloaded|already in target format' && produced="true"
+  rm -Rf "$YTDV_YOUTUBE_DL_LOG_FILE"
+  if [ "$pass" = "live" ] && [ "$produced" = "false" ]; then
+    printf '\n'
+    return 0
+  fi
+  if [ "$YTDV_URL_DEFERRED" = "true" ] && [ "$produced" = "false" ]; then
+    printf_yellow "Only live versions found, downloading them after the official ones"
+    return 0
+  fi
+  grep -sqxF -- "$search_term" "$archive_file" || echo "$search_term" >>"$archive_file"
+  printf_green "😀 $message 😀 "
+  [ "$YTDV_URL_DEFERRED" = "true" ] && printf_yellow "Live versions are held back and downloaded last"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Download every URL, official versions first. Live titles are held back (see YTDV_LIVE_REGEX) and fetched in a second pass, only
+# for the URLs that had some, so a live version never takes the file name of the official one. YTDV_PREFER_OFFICIAL=no disables it.
+__download() {
+  local exitCode=0 urls="" deferred="" pass="" url=""
+  local action="$1" && shift 1
+  YTDV_FATAL_ERROR=""
+  urls=$(echo "$@" | tr ',' '\n' | tr ' ' '\n' | sed "s|[']||g" | grep -Ev -- 'search=|q=|^$|^#|^--|^ -')
+  for pass in official live; do
+    if [ "$pass" = "live" ]; then
+      [ -n "$deferred" ] || break
+      urls="$deferred"
+    fi
+    for url in $urls; do
+      if ! __download_one "$action" "$url" "$pass"; then
+        exitCode=$((exitCode + 1))
+        if [ "$YTDV_FATAL_ERROR" = "true" ]; then
+          printf_yellow "Stopping: the remaining URLs would fail the same way"
+          printf '\n'
+          break 2
+        fi
+      fi
+      [ "$YTDV_URL_DEFERRED" = "true" ] && deferred+="$url"$'\n'
+      printf '\n'
+    done
+  done
+  YTDV_PASS_ARGS=()
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __init() {
   local bin="$YTDV_BIN_FILE"
-  local name="${YTDV_BIN_NAME:-$(basename -- "$bin")}"
+  local name="${YTDV_BIN_NAME:-${bin##*/}}"
+  mkdir -p "$YTDV_DOWNLOAD_DIR"
   YTDV_DOWNLOAD_DIR="$(realpath "$YTDV_DOWNLOAD_DIR")"
   printf_yellow "Setting the logfile to: $YTDV_YOUTUBE_DL_LOG_FILE"
   printf_green "Setting the download dir to $YTDV_DOWNLOAD_DIR"
   echo "" >"$YTDV_YOUTUBE_DL_LOG_FILE"
-  mkdir -p "$YTDV_DOWNLOAD_DIR"
   if [ ! -x "$bin" ]; then
-    printf_green "Installing $name"
-    if [ "$name" = "yt-dlp" ]; then
-      curl -q -LSsf "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o "$HOME/.local/bin/yt-dlp" 2>>"$YTDV_YOUTUBE_DL_LOG_FILE"
-      chmod a+rx "$HOME/.local/bin/yt-dlp"
-      [ -x "$HOME/.local/bin/yt-dlp" ] || printf_exit "Failed to install yt-dlp"
-    elif [ "$name" = "youtube-dl" ]; then
-      curl -q -LSsf "https://yt-dl.org/downloads/latest/youtube-dl" -o "$HOME/.local/bin/youtube-dl" 2>>"$YTDV_YOUTUBE_DL_LOG_FILE"
-      chmod a+rx "$HOME/.local/bin/youtube-dl"
-      [ -x "$HOME/.local/bin/youtube-dl" ] || printf_exit "Failed to install youtube-dl"
-    else
+    case "$name" in
+    yt-dlp)
+      printf_green "Installing $name"
+      __install_yt_dlp || printf_exit "Failed to install yt-dlp"
+      ;;
+    youtube-dl)
+      printf_exit "youtube-dl is no longer maintained and has no official release binary, install yt-dlp instead"
+      ;;
+    *)
       printf_exit "Failed to Initialize $APPNAME"
-    fi
+      ;;
+    esac
     __gen_config &>/dev/null
-    printf_cyan "Installed $name to $bin"
+    printf_cyan "Installed $name to $YTDV_BIN_FILE"
+  fi
+  if [ -x "$YTDV_BIN_FILE" ] && ! __bin_works "$YTDV_BIN_FILE"; then
+    printf_exit "$YTDV_BIN_FILE is installed but fails to run, check: $YTDV_BIN_FILE --version (remove it and ytdv will install the official binary)"
   fi
   [ "$name" = "yt-dlp" ] && __find_error_message() { awk -F '. ' '{print $1}'; }
   [ "$name" = "youtube-dl" ] && __find_error_message() { awk -F ';' '{print $1}'; }
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -490,7 +730,18 @@ YTDV_COOKIE_FILE="${YTDV_COOKIE_FILE:-$YTDV_CONFIG_DIR/cookies.txt}"
 YTDV_DEFAULT_URL="${YTDV_DEFAULT_URL:-https://youtube.com/watch?v=}"
 YTDV_YOUTUBE_DL_CONF_DIR="${YTDV_YOUTUBE_DL_CONF_DIR:-$HOME/.config/ytdv/inc}"
 YTDV_BIN_FILE="${YTDV_BIN_FILE:-$(builtin type -P "$YTDV_BIN_NAME" || builtin type -P yt-dlp || builtin type -P youtube-dl || echo 'yt-dlp')}"
-YTDV_URL=("")
+YTDV_JS_RUNTIME="${YTDV_JS_RUNTIME:-}"
+YTDV_MAX_ERRORS="${YTDV_MAX_ERRORS:-10}"
+YTDV_BIN_DIR="${YTDV_BIN_DIR:-}"
+YTDV_STRIP_TITLE="${YTDV_STRIP_TITLE:-yes}"
+YTDV_STRIP_WORDS="${YTDV_STRIP_WORDS:-official|music|video|audio|lyrics?|lyric|visuali[sz]er|remaster(?:ed)?|hd|hq|4k|8k|1080p|720p|live|explicit|full}"
+YTDV_PREFER_OFFICIAL="${YTDV_PREFER_OFFICIAL:-yes}"
+[ -n "$YTDV_LIVE_REGEX" ] || YTDV_LIVE_REGEX='(?i)[\(\[][^\)\]]*\blive\b[^\)\]]*[\)\]]|[-–|:]\s*live\s*$'
+YTDV_URL=()
+YTDV_STRIP_ARGS=()
+YTDV_PASS_ARGS=()
+YTDV_URL_DEFERRED=""
+YTDV_FATAL_ERROR=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -n "$YTDV_BIN_FILE" ] && [ -z "$YTDV_BIN_NAME" ] && YTDV_BIN_NAME="$(basename -- "$YTDV_BIN_FILE")"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -539,7 +790,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,no-color,version,silent"
 LONGOPTS+=",username:,password:,netrc"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY=""
+ARRAY="video,best,nightcore"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -573,7 +824,7 @@ while :; do
     ICON_ERROR="[ error ]"
     ICON_QUESTION="[ ? ]"
     printf_column() { tee | grep '^'; }
-    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
     shift 1
@@ -651,46 +902,29 @@ while :; do
   esac
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Get directory from args
-# set -- "$@"
-# for arg in "$@"; do
-# if [ -d "$arg" ]; then
-# YTDV_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
-# elif [ -f "$arg" ]; then
-# YTDV_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
-# else
-# SET_NEW_ARGS+=("$arg")
-# fi
-# done
-# set -- "${SET_NEW_ARGS[@]}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set directory to first argument
-# [ -d "$1" ] && __is_an_option "$1" && YTDV_CWD="$1" && shift 1 || YTDV_CWD="${YTDV_CWD:-$PWD}"
+# Set directory from --dir or the current directory
 YTDV_CWD="$(realpath "${YTDV_CWD:-$PWD}" 2>/dev/null)"
-# if [ -d "$YTDV_CWD" ] && cd "$YTDV_CWD"; then
-# if [ "$YTDV_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
-# printf_cyan "Setting working dir to $YTDV_CWD"
-# fi
-# else
-# printf_exit "💔 $YTDV_CWD does not exist 💔"
-# fi
 export YTDV_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
 [ -d "$YTDV_YOUTUBE_DL_CONF_DIR" ] || mkdir -p "$YTDV_YOUTUBE_DL_CONF_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
 cmd_exists --error --ask bash || exit 3 # exit 3 if not found
-#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-__cmd_exists ffmpeg || pkmg silent install ffmpeg || printf_exit "Could find ffmpeg"
+__cmd_exists ffmpeg ffprobe || pkmgr silent install ffmpeg || printf_exit "Could not find ffmpeg and ffprobe"
 [ -n "$OPTS" ] && YTDL_OPTS="$YTDL_OPTS $OPTS"
-[ -f "$YTDV_COOKIE_FILE" ] && YTDL_OPTS="$YTDL_OPTS --cookies $YTDV_COOKIE_FILE"
+if [ -f "$YTDV_COOKIE_FILE" ]; then
+  YTDL_OPTS="$YTDL_OPTS --cookies $YTDV_COOKIE_FILE"
+  __check_cookies "$YTDV_COOKIE_FILE"
+elif [ "$YTDV_COOKIE_FILE" != "$YTDV_CONFIG_DIR/cookies.txt" ]; then
+  printf_yellow "Cookie file not found: $YTDV_COOKIE_FILE"
+fi
 [ -z "$YTDV_YOUTUBE_DL_LOG_FILE" ] && YTDV_YOUTUBE_DL_LOG_FILE="$YTDV_LOG_DIR/ytdv.$$.log"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
+__strip_args
 __init "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
@@ -701,40 +935,21 @@ __init "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
-video)
+video | best | nightcore)
+  case "$1" in
+  best) action="__ytv_best" ;;
+  nightcore) action="__ytv_nightcore" ;;
+  *) action="__ytv_video" ;;
+  esac
   shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDV_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDV_URL=($(<"$1"))
-  fi
-  __download video "${YTDV_URL[@]:-$@}"
-  ;;
-best)
-  shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDV_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDV_URL=($(<"$1"))
-  fi
-  __download ytv-best "${YTDV_URL[@]:-$@}"
-  ;;
-nightcore)
-  shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDV_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDV_URL=($(<"$1"))
-  fi
-  __download nightcorev "${YTDV_URL[@]:-$@}"
+  __collect_urls "$@"
+  __download "$action" "${YTDV_URL[@]:-$@}"
+  exitCode=$?
   ;;
 *)
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDV_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDV_URL=($(<"$1"))
-  fi
-  __download video "${YTDV_URL[@]:-$@}"
+  __collect_urls "$@"
+  __download __ytv_video "${YTDV_URL[@]:-$@}"
+  exitCode=$?
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - -

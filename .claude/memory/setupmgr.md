@@ -46,4 +46,6 @@ Applies to every change in `bin/setupmgr` (and its man page and completions).
 - `claude` uses `downloads.claude.ai/claude-code-releases`; `antigravity` uses Google's updater endpoint and the `Antigravity IDE.tar.gz` asset.
 - `hermes` stays on PyPI via pipx: upstream refuses source and git builds, and its only other Linux method is `install.sh` (a source checkout).
 - JS tools with no standalone binary (gemini, 9router, openclaw, continue, vercel, prettier, eslint, npm-check-updates, markdownlint) stay on npm.
+- `ffmpeg` installs the static `binmgr/ffmpeg` archive (ffmpeg and ffprobe, two passes over one archive).
+- `yt-dlp` installs the standalone binary for the OS and CPU (`yt-dlp_linux`, `_aarch64`, `_musllinux`, `_macos`). Musl is preferred whenever `__is_musl` finds the musl loader, because a musl binary cannot start without it; otherwise glibc. Other platforms use the zipimport build and need Python 3.11+.
 - Removed because upstream is dead: charm, cortex, cody.

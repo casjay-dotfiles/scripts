@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  nix via official release tarball, remove cody, jless arm message
+# @@Changelog        :  add ffmpeg (binmgr static build) and yt-dlp (libc-aware standalone binary)
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -369,12 +369,12 @@ __help() {
   __printf_line "Package Installation Commands:"
   __printf_line "9router,act,age,aichat,aider,ali,antigravity,asdf,atuin,bandwhich,bat,bob,bombardier,bottom,broot,btop,buf,bun,caddy,claude,coder,codex"
   __printf_line "continue,copilot,cosign,crush,ctlptl,ctop,curlie,dasel,delta,deno,devbox,difftastic,direnv,distrobox,dive,dnsglobe,dotnet,droast,dua,duf,dust"
-  __printf_line "earthly,eslint,evans,eza,fabric,fastfetch,fd,fnm,fx,fzf,garage,gemini,gh,ghz,git-cliff,gitleaks,gitui,glow,go,gohttpserver,gpt,grex,gron,grpcurl,grype"
+  __printf_line "earthly,eslint,evans,eza,fabric,fastfetch,fd,ffmpeg,fnm,fx,fzf,garage,gemini,gh,ghz,git-cliff,gitleaks,gitui,glow,go,gohttpserver,gpt,grex,gron,grpcurl,grype"
   __printf_line "gvm,hadolint,helix,helm,herdr,httpie,hyperfine,incus,jekyll,jless,jnv,jq,just,k6,k9s,kimchi,kind,kompose,kubectl,kubectx,kubens,lapce,lazydocker,lazygit,lf"
   __printf_line "lima,llama-cpp,llm,localai,lsd,lua,markdownlint,mc,miller,minikube,mise,mods,nix,nodejs,npm-check-updates,nushell,nvm,oha,ollama,openclaw,opencode,omp"
   __printf_line "opentofu,packer,pi,pipx,plandex,powershell,prettier,procs,rbenv,rc,ripgrep,ruff,rustfs,rustup,rvm,sd,shellcheck,shfmt,skaffold,sops,speedtest,sq,starship"
   __printf_line "stern,syft,tabby,task,terminal-browser,tgpt,tilt,tldr,traefik,trivy,trufflehog,uv,vagrant,vale,vegeta,vercel,vfox,viddy,watchexec,webhookd"
-  __printf_line "xcaddy,xh,yq,zed,zellij,zig,zoxide,doggo,hermes,openshell,pup,scc"
+  __printf_line "xcaddy,xh,yq,yt-dlp,zed,zellij,zig,zoxide,doggo,hermes,openshell,pup,scc"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -2040,6 +2040,15 @@ __get_release_api_url() {
   esac
 }
 
+# Return 0 when this Linux host can run musl binaries: musl is the system libc (Alpine and similar) or its loader is installed
+# next to glibc. musl builds are preferred over glibc ones wherever the host allows it.
+__is_musl() {
+  [ "$(__get_system_os)" = "linux" ] || return 1
+  [ -f /etc/alpine-release ] && return 0
+  compgen -G "/lib/ld-musl-*" >/dev/null && return 0
+  compgen -G "/usr/lib/ld-musl-*" >/dev/null && return 0
+  ldd --version 2>&1 | grep -qi -- musl
+}
 __find_release_asset() {
   local api_url="$1"
   # pattern: pattern to match in asset name
@@ -4333,6 +4342,43 @@ __setup_helix() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_herdr() {
   __install_from_binary "herdr" "herdrdev/herdr" "$SETUPMGR_DEFAULT_BIN_DIR"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Static FFmpeg build from binmgr; the Linux, macOS and FreeBSD archives hold ffmpeg, ffprobe and ffplay at the top level.
+# The archive helper extracts one binary per call, so ffprobe (used by yt-dlp for audio extraction) is a second pass over the same archive.
+__setup_ffmpeg() {
+  __install_from_archive "ffmpeg" "binmgr/ffmpeg" "$SETUPMGR_DEFAULT_BIN_DIR" "" "github" "ffmpeg" "" "do_not_strip_components" || return 1
+  __install_from_archive "ffprobe" "binmgr/ffmpeg" "$SETUPMGR_DEFAULT_BIN_DIR" "" "github" "ffprobe" "" "do_not_strip_components" ||
+    printf_yellow "ffprobe could not be installed, ffmpeg is installed"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# yt-dlp standalone release binary for this OS, CPU and libc. The musl build is preferred when the host has the musl loader and
+# the glibc build is used otherwise (a musl binary cannot start without its loader); any other platform gets the zipimport
+# build, which needs Python 3.11+. Needs ffmpeg to extract audio.
+__setup_yt_dlp() {
+  local asset="" arch="$(uname -m)" libc="glibc"
+  [ "$arch" = "arm64" ] && arch="aarch64"
+  __is_musl && libc="musl"
+  case "$(__get_system_os)" in
+  darwin) asset="yt-dlp_macos" ;;
+  linux)
+    case "$arch-$libc" in
+    x86_64-glibc) asset="yt-dlp_linux" ;;
+    aarch64-glibc) asset="yt-dlp_linux_aarch64" ;;
+    x86_64-musl) asset="yt-dlp_musllinux" ;;
+    aarch64-musl) asset="yt-dlp_musllinux_aarch64" ;;
+    esac
+    ;;
+  esac
+  if [ -z "$asset" ]; then
+    if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' &>/dev/null; then
+      printf_red "No standalone yt-dlp build for $(uname -s) $(uname -m) and Python 3.11+ was not found"
+      return 1
+    fi
+    asset="yt-dlp"
+  fi
+  __install_from_binary "yt-dlp" "yt-dlp/yt-dlp" "$SETUPMGR_DEFAULT_BIN_DIR" "/${asset}\$"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_hyperfine() {
@@ -7164,13 +7210,13 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 SETUPMGR_ALL_TOOLS_DEFAULT=""
 SETUPMGR_ALL_TOOLS_DEFAULT+="9router act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder continue cosign "
-SETUPMGR_ALL_TOOLS_DEFAULT+="ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dnsglobe dotnet droast dua duf dust earthly evans eza fabric fastfetch fd fnm "
+SETUPMGR_ALL_TOOLS_DEFAULT+="ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dnsglobe dotnet droast dua duf dust earthly evans eza fabric fastfetch fd ffmpeg fnm "
 SETUPMGR_ALL_TOOLS_DEFAULT+="fzf fx garage gh ghz git-cliff gitleaks gitui glow go gohttpserver gpt grex gron grype grpcurl gvm hadolint helix helm herdr httpie hyperfine "
 SETUPMGR_ALL_TOOLS_DEFAULT+="incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama-cpp llm localai lsd lua mc "
 SETUPMGR_ALL_TOOLS_DEFAULT+="crush kimchi miller mise minikube mods nix nodejs nushell nvm oha ollama opencode omp opentofu packer pi pipx plandex powershell procs rbenv rc "
 SETUPMGR_ALL_TOOLS_DEFAULT+="ripgrep ruff rustfs "
 SETUPMGR_ALL_TOOLS_DEFAULT+="rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task terminal-browser tgpt tilt tldr traefik "
-SETUPMGR_ALL_TOOLS_DEFAULT+="trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd xcaddy xh yq zed zellij zig zoxide "
+SETUPMGR_ALL_TOOLS_DEFAULT+="trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd xcaddy xh yq yt-dlp zed zellij zig zoxide "
 SETUPMGR_ALL_TOOLS_DEFAULT+="claude codex copilot distrobox eslint gemini markdownlint npm-check-updates openclaw prettier vercel "
 SETUPMGR_ALL_TOOLS_DEFAULT+="doggo hermes openshell pup scc"
 SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-$SETUPMGR_ALL_TOOLS_DEFAULT}"
@@ -7315,9 +7361,9 @@ GET_OPTIONS_YES="yes-*"
 LONGOPTS="completions:,config,reset-config,configure,debug,dir:,help,options,color,no-color,version,silent,force,"
 LONGOPTS+="system,all,$GET_OPTIONS_NO,$GET_OPTIONS_YES"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="9router,act,aichat,asdf,bat,bob,bun,caddy,coder,delta,deno,devbox,direnv,distrobox,dotnet,dust,eza,fabric,fastfetch,fd,fnm,fzf,garage,gh,glow,go,gohttpserver,antigravity,"
+ARRAY="9router,act,aichat,asdf,bat,bob,bun,caddy,coder,delta,deno,devbox,direnv,distrobox,dotnet,dust,eza,fabric,fastfetch,fd,ffmpeg,fnm,fzf,garage,gh,glow,go,gohttpserver,antigravity,"
 ARRAY+="crush,gpt,gvm,helm,incus,jekyll,jless,just,kind,kimchi,kubectl,lapce,lazydocker,lazygit,lima,llama-cpp,llm,lua,mc,minikube,mods,nix,nodejs,nvm,ollama,"
-ARRAY+="opencode,omp,opentofu,packer,pi,pipx,powershell,procs,rbenv,rc,ripgrep,ruff,rustfs,rvm,speedtest,starship,traefik,uv,vagrant,vfox,webhookd,yq,zed,zoxide,"
+ARRAY+="opencode,omp,opentofu,packer,pi,pipx,powershell,procs,rbenv,rc,ripgrep,ruff,rustfs,rvm,speedtest,starship,traefik,uv,vagrant,vfox,webhookd,yq,yt-dlp,zed,zoxide,"
 ARRAY+="claude,copilot,codex,openclaw,vercel,prettier,eslint,npm-check-updates,"
 ARRAY+="age,aider,ali,atuin,bandwhich,bombardier,bottom,broot,btop,buf,continue,cosign,ctlptl,ctop,curlie,dasel,difftastic,dive,dnsglobe,droast,dua,duf,"
 ARRAY+="earthly,evans,fx,gemini,ghz,git-cliff,gitleaks,gitui,grex,gron,grpcurl,grype,hadolint,helix,herdr,httpie,hyperfine,jnv,jq,k6,k9s,kompose,kubectx,kubens,lf,localai,"
@@ -7850,6 +7896,11 @@ while [ $# -gt 0 ]; do
     __setup_fd
     SETUPMGR_EXIT_STATUS=$?
     ;;
+  ffmpeg)
+    shift 1
+    __setup_ffmpeg
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
   fnm)
     shift 1
     __setup_fnm
@@ -8356,6 +8407,11 @@ while [ $# -gt 0 ]; do
   yq)
     shift 1
     __setup_yq
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  yt-dlp)
+    shift 1
+    __setup_yt_dlp
     SETUPMGR_EXIT_STATUS=$?
     ;;
   zed)

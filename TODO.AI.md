@@ -850,3 +850,5 @@ supported Linux install is its install.sh (git clone to
 setupmgr never installs from source, so it keeps the PyPI package (the only
 published artifact) until upstream ships a binary or a newer PyPI release.
 - bin/gitcommit line ~1146 is 195 characters (pre-existing, over the 180 limit); wrap it
+- bin/ytda pre-existing lint: grep calls missing `--` (lines ~93, 118, 175, 232, 248, 292, 298, 318, 389, 429, 443, 632); inline comments at `__help() {` and `cmd_exists ... exit 3`; `exit 3` outside standard ranges; bare `return` in `__notifications`; `nightcorea`/`requiresudo` lack `__` prefix; `basename`/echo-grep forks; no `--color` option
+- bin/ytda: YTDA_YOUTUBE_DL_CONF_DIR defaults to ~/.config/ytda/inc while every other path uses ~/.config/myscripts/ytda; left unchanged so existing music/nightcorea configs keep working

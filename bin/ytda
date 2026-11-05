@@ -10,7 +10,7 @@
 # @@Created          :  Wednesday, Sep 21, 2022 10:54 EDT
 # @@File             :  ytda
 # @@Description      :  Video downloader and mp3 converter
-# @@Changelog        :  New script
+# @@Changelog        :  Exit code on failure, verified yt-dlp install, shared converter, fixes
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -28,13 +28,7 @@ USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 YTDA_REQUIRE_SUDO="${YTDA_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Reopen in a terminal
-#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set script title
-#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD/#$HOME/~} - $APPNAME"
-#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
-#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]0;%s\007' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
 export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initial debugging
@@ -70,14 +64,14 @@ __devnull() {
   tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   "$cmd" "$@" 2>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # See if the executable exists
 __cmd_exists() {
   local exitCode=0
@@ -122,7 +116,7 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
   ICON_ERROR="[ error ]"
   ICON_QUESTION="[ ? ]"
   printf_column() { tee | grep '^'; }
-  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
@@ -196,18 +190,18 @@ __help() { #           *
   __printf_opts "ytda: Video downloader and mp3 converter - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: ytda [options] [commands]"
-  __printf_line "*                                      - "
-  __printf_line "yta                                    - "
-  __printf_line "aac                                    - "
-  __printf_line "m4a                                    - "
-  __printf_line "mp3                                    - "
-  __printf_line "wav                                    - "
-  __printf_line "opus                                   - "
-  __printf_line "flac                                   - "
-  __printf_line "ytda                                   - "
-  __printf_line "vorbis                                 - "
-  __printf_line "nightcore                              - "
-  __printf_line "--dir                                  - Sets the working directory"
+  __printf_line "<url|id|file>                          - Download audio as mp3 (default)"
+  __printf_line "yta <url|id|file>                      - Best audio converted to mp3"
+  __printf_line "ytda <url|id|file>                     - Audio as mp3"
+  __printf_line "aac|flac|m4a|mp3|opus|vorbis|wav <url> - Audio in that format"
+  __printf_line "nightcore <url|id|file>                - Nightcore audio as mp3"
+  __printf_line "playlist <channel>                     - Save a channel's playlists to a file"
+  __printf_line "--dir <path>                           - Sets the working directory"
+  __printf_line "--channel <name>                       - Playlist type for 'playlist' (default: channels)"
+  __printf_line "--username <user>                      - Site username"
+  __printf_line "--password <pass>                      - Site password"
+  __printf_line "--netrc                                - Use ~/.netrc credentials"
+  __printf_line "--silent                               - Reduce output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -295,7 +289,6 @@ __sudo() {
 __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$YTDA_TEMP_FILE" ] && rm -Rf "$YTDA_TEMP_FILE" &>/dev/null
-  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
 }
@@ -316,9 +309,9 @@ __generate_playlists() {
   local releases="${YTDA_CHANNEL_NAME:-channels}"
   local filename="$YTDA_CONFIG_DIR/$releases/$channel.txt"
   local playlist_url="https://www.youtube.com/user/$channel/$releases"
-  local playlists="$($YTDA_BIN_FILE -ij --flat -- $playlist_url | jq -r '.url')"
+  local playlists="$("$YTDA_BIN_FILE" -ij --flat-playlist -- "$playlist_url" | jq -r '.url')"
   if [ -n "$playlists" ]; then
-    [ -d "$$YTDA_CONFIG_DIR/$releases" ] || mkdir -p "$YTDA_CONFIG_DIR/$releases"
+    [ -d "$YTDA_CONFIG_DIR/$releases" ] || mkdir -p "$YTDA_CONFIG_DIR/$releases"
     [ -f "$filename" ] || touch "$filename"
     printf_blue "Setting playlist file to $filename"
     for pl in $playlists; do
@@ -344,7 +337,7 @@ __youtube_dl() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 nightcorea() {
-  local config="$YTDA_YOUTUBE_DL_CONF_DIR/nightcorea"
+  local config="$YTDA_YOUTUBE_DL_CONF_DIR/nightcorea" opts=""
   local dir="$HOME/Music/Nightcore"
   local filename="%(artist)s - %(title)s.%(ext)s"
   __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
@@ -353,94 +346,26 @@ nightcorea() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-yta-aac() {
-  local config="$YTDA_YOUTUBE_DL_CONF_DIR/music"
+# Shared audio converter: __yta_convert <format> [yt-dlp args] <url>
+__yta_convert() {
+  local format="$1" && shift 1
+  local config="$YTDA_YOUTUBE_DL_CONF_DIR/music" opts=""
   local dir="$HOME/Music/ytdl/$YTDA_FOLDER_FORMAT"
   local filename="%(artist)s - %(title)s.%(ext)s"
   __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
-  __youtube_dl --audio-format aac -f bestaudio -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
-    --add-metadata --embed-thumbnail --extract-audio --audio-quality 320k $opts "$@"
+  __youtube_dl --audio-format "$format" -f bestaudio -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
+    --add-metadata --embed-thumbnail --extract-audio --audio-quality 320k $YTDA_AUDIO_CONF $opts "$@"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-yta-best() {
-  local config="$YTDA_YOUTUBE_DL_CONF_DIR/music"
-  local dir="$HOME/Music/ytdl/$YTDA_FOLDER_FORMAT"
-  local filename="%(artist)s - %(title)s.%(ext)s"
-  __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
-  __youtube_dl --audio-format mp3 -f bestaudio -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
-    --add-metadata --embed-thumbnail --extract-audio --audio-quality 320k $opts "$@"
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-yta-flac() {
-  local config="$YTDA_YOUTUBE_DL_CONF_DIR/music"
-  local dir="$HOME/Music/ytdl/$YTDA_FOLDER_FORMAT"
-  local filename="%(artist)s - %(title)s.%(ext)s"
-  __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
-  __youtube_dl --audio-format flac -f bestaudio -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
-    --add-metadata --embed-thumbnail --extract-audio --audio-quality 320k $opts "$@"
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-yta-m4a() {
-  local config="$YTDA_YOUTUBE_DL_CONF_DIR/music"
-  local dir="$HOME/Music/ytdl/$YTDA_FOLDER_FORMAT"
-  local filename="%(artist)s - %(title)s.%(ext)s"
-  __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
-  __youtube_dl --audio-format m4a -f bestaudio -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
-    --add-metadata --embed-thumbnail --extract-audio --audio-quality 320k $opts "$@"
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-yta-mp3() {
-  local config="$YTDA_YOUTUBE_DL_CONF_DIR/music"
-  local dir="$HOME/Music/ytdl/$YTDA_FOLDER_FORMAT"
-  local filename="%(artist)s - %(title)s.%(ext)s"
-  __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
-  __youtube_dl --audio-format mp3 -f bestaudio -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
-    --add-metadata --embed-thumbnail --extract-audio --audio-quality 320k $opts "$@"
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-yta-opus() {
-  local config="$YTDA_YOUTUBE_DL_CONF_DIR/music"
-  local dir="$HOME/Music/ytdl/$YTDA_FOLDER_FORMAT"
-  local filename="%(artist)s - %(title)s.%(ext)s"
-  __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
-  __youtube_dl --audio-format opus -f bestaudio -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
-    --add-metadata --embed-thumbnail --extract-audio --audio-quality 320k $opts "$@"
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-yta-vorbis() {
-  local config="$YTDA_YOUTUBE_DL_CONF_DIR/music"
-  local dir="$HOME/Music/ytdl/$YTDA_FOLDER_FORMAT"
-  local filename="%(artist)s - %(title)s.%(ext)s"
-  __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
-  __youtube_dl --audio-format vorbis -f bestaudio -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
-    --add-metadata --embed-thumbnail --extract-audio --audio-quality 320k $opts "$@"
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-yta-wav() {
-  local config="$YTDA_YOUTUBE_DL_CONF_DIR/music"
-  local dir="$HOME/Music/ytdl/$YTDA_FOLDER_FORMAT"
-  local filename="%(artist)s - %(title)s.%(ext)s"
-  __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
-  __youtube_dl --audio-format wav -f bestaudio -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' \
-    --add-metadata --embed-thumbnail --extract-audio --audio-quality 320k $opts "$@"
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-ytda() {
-  local config="$YTDA_YOUTUBE_DL_CONF_DIR/music"
-  local dir="$HOME/Music/ytdl/$YTDA_FOLDER_FORMAT"
-  local filename="%(artist)s - %(title)s.%(ext)s"
-  __check_yt_conf "$config" && opts="--config-location $config" || opts="--ignore-config"
-  __youtube_dl --audio-format mp3 -f bestaudio -o "$dir/$filename" --metadata-from-title '(?P<artist>.+?) - (?P<title>.+)' --add-metadata --embed-thumbnail --extract-audio --audio-quality 320k $YTDA_AUDIO_CONF $opts "$@"
-  return $?
-}
+__yta_aac() { __yta_convert aac "$@"; }
+__yta_best() { __yta_convert mp3 "$@"; }
+__yta_flac() { __yta_convert flac "$@"; }
+__yta_m4a() { __yta_convert m4a "$@"; }
+__yta_mp3() { __yta_convert mp3 "$@"; }
+__yta_opus() { __yta_convert opus "$@"; }
+__yta_vorbis() { __yta_convert vorbis "$@"; }
+__yta_wav() { __yta_convert wav "$@"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __grab_file() {
   {
@@ -457,7 +382,7 @@ __download() {
   local exitCode=0 urls=""
   local action="$1" && shift 1
   local search_term=""
-  local archive_file=""
+  local archive_file="" url="" pretty="" list="" message="" file_url=""
   urls=$(echo "$@" | tr ',' '\n' | tr ' ' '\n' | sed "s|[']||g")
   for url in $urls; do
     pretty="${url//*:\/\//}"
@@ -473,7 +398,7 @@ __download() {
       search_term="$url"
       YTDA_FOLDER_FORMAT="%(channel)s"
       archive_file="$YTDA_CONFIG_DIR/archive/audio.txt"
-      printf '%b ' "🔻 ${CYAN}Downloading video from $pretty${NC} 🔻 "
+      printf '%b ' "🔻 ${CYAN}Downloading audio from $pretty${NC} 🔻 "
       message="Successfully downloaded $pretty"
     fi
     if __is_url "$url"; then
@@ -481,11 +406,10 @@ __download() {
     else
       file_url="${YTDA_DEFAULT_URL}$url"
     fi
-    grep -shq "$search_term" "$archive_file" || echo "$search_term" >>"$archive_file"
     pretty="${file_url//*:\/\//}"
     pretty="${pretty//\/*/}"
-    __grab_file "$action" "$file_url" "$message"
-    if [ $? -eq 0 ]; then
+    if __grab_file "$action" "$file_url" "$message"; then
+      grep -sqxF -- "$search_term" "$archive_file" || echo "$search_term" >>"$archive_file"
       rm -Rf "$YTDA_YOUTUBE_DL_LOG_FILE"
       printf_green "😀 $message 😀 "
       exitCode=$(($exitCode + 0))
@@ -502,8 +426,8 @@ __show_error_log() {
   local error=""
   local url="$1"
   if [ -f "$YTDA_YOUTUBE_DL_LOG_FILE" ]; then
-    #error="$(grep --no-filename -B5 '^ERROR: ' "$YTDA_YOUTUBE_DL_LOG_FILE" | __gen_error_message || echo '')"
-    error="$(grep --no-filename -B5 -E '^ERROR: |WARNING: ' "$YTDA_YOUTUBE_DL_LOG_FILE" | sed 's|\[.*\]||g;s/[^ ]* //;s|:||g;s|-||g;s|Downloading webpage||g' | tail -n1 || echo '')"
+    error="$(grep --no-filename -B5 -E -- '^ERROR: |WARNING: ' "$YTDA_YOUTUBE_DL_LOG_FILE" |
+      sed 's|\[.*\]||g;s/[^ ]* //;s|:||g;s|-||g;s|Downloading webpage||g' | tail -n1 || echo '')"
     if [ -n "$error" ]; then
       printf_yellow "Full error is in $YTDA_YOUTUBE_DL_LOG_FILE"
       printf_red "💔 I'm sorry but an error has occurred : ${error:0:100} 💔 "
@@ -520,29 +444,71 @@ __gen_error_message() {
   sed 's|\[.*\]||g;s/[^ ]* //;s|:||g;s|-||g;s|Downloading webpage||g' | tail -n2 | __find_error_message | tr '\n' '|' | awk -F '|' '{print $2" : "$1}' | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Fill YTDA_URL from stdin, a file of urls, or the remaining arguments
+__collect_urls() {
+  YTDA_URL=()
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    read -r -d '' -a YTDA_URL </dev/stdin || true
+  elif [ -f "$1" ]; then
+    read -r -d '' -a YTDA_URL <"$1" || true
+  fi
+  [ ${#YTDA_URL[@]} -gt 0 ] || [ $# -gt 0 ] || printf_exit "Usage: $APPNAME [command] <url|id|file>"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Install the official yt-dlp release binary and verify it against the published SHA2-256SUMS
+__install_yt_dlp() {
+  local base="https://github.com/yt-dlp/yt-dlp/releases/latest/download"
+  local dest="$HOME/.local/bin/yt-dlp" asset="yt-dlp" tmp="" want="" got=""
+  case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64) asset="yt-dlp_linux" ;;
+  Linux-aarch64 | Linux-arm64) asset="yt-dlp_linux_aarch64" ;;
+  Darwin-*) asset="yt-dlp_macos" ;;
+  esac
+  tmp="$(mktemp -d "$YTDA_TEMP_DIR/install.XXXXXX" 2>/dev/null)" || return 1
+  if ! curl -q -LSsf "$base/$asset" -o "$tmp/$asset" 2>>"$YTDA_YOUTUBE_DL_LOG_FILE" ||
+    ! curl -q -LSsf "$base/SHA2-256SUMS" -o "$tmp/SHA2-256SUMS" 2>>"$YTDA_YOUTUBE_DL_LOG_FILE"; then
+    rm -Rf "$tmp"
+    return 1
+  fi
+  want="$(awk -v a="$asset" '$2 == a {print $1}' "$tmp/SHA2-256SUMS")"
+  got="$({ sha256sum "$tmp/$asset" 2>/dev/null || shasum -a 256 "$tmp/$asset" 2>/dev/null; } | awk '{print $1}')"
+  if [ -z "$want" ] || [ "$want" != "$got" ]; then
+    printf_red "Checksum verification failed for $asset"
+    rm -Rf "$tmp"
+    return 1
+  fi
+  mkdir -p "${dest%/*}" && install -m 0755 "$tmp/$asset" "$dest"
+  local retVal=$?
+  rm -Rf "$tmp"
+  return $retVal
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __init() {
   local bin="$YTDA_BIN_FILE"
-  local name="${YTDA_BIN_NAME:-$(basename -- "$bin")}"
+  local name="${YTDA_BIN_NAME:-${bin##*/}}"
   printf_yellow "Setting the logfile to: $YTDA_YOUTUBE_DL_LOG_FILE"
   echo "" >"$YTDA_YOUTUBE_DL_LOG_FILE"
   if [ ! -x "$bin" ]; then
-    printf_green "Installing $name"
-    if [ "$name" = "yt-dlp" ]; then
-      curl -q -LSsf "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o "$HOME/.local/bin/yt-dlp" 2>>"$YTDA_YOUTUBE_DL_LOG_FILE"
-      chmod a+rx "$HOME/.local/bin/yt-dlp"
-      [ -x "$HOME/.local/bin/yt-dlp" ] || printf_exit "Failed to install yt-dlp"
-    elif [ "$name" = "youtube-dl" ]; then
-      curl -q -LSsf "https://yt-dl.org/downloads/latest/youtube-dl" -o "$HOME/.local/bin/youtube-dl" 2>>"$YTDA_YOUTUBE_DL_LOG_FILE"
-      chmod a+rx "$HOME/.local/bin/youtube-dl"
-      [ -x "$HOME/.local/bin/youtube-dl" ] || printf_exit "Failed to install youtube-dl"
-    else
+    case "$name" in
+    yt-dlp)
+      printf_green "Installing $name"
+      __install_yt_dlp || printf_exit "Failed to install yt-dlp"
+      YTDA_BIN_FILE="$HOME/.local/bin/yt-dlp"
+      ;;
+    youtube-dl)
+      printf_exit "youtube-dl is no longer maintained and has no official release binary, install yt-dlp instead"
+      ;;
+    *)
       printf_exit "Failed to Initialize $APPNAME"
-    fi
+      ;;
+    esac
     __gen_config &>/dev/null
-    printf_cyan "Installed $name to $bin"
+    printf_cyan "Installed $name to $YTDA_BIN_FILE"
   fi
   [ "$name" = "yt-dlp" ] && __find_error_message() { awk -F '. ' '{print $1}'; }
   [ "$name" = "youtube-dl" ] && __find_error_message() { awk -F ';' '{print $1}'; }
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -582,7 +548,7 @@ YTDA_COOKIE_FILE="${YTDA_COOKIE_FILE:-$YTDA_CONFIG_DIR/cookies.txt}"
 YTDA_DEFAULT_URL="${YTDA_DEFAULT_URL:-https://youtube.com/watch?v=}"
 YTDA_YOUTUBE_DL_CONF_DIR="${YTDA_YOUTUBE_DL_CONF_DIR:-$HOME/.config/ytda/inc}"
 YTDA_BIN_FILE="${YTDA_BIN_FILE:-$(builtin type -P "$YTDA_BIN_NAME" || builtin type -P yt-dlp || builtin type -P youtube-dl || echo 'yt-dlp')}"
-YTDA_URL=("")
+YTDA_URL=()
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -n "$YTDA_BIN_FILE" ] && [ -z "$YTDA_BIN_NAME" ] && YTDA_BIN_NAME="$(basename -- "$YTDA_BIN_FILE")"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -665,7 +631,7 @@ while :; do
     ICON_ERROR="[ error ]"
     ICON_QUESTION="[ ? ]"
     printf_column() { tee | grep '^'; }
-    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
     shift 1
@@ -747,38 +713,15 @@ while :; do
   esac
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Get directory from args
-# set -- "$@"
-# for arg in "$@"; do
-# if [ -d "$arg" ]; then
-# YTDA_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
-# elif [ -f "$arg" ]; then
-# YTDA_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
-# else
-# SET_NEW_ARGS+=("$arg")
-# fi
-# done
-# set -- "${SET_NEW_ARGS[@]}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set directory to first argument
-# [ -d "$1" ] && __is_an_option "$1" && YTDA_CWD="$1" && shift 1 || YTDA_CWD="${YTDA_CWD:-$PWD}"
+# Set directory from --dir or the current directory
 YTDA_CWD="$(realpath "${YTDA_CWD:-$PWD}" 2>/dev/null)"
-# if [ -d "$YTDA_CWD" ] && cd "$YTDA_CWD"; then
-# if [ "$YTDA_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
-# printf_cyan "Setting working dir to $YTDA_CWD"
-# fi
-# else
-# printf_exit "💔 $YTDA_CWD does not exist 💔"
-# fi
 export YTDA_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
 [ -d "$YTDA_YOUTUBE_DL_CONF_DIR" ] || mkdir -p "$YTDA_YOUTUBE_DL_CONF_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
 cmd_exists --error --ask bash || exit 3 # exit 3 if not found
-#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 [ -n "$OPTS" ] && YTDL_OPTS="$YTDL_OPTS $OPTS"
@@ -800,104 +743,24 @@ playlist)
   shift 1
   [ -n "$1" ] || printf_exit "Usage: $APPNAME playlist <CHANNEL_ID>"
   __generate_playlists "$1"
+  exitCode=$?
   ;;
-yta)
+yta | ytda | nightcore | aac | flac | m4a | mp3 | opus | vorbis | wav)
+  case "$1" in
+  yta) action="__yta_best" ;;
+  ytda) action="__yta_mp3" ;;
+  nightcore) action="nightcorea" ;;
+  *) action="__yta_$1" ;;
+  esac
   shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDA_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDA_URL=($(<"$1"))
-  fi
-  __download yta-best "${YTDA_URL[@]:-$@}"
-  ;;
-ytda)
-  shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDA_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDA_URL=($(<"$1"))
-  fi
-  __download yta-mp3 "${YTDA_URL[@]:-$@}"
-  ;;
-nightcore)
-  shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDA_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDA_URL=($(<"$1"))
-  fi
-  __download nightcorea "${YTDA_URL[@]:-$@}"
-  ;;
-aac)
-  shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDA_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDA_URL=($(<"$1"))
-  fi
-  __download yta-aac "${YTDA_URL[@]:-$@}"
-  ;;
-flac)
-  shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDA_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDA_URL=($(<"$1"))
-  fi
-  __download yta-flac "${YTDA_URL[@]:-$@}"
-  ;;
-m4a)
-  shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDA_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDA_URL=($(<"$1"))
-  fi
-  __download yta-m4a "${YTDA_URL[@]:-$@}"
-  ;;
-mp3)
-  shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDA_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDA_URL=($(<"$1"))
-  fi
-  __download yta-mp3 "${YTDA_URL[@]:-$@}"
-  ;;
-opus)
-  shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDA_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDA_URL=($(<"$1"))
-  fi
-  __download yta-opus "${YTDA_URL[@]:-$@}"
-  ;;
-vorbis)
-  shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDA_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDA_URL=($(<"$1"))
-  fi
-  __download yta-vorbis "${YTDA_URL[@]:-$@}"
-  ;;
-wav)
-  shift 1
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDA_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDA_URL=($(<"$1"))
-  fi
-  __download yta-wav "${YTDA_URL[@]:-$@}"
+  __collect_urls "$@"
+  __download "$action" "${YTDA_URL[@]:-$@}"
+  exitCode=$?
   ;;
 *)
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    YTDA_URL=($(</dev/stdin))
-  elif [ -f "$1" ]; then
-    YTDA_URL=($(<"$1"))
-  fi
-  __download yta-mp3 "${YTDA_URL[@]:-$@}"
+  __collect_urls "$@"
+  __download __yta_mp3 "${YTDA_URL[@]:-$@}"
+  exitCode=$?
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - -

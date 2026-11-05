@@ -158,6 +158,8 @@ YTDA_MAX_ERRORS="${YTDA_MAX_ERRORS:-}"
 YTDA_BIN_DIR="${YTDA_BIN_DIR:-}"
 YTDA_STRIP_TITLE="${YTDA_STRIP_TITLE:-}"
 YTDA_STRIP_WORDS="${YTDA_STRIP_WORDS:-}"
+YTDA_PREFER_OFFICIAL="${YTDA_PREFER_OFFICIAL:-}"
+YTDA_LIVE_REGEX="${YTDA_LIVE_REGEX:-}"
 YTDA_DEFAULT_URL="${YTDA_DEFAULT_URL:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -364,7 +366,7 @@ __youtube_dl() {
   js_args="$(__js_runtime)"
   [ "$max_errors" -gt 0 ] 2>/dev/null && skip_args="--skip-playlist-after-errors $max_errors"
   $ytbdl_bin --restrict-filenames --no-progress --mark-watched --ignore-errors --continue \
-    --download-archive "$YTDA_CONFIG_DIR/archive/ytdl.txt" --sleep-interval $sleep --retries $retries $js_args $skip_args $opts "$@"
+    --download-archive "$YTDA_CONFIG_DIR/archive/ytdl.txt" --sleep-interval $sleep --retries $retries $js_args $skip_args "${YTDA_PASS_ARGS[@]}" $opts "$@"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -425,56 +427,96 @@ __grab_file() {
   return $exitStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Download one URL for one pass. The official pass holds back titles tagged Live with --match-filters; the live pass takes only
+# those. Sets YTDA_URL_DEFERRED when live titles were held back, and YTDA_FATAL_ERROR for errors that repeat for every URL.
+__download_one() {
+  local action="$1" url="$2" pass="$3"
+  local search_term="" archive_file="" pretty="" list="" message="" file_url="" label="audio" new="" grabbed=1
+  local before=0 produced="false"
+  YTDA_URL_DEFERRED="false"
+  [ "$pass" = "live" ] && label="live audio"
+  pretty="${url//*:\/\//}"
+  if [[ "$url" == *"list="* ]]; then
+    pretty="${pretty//\/*/}"
+    list="$(echo "$url" | awk -F 'list=' '{print $2}' | sed 's|?.*||g;s|&.*||g')"
+    search_term="$pretty: $list"
+    YTDA_FOLDER_FORMAT="%(creator,uploader)s/%(playlist_title)s"
+    archive_file="$YTDA_CONFIG_DIR/archive/playlists.txt"
+    printf '%b ' "🔻 ${CYAN}Downloading $label from playlist: $list${NC} 🔻 "
+    message="Successfully downloaded from $pretty"
+  else
+    search_term="$url"
+    YTDA_FOLDER_FORMAT="%(channel)s"
+    archive_file="$YTDA_CONFIG_DIR/archive/audio.txt"
+    printf '%b ' "🔻 ${CYAN}Downloading $label from $pretty${NC} 🔻 "
+    message="Successfully downloaded $pretty"
+  fi
+  if __is_url "$url"; then
+    file_url="$url"
+  else
+    file_url="${YTDA_DEFAULT_URL}$url"
+  fi
+  pretty="${file_url//*:\/\//}"
+  pretty="${pretty//\/*/}"
+  YTDA_PASS_ARGS=()
+  if [ "$YTDA_PREFER_OFFICIAL" != "no" ]; then
+    if [ "$pass" = "live" ]; then
+      YTDA_PASS_ARGS=(--match-filters "title ~= $YTDA_LIVE_REGEX")
+    else
+      YTDA_PASS_ARGS=(--match-filters "title !~= $YTDA_LIVE_REGEX")
+    fi
+  fi
+  [ -f "$YTDA_YOUTUBE_DL_LOG_FILE" ] && before="$(wc -l <"$YTDA_YOUTUBE_DL_LOG_FILE")"
+  __grab_file "$action" "$file_url" "$message" && grabbed=0
+  new="$(tail -n +$((before + 1)) "$YTDA_YOUTUBE_DL_LOG_FILE" 2>/dev/null)"
+  __warn_cookies
+  [[ "$new" == *"does not pass filter"* ]] && [ "$pass" = "official" ] && YTDA_URL_DEFERRED="true"
+  if [ $grabbed -ne 0 ]; then
+    __show_error_log "$pretty"
+    return 1
+  fi
+  echo "$new" | grep -qE -- 'Destination:|has already been downloaded|already in target format' && produced="true"
+  rm -Rf "$YTDA_YOUTUBE_DL_LOG_FILE"
+  if [ "$pass" = "live" ] && [ "$produced" = "false" ]; then
+    printf '\n'
+    return 0
+  fi
+  if [ "$YTDA_URL_DEFERRED" = "true" ] && [ "$produced" = "false" ]; then
+    printf_yellow "Only live versions found, downloading them after the official ones"
+    return 0
+  fi
+  grep -sqxF -- "$search_term" "$archive_file" || echo "$search_term" >>"$archive_file"
+  printf_green "😀 $message 😀 "
+  [ "$YTDA_URL_DEFERRED" = "true" ] && printf_yellow "Live versions are held back and downloaded last"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Download every URL, official versions first. Live titles are held back (see YTDA_LIVE_REGEX) and fetched in a second pass, only
+# for the URLs that had some, so a live version never takes the file name of the official one. YTDA_PREFER_OFFICIAL=no disables it.
 __download() {
-  local exitCode=0 urls=""
+  local exitCode=0 urls="" deferred="" pass="" url=""
   local action="$1" && shift 1
-  local search_term=""
-  local archive_file="" url="" pretty="" list="" message="" file_url=""
   YTDA_FATAL_ERROR=""
   urls=$(echo "$@" | tr ',' '\n' | tr ' ' '\n' | sed "s|[']||g")
-  for url in $urls; do
-    pretty="${url//*:\/\//}"
-    if echo "$url" | grep -q 'list='; then
-      pretty="${pretty//\/*/}"
-      list="$(echo "$url" | awk -F 'list=' '{print $2}' | sed 's|?.*||g;s|&.*||g')"
-      search_term="$pretty: $list"
-      YTDA_FOLDER_FORMAT="%(creator,uploader)s/%(playlist_title)s"
-      archive_file="$YTDA_CONFIG_DIR/archive/playlists.txt"
-      printf '%b ' "🔻 ${CYAN}Downloading audio from playlist: $list${NC} 🔻 "
-      message="Successfully downloaded from $pretty"
-    else
-      search_term="$url"
-      YTDA_FOLDER_FORMAT="%(channel)s"
-      archive_file="$YTDA_CONFIG_DIR/archive/audio.txt"
-      printf '%b ' "🔻 ${CYAN}Downloading audio from $pretty${NC} 🔻 "
-      message="Successfully downloaded $pretty"
+  for pass in official live; do
+    if [ "$pass" = "live" ]; then
+      [ -n "$deferred" ] || break
+      urls="$deferred"
     fi
-    if __is_url "$url"; then
-      file_url="$url"
-    else
-      file_url="${YTDA_DEFAULT_URL}$url"
-    fi
-    pretty="${file_url//*:\/\//}"
-    pretty="${pretty//\/*/}"
-    local grabbed=1
-    __grab_file "$action" "$file_url" "$message" && grabbed=0
-    __warn_cookies
-    if [ $grabbed -eq 0 ]; then
-      grep -sqxF -- "$search_term" "$archive_file" || echo "$search_term" >>"$archive_file"
-      rm -Rf "$YTDA_YOUTUBE_DL_LOG_FILE"
-      printf_green "😀 $message 😀 "
-      exitCode=$(($exitCode + 0))
-    else
-      __show_error_log "$pretty"
-      exitCode=$(($exitCode + 1))
-      if [ "$YTDA_FATAL_ERROR" = "true" ]; then
-        printf_yellow "Stopping: the remaining URLs would fail the same way"
-        printf '\n'
-        break
+    for url in $urls; do
+      if ! __download_one "$action" "$url" "$pass"; then
+        exitCode=$((exitCode + 1))
+        if [ "$YTDA_FATAL_ERROR" = "true" ]; then
+          printf_yellow "Stopping: the remaining URLs would fail the same way"
+          printf '\n'
+          break 2
+        fi
       fi
-    fi
-    printf '\n'
+      [ "$YTDA_URL_DEFERRED" = "true" ] && deferred+="$url"$'\n'
+      printf '\n'
+    done
   done
+  YTDA_PASS_ARGS=()
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -707,6 +749,10 @@ YTDA_BIN_DIR="${YTDA_BIN_DIR:-}"
 YTDA_STRIP_TITLE="${YTDA_STRIP_TITLE:-yes}"
 YTDA_STRIP_WORDS="${YTDA_STRIP_WORDS:-official|music|video|audio|lyrics?|lyric|visuali[sz]er|remaster(?:ed)?|hd|hq|4k|8k|1080p|720p|live|explicit|full}"
 YTDA_STRIP_ARGS=()
+YTDA_PASS_ARGS=()
+YTDA_URL_DEFERRED=""
+YTDA_PREFER_OFFICIAL="${YTDA_PREFER_OFFICIAL:-yes}"
+[ -n "$YTDA_LIVE_REGEX" ] || YTDA_LIVE_REGEX='(?i)[\(\[][^\)\]]*\blive\b[^\)\]]*[\)\]]|[-–|:]\s*live\s*$'
 YTDA_FATAL_ERROR=""
 YTDA_DEFAULT_URL="${YTDA_DEFAULT_URL:-https://youtube.com/watch?v=}"
 YTDA_YOUTUBE_DL_CONF_DIR="${YTDA_YOUTUBE_DL_CONF_DIR:-$HOME/.config/ytda/inc}"

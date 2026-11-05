@@ -858,3 +858,5 @@ published artifact) until upstream ships a binary or a newer PyPI release.
 - bin/ytstream pre-existing lint: grep calls missing `--` (lines ~93, 118, 177, 290, 545); `requiresudo` lacks `__` prefix; bare `return` in __notifications; `exitCode=4` at ~93; no --color option
 
 - bin/anime-dl pre-existing lint: grep calls missing `--` (lines ~93, 118, 174, 300, 532); `requiresudo` lacks `__` prefix; bare globals in __sudo (CMD, CMD_ARGS, SUDO, OPTS); INIT_CONFIG/SEND_NOTIFICATION lack the ANIME_DL_ prefix; bare `return` in __notifications; exitCode=3 and 4 outside the standard ranges; no --color option; short flags -c -d -s -q -p -a -r -f are not defined in IDEA.md
+- self-contained migration (AI.md "Self-Contained Scripts"): bin/ytda, bin/ytdv, bin/ytstream and bin/anime-dl still source functions/testing.bash for printf_* and printf_exit and call user_install/__options/cmd_exists; inline them and drop the source
+- bin/ytdv: uses `pkmgr silent install ffmpeg` as its ffmpeg fallback; replace with an inline install or a clear error so it has no cross-script dependency

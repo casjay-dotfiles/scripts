@@ -153,6 +153,7 @@ __gen_config() {
 ANIME_DL_SAVE_DIR="${ANIME_DL_SAVE_DIR:-}"
 ANIME_DL_SOURCE_FILE="${ANIME_DL_SOURCE_FILE:-}"
 ANIME_DL_UPDATE_URL="${ANIME_DL_UPDATE_URL:-}"
+ANIME_DL_BIN_DIR="${ANIME_DL_BIN_DIR:-}"
 ANIME_DL_DEFAULT_OPTS="${ANIME_DL_DEFAULT_OPTS:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -369,17 +370,19 @@ __watch_mode() {
   return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# ani-cli needs curl, sed, grep and fzf; downloads need yt-dlp or ffmpeg. Missing tools are installed with setupmgr or pkmgr.
+# ani-cli needs curl, sed, grep and fzf; downloads need yt-dlp or ffmpeg. A missing yt-dlp is installed from its official release.
 __check_deps() {
   local tool=""
   for tool in curl sed grep; do
     __cmd_exists "$tool" || { printf_red "$tool is required"; return 1; }
   done
-  __cmd_exists fzf || pkmgr silent install fzf || { printf_red "fzf is required for the anime menu"; return 1; }
+  __cmd_exists fzf || { printf_red "fzf is required for the anime menu, install it with your package manager"; return 1; }
   __watch_mode && return 0
-  __cmd_exists yt-dlp || { __cmd_exists setupmgr && setupmgr yt-dlp; }
-  __cmd_exists ffmpeg || { __cmd_exists setupmgr && setupmgr ffmpeg; }
-  __cmd_exists yt-dlp ffmpeg || __cmd_exists ffmpeg || { printf_red "yt-dlp or ffmpeg is required to download"; return 1; }
+  __cmd_exists yt-dlp ffmpeg && return 0
+  __cmd_exists yt-dlp || __cmd_exists ffmpeg || {
+    printf_green "Installing yt-dlp"
+    __install_yt_dlp || { printf_red "yt-dlp or ffmpeg is required to download"; return 1; }
+  }
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -418,6 +421,78 @@ __execute_ani_cli() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Name of the official standalone yt-dlp release asset for this OS, CPU and libc. A musl build only runs on
+# musl systems (its loader is /lib/ld-musl-*), so glibc and musl are told apart. Anything else gets the
+# platform-independent zipimport build, which needs Python 3.11+.
+__yt_dlp_asset() {
+  local arch="$(uname -m)" libc="glibc"
+  [ "$arch" = "arm64" ] && arch="aarch64"
+  case "$(uname -s)" in
+  Darwin)
+    echo "yt-dlp_macos"
+    return 0
+    ;;
+  Linux) ;;
+  *)
+    echo "yt-dlp"
+    return 0
+    ;;
+  esac
+  if ! getconf GNU_LIBC_VERSION &>/dev/null && compgen -G "/lib/ld-musl-*" >/dev/null; then
+    libc="musl"
+  fi
+  case "$libc-$arch" in
+  glibc-x86_64) echo "yt-dlp_linux" ;;
+  glibc-aarch64) echo "yt-dlp_linux_aarch64" ;;
+  musl-x86_64) echo "yt-dlp_musllinux" ;;
+  musl-aarch64) echo "yt-dlp_musllinux_aarch64" ;;
+  *) echo "yt-dlp" ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Directory for installed binaries: ANIME_DL_BIN_DIR if set, /usr/local/bin for root or a user who can sudo, otherwise ~/.local/bin
+__bin_dir() {
+  if [ -n "$ANIME_DL_BIN_DIR" ]; then
+    echo "$ANIME_DL_BIN_DIR"
+  elif __user_is_root || __can_i_sudo "${RUN_USER:-$USER}"; then
+    echo "/usr/local/bin"
+  else
+    echo "$HOME/.local/bin"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Install the official yt-dlp release binary and verify it against the published SHA2-256SUMS
+__install_yt_dlp() {
+  local base="https://github.com/yt-dlp/yt-dlp/releases/latest/download"
+  local dest="$(__bin_dir)/yt-dlp" asset="" tmp="" want="" got=""
+  asset="$(__yt_dlp_asset)"
+  if [ "$asset" = "yt-dlp" ] && ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' &>/dev/null; then
+    printf_red "No standalone yt-dlp build for $(uname -s) $(uname -m) and Python 3.11+ was not found"
+    return 1
+  fi
+  tmp="$(mktemp -d "$ANIME_DL_TEMP_DIR/install.XXXXXX" 2>/dev/null)" || return 1
+  if ! curl -q -LSsf "$base/$asset" -o "$tmp/$asset" 2>>"$ANIME_DL_LOG_DIR/install.log" ||
+    ! curl -q -LSsf "$base/SHA2-256SUMS" -o "$tmp/SHA2-256SUMS" 2>>"$ANIME_DL_LOG_DIR/install.log"; then
+    rm -Rf "$tmp"
+    return 1
+  fi
+  want="$(awk -v a="$asset" '$2 == a {print $1}' "$tmp/SHA2-256SUMS")"
+  got="$({ sha256sum "$tmp/$asset" 2>/dev/null || shasum -a 256 "$tmp/$asset" 2>/dev/null; } | awk '{print $1}')"
+  if [ -z "$want" ] || [ "$want" != "$got" ]; then
+    printf_red "Checksum verification failed for $asset"
+    rm -Rf "$tmp"
+    return 1
+  fi
+  if ! __install_file "$tmp/$asset" "$dest"; then
+    printf_yellow "Could not install to ${dest%/*}, using $HOME/.local/bin instead"
+    dest="$HOME/.local/bin/yt-dlp"
+    __install_file "$tmp/$asset" "$dest" || { rm -Rf "$tmp"; return 1; }
+  fi
+  rm -Rf "$tmp"
+  export PATH="${dest%/*}:$PATH"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -451,6 +526,7 @@ ANIME_DL_SOURCE_FILE="${ANIME_DL_SOURCE_FILE:-$CASJAYSDEVDIR/sources/ani-cli}"
 ANIME_DL_UPDATE_URL="${ANIME_DL_UPDATE_URL:-https://github.com/pystardust/ani-cli/releases/latest/download/ani-cli}"
 ANIME_DL_DEFAULT_OPTS="${ANIME_DL_DEFAULT_OPTS:-}"
 ANIME_DL_NEW_SAVE_DIR=""
+ANIME_DL_BIN_DIR="${ANIME_DL_BIN_DIR:-}"
 ANIME_DL_ARGS=()
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files

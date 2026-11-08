@@ -237,7 +237,9 @@ EOF
   rm -f "$bashCompDir/_my_scripts_completions"
   echo 'for f in '"$CASJAYSDEVDIR/completions"/*.bash'; do source "$f" >/dev/null 2>&1; done' >"$bashCompDir/_my_scripts_completions.bash"
   printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' | sudo tee -p "$verDir/osversion.txt" &>/dev/null
-  printf '# update scripts\n5 4 * * * root %s update scripts cron ssl >/var/log/systemmgr\n' "$APPDIR/bin/systemmgr" | sudo tee -p "/etc/cron.d/systemmgr" &>/dev/null
+  printf '# pull scripts, then update 5 minutes later\n' | sudo tee -p "/etc/cron.d/systemmgr" &>/dev/null
+  printf '0 4 * * * root git -C %s pull --quiet --ff-only >/var/log/systemmgr-pull 2>&1\n' "$APPDIR" | sudo tee -a -p "/etc/cron.d/systemmgr" &>/dev/null
+  printf '5 4 * * * root %s update scripts cron ssl >/var/log/systemmgr\n' "$APPDIR/bin/systemmgr" | sudo tee -a -p "/etc/cron.d/systemmgr" &>/dev/null
   printf '# Fix resolver\n*/5 * * * * root [ -f "/etc/resolv.conf" ] || echo nameserver 1.1.1.1 >/etc/resolv.conf\n' | sudo tee -p "/etc/cron.d/update-resolver" &>/dev/null
   __os_fix_name "$verDir/osversion.txt"
 }

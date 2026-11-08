@@ -432,14 +432,20 @@ __run_install_init() {
   local app="$1"
   local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   local INSTALL_DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR"
+  local install_url script_body
   export SUDO_USER
-  if __urlcheck "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh"; then
+  # fetch from raw.githubusercontent.com directly when the repo base is a github.com url, otherwise keep the configured layout
+  if [[ "$GEN_SCRIPT_REPLACE_ENV_REPO_URL" == https://github.com/* ]] && [[ "$GEN_SCRIPT_REPLACE_ENV_REPO_RAW" == raw/* ]]; then
+    install_url="https://raw.githubusercontent.com/${GEN_SCRIPT_REPLACE_ENV_REPO_URL#https://github.com/}/$app/${GEN_SCRIPT_REPLACE_ENV_REPO_RAW#raw/}/install.sh"
+  else
+    install_url="$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh"
+  fi
+  if script_body="$(curl -q -LSsf --connect-timeout 10 --retry 3 --retry-delay 5 --retry-all-errors "$install_url" 2>/dev/null)" && [ -n "$script_body" ]; then
     export FORCE_INSTALL="$FORCE_INSTALL"
-    bash -c "$(curl -q -LSsf "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh")" 2>/dev/null
+    bash -c "$script_body" 2>/dev/null
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
   else
-    printf_error "Failed to initialize the installer from:"
-    printf_red "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh\n"
+    printf_error "Failed to initialize the installer for $app from: $install_url\n"
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
   if [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ]; then

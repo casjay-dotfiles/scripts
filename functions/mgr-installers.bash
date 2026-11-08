@@ -2590,8 +2590,7 @@ run_install_init() {
     touch "$TMPFILE"
     printf '%s: %s\n' "$(printf_color "Grabbing install file from" "3")" "$(printf_color "$SETREPORAW/install.sh" "5")"
     urlcheck "$SETREPORAW/install.sh" || {
-      printf_red "Failed to initialize the installer from:"
-      printf_yellow "$SETREPORAW/install.sh\n"
+      printf_error "Failed to initialize the installer from: $SETREPORAW/install.sh\n"
       run_mgr_installer_cleanup
       exit 5
     }

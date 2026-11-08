@@ -57,16 +57,14 @@ run_install_init() {
       if __urlcheck "$REPORAW/install.sh"; then
         sudo FORCE_INSTALL="$FORCE_INSTALL" bash -c "$(curl -q -LSs "$REPORAW/install.sh" 2>/dev/null)"
       else
-        printf_error "Failed to initialize the installer from:"
-        printf_exit "$REPORAW/install.sh\n"
+        printf_exit "Failed to initialize the installer from: $REPORAW/install.sh\n"
       fi
       exitCode+=$(($? + ${exitCode:-0}))
     else
       if __urlcheck "$REPORAW/install.sh"; then
         FORCE_INSTALL="$FORCE_INSTALL" bash -c "$(curl -q -LSs "$REPORAW/install.sh" 2>/dev/null)"
       else
-        printf_error "Failed to initialize the installer from:"
-        printf_exit "$REPORAW/install.sh\n"
+        printf_exit "Failed to initialize the installer from: $REPORAW/install.sh\n"
       fi
       exitCode+=$(($? + ${exitCode:-0}))
     fi

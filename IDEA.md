@@ -59,7 +59,7 @@ containers/     Dockerfiles + docker-compose.yml for distro testing
 **System administration**
 - `pkmgr` — unified package manager wrapper (apt/dnf/pacman/apk/brew/etc.)
 - `sysusage` — system resource usage summary
-- `setupmgr` — install third-party tools not in distro repos (binary/archive/npm/pip)
+- `setupmgr` — install third-party tools not in distro repos (binary/archive/npm/pip); Codex installation ensures its managed app-server is available
 - `detectostype` — OS/distro/arch detection (safe to source)
 - `captive-auth` — captive portal detection and login automation
 - `update-lecerts` — Let's Encrypt certificate renewal automation

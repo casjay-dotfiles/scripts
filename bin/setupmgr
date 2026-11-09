@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611090803-git
+##@Version           :  202611090836-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  install the latest complete Codex package with user-scoped config
+# @@Changelog        :  check and start the Codex app-server after package installation
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202611090803-git"
+VERSION="202611090836-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 # When invoked via sudo, $HOME points at /root by default. Re-anchor it on
@@ -375,6 +375,7 @@ __help() {
   __printf_line "opentofu,packer,pi,pipx,plandex,powershell,prettier,procs,rbenv,rc,ripgrep,ruff,rustfs,rustup,rvm,sd,shellcheck,shfmt,skaffold,sops,speedtest,sq,starship"
   __printf_line "stern,syft,tabby,task,terminal-browser,tgpt,tilt,tldr,traefik,trivy,trufflehog,uv,vagrant,vale,vegeta,vercel,vfox,viddy,watchexec,webhookd"
   __printf_line "xcaddy,xh,yq,yt-dlp,zed,zellij,zig,zoxide,doggo,hermes,openshell,pup,scc"
+  __printf_line "Codex installs check the invoking user's app-server daemon and start it if unavailable."
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -518,13 +519,13 @@ __target_home() {
 # files with the correct ownership in the first place.
 #
 # A modest set of env vars used by user-scoped tools is preserved so callers
-# don't have to re-export them: PATH, XDG_*, plus any SETUPMGR_*-prefixed and
-# standard toolchain vars (RUSTUP_HOME, CARGO_HOME, GOPATH, etc.).
+# don't have to re-export them: PATH, XDG_*, CODEX_HOME, SETUPMGR_* and common
+# toolchain vars (RUSTUP_HOME, CARGO_HOME, GOPATH, etc.).
 __run_as_user() {
   local target_user="$(__target_user)"
   if __user_is_root && [ -n "$target_user" ] && [ "$target_user" != "root" ] && __cmd_exists sudo; then
     local target_home="$(__target_home)"
-    local preserve="PATH,TERM,LANG,LC_ALL,XDG_RUNTIME_DIR,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_CACHE_HOME"
+    local preserve="PATH,TERM,LANG,LC_ALL,XDG_RUNTIME_DIR,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_CACHE_HOME,CODEX_HOME"
     preserve+=",RUSTUP_HOME,CARGO_HOME,RUST_HOME,GOPATH,GOROOT,GOBIN,GOCACHE,GODIR"
     preserve+=",FNM_DIR,FNM_BIN,NVM_DIR,NVM_BIN,PNPM_HOME,NPM_PACKAGES,NODE_PATH"
     preserve+=",DENO_INSTALL,DOTNET_ROOT,PIPX_HOME,PIPX_BIN_DIR,VAGRANT_HOME"
@@ -3079,6 +3080,15 @@ __codex_install_operation() {
     __run_as_user "$@"
   fi
 }
+# Ensure the invoking user's managed app-server is ready without interrupting a healthy daemon.
+__codex_ensure_daemon() {
+  local codex_bin="$1"
+  if __run_as_user "$codex_bin" app-server daemon version >/dev/null 2>&1; then
+    return 0
+  fi
+  __run_as_user "$codex_bin" app-server daemon start >/dev/null 2>&1 || return 1
+  __run_as_user "$codex_bin" app-server daemon version >/dev/null 2>&1
+}
 # Restrict cleanup to this installer's uniquely named Codex staging directory.
 __codex_cleanup_stage() {
   local stage_dir="$1"
@@ -3248,6 +3258,9 @@ __setup_codex() {
     printf_red "The installed Codex command failed its version check"
     __codex_cleanup_stage "$stage_dir"
     return 1
+  fi
+  if ! __codex_ensure_daemon "$bin_link"; then
+    printf_yellow "Codex was installed, but its app-server daemon is unavailable; run 'codex app-server daemon restart' or use --no-daemon"
   fi
   __codex_cleanup_stage "$stage_dir"
   printf_green "Installed the complete Codex package to $release_dir"

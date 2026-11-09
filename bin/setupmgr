@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202610292025-git
+##@Version           :  202611090803-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  add ffmpeg (binmgr static build) and yt-dlp (libc-aware standalone binary)
+# @@Changelog        :  install the latest complete Codex package with user-scoped config
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202610292025-git"
+VERSION="202611090803-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 # When invoked via sudo, $HOME points at /root by default. Re-anchor it on
@@ -3066,8 +3066,59 @@ __setup_kimchi() {
   __install_from_archive "kimchi" "getkimchi/kimchi" "$SETUPMGR_DEFAULT_BIN_DIR" "kimchi_${kimchi_os}_${kimchi_arch}\\.tar\\.gz$" "github" "bin/kimchi"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__codex_install_operation() {
+  local system_install="$1"
+  shift
+  if [ "$system_install" = "yes" ]; then
+    if __user_is_root; then
+      "$@"
+    else
+      sudo "$@"
+    fi
+  else
+    __run_as_user "$@"
+  fi
+}
+# Restrict cleanup to this installer's uniquely named Codex staging directory.
+__codex_cleanup_stage() {
+  local stage_dir="$1"
+  [[ -n "$stage_dir" && -d "$stage_dir" && ! -L "$stage_dir" && "$stage_dir" == "$SETUPMGR_TEMP_DIR"/codex-* ]] &&
+    rm -rf -- "$stage_dir"
+}
+__codex_cleanup_release_stage() {
+  local stage_release="$1"
+  local releases_dir="$2"
+  local system_install="$3"
+  [[ -n "$stage_release" && -n "$releases_dir" && "$stage_release" == "$releases_dir"/.staging.* && -d "$stage_release" && ! -L "$stage_release" ]] &&
+    __codex_install_operation "$system_install" rm -rf -- "$stage_release"
+}
 __setup_codex() {
   local codex_arch=""
+  local target=""
+  local asset=""
+  local api_url=""
+  local release_json=""
+  local download_url=""
+  local expected_digest=""
+  local actual_digest=""
+  local version=""
+  local stage_dir=""
+  local package_dir=""
+  local package_bin=""
+  local release_name=""
+  local system_install="no"
+  local install_home=""
+  local bin_dir=""
+  local standalone_root=""
+  local releases_dir=""
+  local release_dir=""
+  local stage_release=""
+  local current_link=""
+  local bin_link=""
+  __cmd_exists jq || {
+    printf_red "jq is required to resolve and validate the Codex release"
+    return 1
+  }
   case "$(uname -m)" in
   x86_64) codex_arch="x86_64" ;;
   aarch64 | arm64) codex_arch="aarch64" ;;
@@ -3076,7 +3127,131 @@ __setup_codex() {
     return 1
     ;;
   esac
-  __install_from_archive "codex" "openai/codex" "$SETUPMGR_DEFAULT_BIN_DIR" "codex-package-${codex_arch}-unknown-linux-musl\\.tar\\.gz$" "github" "codex-${codex_arch}-unknown-linux-musl"
+  target="${codex_arch}-unknown-linux-musl"
+  asset="codex-package-${target}.tar.gz"
+  api_url="$(__get_release_api_url "openai/codex" github)"
+  release_json="$(__curl "$api_url")"
+  download_url="$(jq -r --arg asset "$asset" '.assets[] | select(.name == $asset) | .browser_download_url // empty' <<<"$release_json" 2>/dev/null | head -n1)"
+  expected_digest="$(jq -r --arg asset "$asset" '.assets[] | select(.name == $asset) | .digest // empty' <<<"$release_json" 2>/dev/null)"
+  version="$(jq -r '.tag_name | sub("^rust-v"; "") | sub("^v"; "")' <<<"$release_json" 2>/dev/null)"
+  if [ -z "$download_url" ] || [[ ! "$expected_digest" =~ ^sha256:[0-9a-fA-F]{64}$ ]] || [ -z "$version" ]; then
+    printf_red "Could not resolve a verifiable Codex package release for $target"
+    return 1
+  fi
+
+  if __user_is_root || [ "$SETUPMGR_SYSTEM_INSTALL" = "yes" ]; then
+    system_install="yes"
+    install_home="$SETUPMGR_DEFAULT_SYSTEM_SHARE_DIR/codex"
+    bin_dir="$SETUPMGR_DEFAULT_SYSTEM_BIN_DIR"
+  else
+    install_home="$HOME/.codex"
+    bin_dir="$SETUPMGR_DEFAULT_USER_BIN_DIR"
+  fi
+  if [ "$system_install" = "yes" ] && ! __user_is_root && ! __can_i_sudo; then
+    printf_red "System-wide Codex installation requires root or sudo"
+    return 1
+  fi
+
+  standalone_root="$install_home/packages/standalone"
+  releases_dir="$standalone_root/releases"
+  release_name="$version-$target"
+  release_dir="$releases_dir/$release_name"
+  current_link="$standalone_root/current"
+  bin_link="$bin_dir/codex"
+
+  mkdir -p "$SETUPMGR_TEMP_DIR" || return 1
+  stage_dir="$(mktemp -d "$SETUPMGR_TEMP_DIR/codex-XXXXXX")" || {
+    printf_red "Could not create a temporary directory for the Codex package"
+    return 1
+  }
+  if ! __download_to_file "$download_url" "$stage_dir/$asset"; then
+    printf_red "Failed to download the Codex package"
+    __codex_cleanup_stage "$stage_dir"
+    return 1
+  fi
+  expected_digest="${expected_digest#sha256:}"
+  if __cmd_exists sha256sum; then
+    actual_digest="$(sha256sum "$stage_dir/$asset" | awk '{print $1}')"
+  elif __cmd_exists shasum; then
+    actual_digest="$(shasum -a 256 "$stage_dir/$asset" | awk '{print $1}')"
+  else
+    printf_red "sha256sum or shasum is required to verify the Codex package"
+    __codex_cleanup_stage "$stage_dir"
+    return 1
+  fi
+  if [ "$actual_digest" != "$expected_digest" ] || ! tar -tzf "$stage_dir/$asset" >/dev/null 2>&1; then
+    printf_red "The downloaded Codex package failed checksum or archive validation"
+    __codex_cleanup_stage "$stage_dir"
+    return 1
+  fi
+
+  package_dir="$stage_dir/package"
+  mkdir -p "$package_dir"
+  if ! tar -xzf "$stage_dir/$asset" -C "$package_dir" ||
+    [ ! -f "$package_dir/codex-package.json" ] ||
+    [ "$(jq -r '.version' "$package_dir/codex-package.json" 2>/dev/null)" != "$version" ] ||
+    [ "$(jq -r '.target' "$package_dir/codex-package.json" 2>/dev/null)" != "$target" ] ||
+    [ ! -f "$package_dir/bin/codex" ] ||
+    [ ! -f "$package_dir/bin/codex-code-mode-host" ] ||
+    [ ! -f "$package_dir/codex-path/rg" ] ||
+    [ ! -f "$package_dir/codex-resources/bwrap" ]; then
+    printf_red "The downloaded archive is not a complete Codex package for $target"
+    __codex_cleanup_stage "$stage_dir"
+    return 1
+  fi
+  chmod 0755 "$package_dir/bin/codex" "$package_dir/bin/codex-code-mode-host" "$package_dir/codex-path/rg" "$package_dir/codex-resources/bwrap"
+  if [ -f "$package_dir/bin/codex-exec-server" ]; then
+    chmod 0755 "$package_dir/bin/codex-exec-server"
+  fi
+  ln -s "bin/codex" "$package_dir/codex"
+
+  if ! __codex_install_operation "$system_install" install -d "$releases_dir" "$bin_dir"; then
+    printf_red "Failed to create the Codex install directories"
+    __codex_cleanup_stage "$stage_dir"
+    return 1
+  fi
+  if [ ! -d "$release_dir" ] || [ ! -x "$release_dir/bin/codex" ] ||
+    [ ! -x "$release_dir/bin/codex-code-mode-host" ] || [ ! -x "$release_dir/codex-path/rg" ] ||
+    [ ! -x "$release_dir/codex-resources/bwrap" ]; then
+    stage_release="$releases_dir/.staging.$release_name.$$"
+    __codex_install_operation "$system_install" install -d "$stage_release" || {
+      __codex_cleanup_stage "$stage_dir"
+      return 1
+    }
+    if ! __codex_install_operation "$system_install" cp -a "$package_dir/." "$stage_release/"; then
+      __codex_cleanup_release_stage "$stage_release" "$releases_dir" "$system_install"
+      __codex_cleanup_stage "$stage_dir"
+      return 1
+    fi
+    if [ -e "$release_dir" ] || [ -L "$release_dir" ]; then
+      __codex_install_operation "$system_install" rm -rf -- "$release_dir" || {
+        __codex_cleanup_release_stage "$stage_release" "$releases_dir" "$system_install"
+        __codex_cleanup_stage "$stage_dir"
+        return 1
+      }
+    fi
+    if ! __codex_install_operation "$system_install" mv -- "$stage_release" "$release_dir"; then
+      __codex_cleanup_release_stage "$stage_release" "$releases_dir" "$system_install"
+      __codex_cleanup_stage "$stage_dir"
+      return 1
+    fi
+  fi
+  __codex_install_operation "$system_install" ln -sfn "$release_dir" "$current_link" || {
+    __codex_cleanup_stage "$stage_dir"
+    return 1
+  }
+  __codex_install_operation "$system_install" ln -sfn "$current_link/bin/codex" "$bin_link" || {
+    __codex_cleanup_stage "$stage_dir"
+    return 1
+  }
+  if ! "$bin_link" --version >/dev/null 2>&1; then
+    printf_red "The installed Codex command failed its version check"
+    __codex_cleanup_stage "$stage_dir"
+    return 1
+  fi
+  __codex_cleanup_stage "$stage_dir"
+  printf_green "Installed the complete Codex package to $release_dir"
+  printf_cyan "Codex configuration remains scoped to $HOME/.codex"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_ripgrep() {

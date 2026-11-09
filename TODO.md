@@ -1,3 +1,4 @@
+[ ] fix duplicate certbot >= 5.3 output
 [ ] ./bin/setupmgr: fix btop arch mismatch
 [ ] ./bin/setupmgr: fix broken/missing packages such as pi,hermes,etc 
 [ ] ./bin/setupmgr: ensure all urls/names/arch are corect for all

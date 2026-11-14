@@ -865,4 +865,3 @@ published artifact) until upstream ships a binary or a newer PyPI release.
 - functions/types/main.bash, functions/mgr-installers.bash: `run_install_init()` lacks the `__` prefix; grep for callers and confirm whether it is an established hook name before renaming
 - ~219 bin/ and template scripts: inline `__am_i_online()` uses `grep -qi 'server:.*cloudflare'` without `--` (pre-existing); fix in one sweep, and decide whether the duplicated per-script function should instead be sourced from one shared place
 - bin/am_i_online: test_site()/test_ping() lack the `__` prefix and siteExit/pingExit lack the AM_I_ONLINE_ prefix (pre-existing); confirm no external callers before renaming
-- functions/app-installer.bash, functions/mgr-installers.bash: legacy `__am_i_online` copies still probe only 1.1.1.1; nothing sources them, so update or delete them

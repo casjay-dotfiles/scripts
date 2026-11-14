@@ -15,7 +15,17 @@
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __am_i_online() {
-  curl -q --connect-timeout 1 --max-time 2 --fail --retry 0 -LSsfI https://1.1.1.1 2>/dev/null | grep -q 'server:.*cloudflare' && return 0 || return 1
+  local host
+  if curl -q --connect-timeout 1 --max-time 2 --fail --retry 0 -LSsfI https://1.1.1.1 2>/dev/null | grep -q -- 'server:.*cloudflare'; then
+    return 0
+  fi
+  # any completed TLS handshake with a fallback resolver proves connectivity even when 1.1.1.1 is blocked
+  for host in 1.0.0.1 8.8.8.8 9.9.9.9; do
+    if curl -q -sk -o /dev/null --connect-timeout 1 --max-time 2 --retry 0 "https://$host" 2>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __local_network() {

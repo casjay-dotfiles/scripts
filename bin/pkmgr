@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609131048-git
+##@Version           :  202611220009-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,8 @@
 # @@Created          :  Friday, Aug 19, 2022 16:56 EDT
 # @@File             :  pkmgr
 # @@Description      :  Manage system packages
-# @@Changelog        :  keys wtf: call __pkgmgrbincle instead of repeating inline printf pattern
+# @@Changelog        :  Serialize the scripts update behind a non-blocking lock so a
+#                      nested or concurrent pkmgr cannot recurse forever
 # @@TODO             :  Add BSD support
 # @@Other            :
 # @@Resource         :
@@ -21,7 +22,7 @@
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202609131048-git"
+VERSION="202611220009-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -579,6 +580,23 @@ __scripts_update_timestamp() {
   local timestamp_file="${PKMGR_CACHE_DIR:-$HOME/.cache/pkmgr}/scripts_update_timestamp"
   [ -d "${timestamp_file%/*}" ] || mkdir -p "${timestamp_file%/*}"
   date +%s >"$timestamp_file" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run a scripts update under an exclusive, non-blocking lock.
+#
+# pkmgr re-enters systemmgr whenever the 6-hour timestamp reads as expired, and
+# install.sh replaces /usr/local/bin/{pkmgr,systemmgr} while they are running.
+# When a run does not return it never writes the timestamp, so every later
+# invocation re-entered -- the fleet-wide unbounded recursion of 2026-11-20,
+# each level burning a core until killed by hand. A caller that cannot take the
+# lock now skips instead of nesting; the kernel releases it if the holder dies.
+SCRIPTS_UPDATE_LOCK="${PKMGR_SCRIPTS_LOCK:-/run/lock/casjaysdev-scripts-update.lock}"
+__scripts_update_run_locked() {
+  command -v flock >/dev/null 2>&1 || { "$@"; return $?; }
+  if ! mkdir -p "${SCRIPTS_UPDATE_LOCK%/*}" 2>/dev/null; then
+    "$@"; return $?
+  fi
+  ( flock -n 9 && "$@" ) 9>"$SCRIPTS_UPDATE_LOCK"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __rm_rf() { sudo rm -Rf "$@"; }
@@ -1912,7 +1930,7 @@ __execute_pkmgr() {
     __init_log_status "update" "__pkgmgrbinupd $*"
     if __cmd_exists systemmgr && __scripts_update_needed; then
       printf_cyan "Updating scripts (cached every 6 hours)"
-      if systemmgr update installer; then
+      if __scripts_update_run_locked systemmgr update installer; then
         __scripts_update_timestamp
       else
         exitCode=$((exitCode + 1))
@@ -1985,8 +2003,10 @@ __execute_pkmgr() {
       __am_i_online || printf_exit "No internet connection"
       __init_log_status "silent update" "__pkgmgrbinupdsil $*"
       if __cmd_exists systemmgr && __scripts_update_needed; then
-        if systemmgr --raw update installer |& __silent_log_file; then
+        if __scripts_update_run_locked systemmgr --raw update installer |& __silent_log_file; then
           __scripts_update_timestamp
+        else
+          printf_yellow "Another scripts update is already running; skipping.\n"
         fi
       fi
       __pkgmgrbinupdsil |& __silent_log_file || false

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202610102015-git
+##@Version           :  202611220109-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -20,7 +20,7 @@ _dockermgr() {
   ___docker_cont() { [ -f "$docker" ] && eval $docker images 2>/dev/null | grep -vE "REPOSITORY|<.*.>" | awk '{print $1}' | sort -u; }
   local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
   local docker="$(type -P docker 2>/dev/null || type -P podman 2>/dev/null)"
-  local cur prev words cword opts split
+  local cur prev words cword opts split i j k p
   local cur="${COMP_WORDS[$COMP_CWORD]}"
   local prev="${COMP_WORDS[$COMP_CWORD - 1]}"
   local CONFFILE="settings.conf"
@@ -31,7 +31,7 @@ _dockermgr() {
   local FILEDIR=""
   local OPTS=""
   local SHORTOPTS="-p -P -v -m -e -d -u -w"
-  local LONGOPTS="--completions --debug --no-color --options --config --migrate --version --help --silent --dir --force --all --describe --platform --dockerfile "
+  local LONGOPTS="--completions --debug --no-color --options --config --migrate --version --help --dir --force --all --describe --platform --dockerfile "
   local LONGOPTS+="--name --info --domain --hostname --network --registry --tag --no-delete --interactive --cron --hub"
   local ARRAY="service proxy health attach multiarch builder api enter test exec active available connect cron download clone inactive init install k3b minikube "
   local ARRAY+="list log ps rancher remove rm rmi run search status update version ds network helm prune generate manifest rebuild swarm compose restart tag pull "
@@ -97,11 +97,20 @@ _dockermgr() {
 
     --dir)
       local prev="dir"
-      _filedir
+      _filedir -d
       return
       ;;
 
-    list | status | helm | available | active | inactive | init | rancher | k3b | ds | multiarch | swarm | compose | proxy)
+    --completions)
+      COMPREPLY=($(compgen -W 'short long array list' -- "${cur}"))
+      return
+      ;;
+
+    init)
+      COMPREPLY=($(compgen -W 'force help' -- "${cur}"))
+      ;;
+
+    list | status | helm | available | active | inactive | rancher | k3b | ds | multiarch | swarm | compose | proxy)
       local prev="endopts"
       COMPREPLY=($(compgen -W '' -- "${cur}"))
       ;;
@@ -192,7 +201,11 @@ _dockermgr() {
       ;;
 
     manifest)
-      COMPREPLY=($(compgen -W 'download' -- "${cur}")) && _filedir
+      if [[ $COMP_CWORD -eq 2 ]]; then
+        COMPREPLY=($(compgen -W 'create download' -- "${cur}"))
+      else
+        _filedir
+      fi
       ;;
 
     minikube)

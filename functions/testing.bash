@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  020920211625-git
+##@Version           :  202611220109-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  LICENSE.md
@@ -19,7 +19,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main scripts location
 FUNCFILE="testing.bash"
-CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default enviroment variables
 source "$CASJAYSDEVDIR/functions/global/env.bash"

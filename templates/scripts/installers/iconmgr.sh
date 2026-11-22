@@ -37,7 +37,13 @@ REPORAW="https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH"
 # Set bash options
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[ "$1" = "--no-color" ] && export SHOW_RAW="true"
+for ((INSTALLER_COLOR_ARG_INDEX = 1; INSTALLER_COLOR_ARG_INDEX <= $#; INSTALLER_COLOR_ARG_INDEX++)); do
+  INSTALLER_COLOR_ARG_VALUE="${!INSTALLER_COLOR_ARG_INDEX}"
+  case "$INSTALLER_COLOR_ARG_VALUE" in
+  --) break ;;
+  --no-color | --raw) export SHOW_RAW="true" ;;
+  esac
+done
 set -eo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions

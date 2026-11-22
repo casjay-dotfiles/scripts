@@ -32,7 +32,13 @@ export SCRIPTS_PREFIX="dockermgr"
 # Set bash options
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[ "$1" = "--no-color" ] && export SHOW_RAW="true"
+for ((INSTALLER_COLOR_ARG_INDEX = 1; INSTALLER_COLOR_ARG_INDEX <= $#; INSTALLER_COLOR_ARG_INDEX++)); do
+  INSTALLER_COLOR_ARG_VALUE="${!INSTALLER_COLOR_ARG_INDEX}"
+  case "$INSTALLER_COLOR_ARG_VALUE" in
+  --) break ;;
+  --no-color | --raw) export SHOW_RAW="true" ;;
+  esac
+done
 set -eo pipefail -o noglob
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -58,11 +64,11 @@ fi
 scripts_check
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "i,s:,h:,d:,e:,m:,p:" --long "init,server:,host:,domain:,env:,mount:,port:" -n "$APPNAME" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "i,s:,h:,d:,e:,m:,p:" --long "init,server:,host:,domain:,env:,mount:,port:,no-color,raw" -n "$APPNAME" -- "$@" 2>/dev/null)
 set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
-  --debug | --raw) shift 1 ;;
+  --debug | --no-color | --raw) shift 1 ;;
   -a | --name) APPNAME="$2" && shift 2 ;;
   -i | --init) ENV_INIT_SCRIPT_ONLY="yes" && shift 1 ;;
   -s | --server) CONTAINER_FULL_HOST="$2" && shift 2 ;;

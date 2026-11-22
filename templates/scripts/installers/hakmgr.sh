@@ -39,7 +39,13 @@ PLUGIN_DIR="$HOME/.local/share/$APPNAME/plugins"
 # Set bash options
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[ "$1" = "--no-color" ] && export SHOW_RAW="true"
+for ((INSTALLER_COLOR_ARG_INDEX = 1; INSTALLER_COLOR_ARG_INDEX <= $#; INSTALLER_COLOR_ARG_INDEX++)); do
+  INSTALLER_COLOR_ARG_VALUE="${!INSTALLER_COLOR_ARG_INDEX}"
+  case "$INSTALLER_COLOR_ARG_VALUE" in
+  --) break ;;
+  --no-color | --raw) export SHOW_RAW="true" ;;
+  esac
+done
 set -eo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 for app in curl wget git; do command -v "$app" &>/dev/null || missing_app+=("$app"); done && [ -z "${missing_app[*]}" ] || { printf '%s\n' "${missing_app[*]}" && exit 1; }

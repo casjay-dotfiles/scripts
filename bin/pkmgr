@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611220009-git
+##@Version           :  202611221014-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,8 +10,7 @@
 # @@Created          :  Friday, Aug 19, 2022 16:56 EDT
 # @@File             :  pkmgr
 # @@Description      :  Manage system packages
-# @@Changelog        :  Serialize the scripts update behind a non-blocking lock so a
-#                      nested or concurrent pkmgr cannot recurse forever
+# @@Changelog        :  Fail closed on the scripts update lock and bound downloads
 # @@TODO             :  Add BSD support
 # @@Other            :
 # @@Resource         :
@@ -22,7 +21,7 @@
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202611220009-git"
+VERSION="202611221014-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -306,7 +305,7 @@ __sudorun() {
 # Test if user has access to sudo
 __can_i_sudo() {
   (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+  __sudo_group "${1:-$USER}" || sudo -n true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
@@ -592,11 +591,14 @@ __scripts_update_timestamp() {
 # lock now skips instead of nesting; the kernel releases it if the holder dies.
 SCRIPTS_UPDATE_LOCK="${PKMGR_SCRIPTS_LOCK:-/run/lock/casjaysdev-scripts-update.lock}"
 __scripts_update_run_locked() {
-  command -v flock >/dev/null 2>&1 || { "$@"; return $?; }
+  command -v flock >/dev/null 2>&1 || return 75
   if ! mkdir -p "${SCRIPTS_UPDATE_LOCK%/*}" 2>/dev/null; then
-    "$@"; return $?
+    return 75
   fi
-  ( flock -n 9 && "$@" ) 9>"$SCRIPTS_UPDATE_LOCK"
+  (
+    flock -n 9 || exit 75
+    "$@"
+  ) 9>"$SCRIPTS_UPDATE_LOCK"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __rm_rf() { sudo rm -Rf "$@"; }
@@ -613,7 +615,7 @@ __trap_exit_local() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl() {
   __am_i_online || return 2
-  curl --disable -LSsfk --connect-timeout 3 --retry 0 "$@" 2>/dev/null || return 1
+  curl --disable -LSsfk --connect-timeout 3 --max-time 120 --retry 0 "$@" 2>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __default_mirror_list_archlinux() {
@@ -1037,8 +1039,8 @@ __show_info() {
   local _n
   _n="$(printf '%s' "${DISTRO_NAME:-}" | tr '[:upper:]' '[:lower:]')"
   case "$_n" in
-    *arch* | *manjaro* | *cachyos* | *arcolinux* | *endeavouros* | *artix* | \
-    *garuda* | *parabola* | *blackarch* | *tumbleweed* | *gentoo* | *void*)
+    *blackarch* | *arch* | *manjaro* | *cachyos* | *arcolinux* | *endeavouros* | *artix* | \
+    *garuda* | *parabola* | *tumbleweed* | *gentoo* | *void*)
       display_version="rolling" ;;
     *)
       case "$PKMGR_TYPE" in
@@ -1933,7 +1935,12 @@ __execute_pkmgr() {
       if __scripts_update_run_locked systemmgr update installer; then
         __scripts_update_timestamp
       else
-        exitCode=$((exitCode + 1))
+        retVal=$?
+        if [ "$retVal" -eq 75 ]; then
+          printf_yellow "Skipping scripts update because the update lock is unavailable or held."
+        else
+          exitCode=$((exitCode + 1))
+        fi
       fi
     fi
     printf_cyan "Updating system packages"
@@ -2003,8 +2010,12 @@ __execute_pkmgr() {
       __am_i_online || printf_exit "No internet connection"
       __init_log_status "silent update" "__pkgmgrbinupdsil $*"
       if __cmd_exists systemmgr && __scripts_update_needed; then
-        if __scripts_update_run_locked systemmgr --raw update installer |& __silent_log_file; then
+        __scripts_update_run_locked systemmgr --raw update installer |& __silent_log_file
+        updateStatus=${PIPESTATUS[0]}
+        if [ "$updateStatus" -eq 0 ]; then
           __scripts_update_timestamp
+        elif [ "$updateStatus" -ne 75 ]; then
+          exitCode=$((exitCode + 1))
         else
           printf_yellow "Another scripts update is already running; skipping.\n"
         fi

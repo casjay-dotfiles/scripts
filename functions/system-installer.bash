@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609301939-git
+##@Version           :  202611221014-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -259,6 +259,7 @@ __command() {
     builtin type -P "$1" | grep -q "/" 2>/dev/null
   done
 }
+# shellcheck disable=SC2064
 set_trap() { trap -p "$1" | grep "$2" &>/dev/null || trap "$2" "$1"; }
 getuser() { [ -z "$1" ] && cut -d: -f1 /etc/passwd | grep "$USER" || cut -d: -f1 /etc/passwd | grep "$1"; }
 log() {
@@ -493,8 +494,10 @@ sudorerun() {
   fi
 }
 sudoreq() {
-  sudo_check=$(sudo -H -S -- echo SUDO_OK 2>&1 &)
-  [ $sudo_check == "SUDO_OK" ] && return
+  [ "${EUID:-$UID}" -eq 0 ] && return 0
+  local sudo_check
+  sudo_check="$(sudo -n -H -- echo SUDO_OK 2>/dev/null)"
+  [ "$sudo_check" = "SUDO_OK" ] && return 0
   if [ $UID != 0 ]; then
     if builtin type -P ask_for_password &>/dev/null; then
       [ "$SUDO_SUCCESS" = "TRUE" ] || ask_for_password "${@:-true}" && export SUDO_SUCCESS="TRUE" || printf_exit "Please run this script with sudo/root\n"
@@ -511,6 +514,7 @@ sudoreq() {
 }
 ######################
 sudoask() {
+  [ "${EUID:-$UID}" -eq 0 ] && return 0
   if [ ! -f "$HOME/.sudo" ]; then
     sudo true &>/dev/null
     while true; do
@@ -524,7 +528,9 @@ sudoask() {
 }
 ######################
 sudoexit() {
-  if [ $? -eq 0 ]; then
+  local exitCode=$?
+  [ "${EUID:-$UID}" -eq 0 ] && return 0
+  if [ "$exitCode" -eq 0 ]; then
     sudoask || printf_green "Getting privileges successful continuing" &&
       sudo -n true
   else

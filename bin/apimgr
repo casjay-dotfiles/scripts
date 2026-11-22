@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608311420-git
+##@Version           :  202611221014-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, May 02, 2026 00:13 EDT
 # @@File             :  apimgr
 # @@Description      :  Multi-provider API client (github/gitlab/gitea/forgejo/codeberg/bitbucket/docker/harbor/quay) — think `gh` but for everything.
-# @@Changelog        :  Add GitLab Container Registry (glcr) — 18th provider. Mirrors ghcr; falls back to GITLAB_* creds.
+# @@Changelog        :  Stop API paginators after repeated or excessive pages.
 # @@TODO             :  Better documentation
 # @@Other            :  
 # @@Resource         :  
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608311420-git"
+VERSION="202611221014-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -393,7 +393,7 @@ __sudorun() {
 # Test if user has access to sudo
 __can_i_sudo() {
   (sudo -vn && sudo -ln) 2>&1 | grep -vq -- 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+  __sudo_group "${1:-$USER}" || sudo -n true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
@@ -512,6 +512,10 @@ APIMGR_START_TIMER="${APIMGR_START_TIMER:-$(date +%s.%N)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Print message + exit. Uniform error path so callers don't repeat the printf-then-exit pattern.
 __apimgr_die() { printf_red "Error: $1" >&2; exit "${2:-1}"; }
+# Stop paginators when an API does not signal completion after a reasonable page count.
+__apimgr_pagination_limit() {
+  [ "$1" -le 100 ] || __apimgr_die "Pagination exceeded 100 pages; stopping to prevent an API pagination loop"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # jq wrapper — silences errors so callers can pipe and check rc without polluting stderr.
 __apimgr_jq() { jq "$@" 2>/dev/null; }
@@ -764,11 +768,13 @@ __apimgr_check_api_response() {
 #           omit when the API response is already a bare JSON array
 # Outputs one merged JSON array to stdout.
 __apimgr_paginate_github() {
-  local path="$1" key="${2:-}" base token next_url page_data merged="[]" hdr
+  local path="$1" key="${2:-}" base token next_url page_data merged="[]" hdr pages=0
   base="$(__apimgr_provider_url github)" || return 1
   token="$(__apimgr_provider_token github)" || return 1
   next_url="${base%/}/${path#/}"
   while [ -n "$next_url" ]; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     hdr="$(mktemp -t apimgr.XXXXXX)"
     page_data="$(curl -q -LSs --max-time "${APIMGR_API_TIMEOUT:-10}" --retry "${APIMGR_API_RETRY:-1}" \
       -D "$hdr" \
@@ -795,11 +801,13 @@ __apimgr_paginate_github() {
 #   KEY      — optional jq key for item array (omit when response is a bare array)
 __apimgr_paginate_gitea() {
   local provider="$1" path="$2" key="${3:-}"
-  local base token next_url page_data merged="[]" hdr
+  local base token next_url page_data merged="[]" hdr pages=0
   base="$(__apimgr_provider_url "$provider")" || return 1
   token="$(__apimgr_provider_token "$provider")" || return 1
   next_url="${base%/}/${path#/}"
   while [ -n "$next_url" ]; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     hdr="$(mktemp -t apimgr.XXXXXX)"
     page_data="$(curl -q -LSs --max-time "${APIMGR_API_TIMEOUT:-10}" --retry "${APIMGR_API_RETRY:-1}" \
       -D "$hdr" \
@@ -822,11 +830,13 @@ __apimgr_paginate_gitea() {
 # Usage: __apimgr_paginate_gitlab PATH [KEY]
 __apimgr_paginate_gitlab() {
   local path="$1" key="${2:-}"
-  local base token next_url page_data merged="[]" hdr
+  local base token next_url page_data merged="[]" hdr pages=0
   base="$(__apimgr_provider_url gitlab)" || return 1
   token="$(__apimgr_provider_token gitlab)" || return 1
   next_url="${base%/}/${path#/}"
   while [ -n "$next_url" ]; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     hdr="$(mktemp -t apimgr.XXXXXX)"
     page_data="$(curl -q -LSs --max-time "${APIMGR_API_TIMEOUT:-10}" --retry "${APIMGR_API_RETRY:-1}" \
       -D "$hdr" \
@@ -849,11 +859,13 @@ __apimgr_paginate_gitlab() {
 # Usage: __apimgr_paginate_gitee PATH [KEY]
 __apimgr_paginate_gitee() {
   local path="$1" key="${2:-}"
-  local base token next_url page_data merged="[]" hdr
+  local base token next_url page_data merged="[]" hdr pages=0
   base="$(__apimgr_provider_url gitee)" || return 1
   token="$(__apimgr_provider_token gitee)" || return 1
   next_url="${base%/}/${path#/}"
   while [ -n "$next_url" ]; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     hdr="$(mktemp -t apimgr.XXXXXX)"
     page_data="$(curl -q -LSs --max-time "${APIMGR_API_TIMEOUT:-10}" --retry "${APIMGR_API_RETRY:-1}" \
       -D "$hdr" \
@@ -876,7 +888,7 @@ __apimgr_paginate_gitee() {
 # Usage: __apimgr_paginate_harbor PATH [KEY]
 __apimgr_paginate_harbor() {
   local path="$1" key="${2:-}"
-  local base pass user next_url page_data merged="[]" hdr auth_hdr
+  local base pass user next_url page_data merged="[]" hdr auth_hdr pages=0
   base="$(__apimgr_provider_url harbor)" || return 1
   pass="$(__apimgr_provider_token harbor)" || return 1
   user="$(__apimgr_provider_username harbor 2>/dev/null)"
@@ -888,6 +900,8 @@ __apimgr_paginate_harbor() {
   fi
   next_url="${base%/}/${path#/}"
   while [ -n "$next_url" ]; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     hdr="$(mktemp -t apimgr.XXXXXX)"
     page_data="$(curl -q -LSs --max-time "${APIMGR_API_TIMEOUT:-10}" --retry "${APIMGR_API_RETRY:-1}" \
       -D "$hdr" \
@@ -910,11 +924,13 @@ __apimgr_paginate_harbor() {
 # Usage: __apimgr_paginate_cloudsmith PATH [KEY]
 __apimgr_paginate_cloudsmith() {
   local path="$1" key="${2:-}"
-  local base token next_url page_data merged="[]" hdr
+  local base token next_url page_data merged="[]" hdr pages=0
   base="$(__apimgr_provider_url cloudsmith)" || return 1
   token="$(__apimgr_provider_token cloudsmith)" || return 1
   next_url="${base%/}/${path#/}"
   while [ -n "$next_url" ]; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     hdr="$(mktemp -t apimgr.XXXXXX)"
     page_data="$(curl -q -LSs --max-time "${APIMGR_API_TIMEOUT:-10}" --retry "${APIMGR_API_RETRY:-1}" \
       -D "$hdr" \
@@ -937,11 +953,13 @@ __apimgr_paginate_cloudsmith() {
 # Usage: __apimgr_paginate_ghcr PATH [KEY]
 __apimgr_paginate_ghcr() {
   local path="$1" key="${2:-}"
-  local base token next_url page_data merged="[]" hdr
+  local base token next_url page_data merged="[]" hdr pages=0
   base="$(__apimgr_provider_url ghcr)" || return 1
   token="$(__apimgr_provider_token ghcr)" || return 1
   next_url="${base%/}/${path#/}"
   while [ -n "$next_url" ]; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     hdr="$(mktemp -t apimgr.XXXXXX)"
     page_data="$(curl -q -LSs --max-time "${APIMGR_API_TIMEOUT:-10}" --retry "${APIMGR_API_RETRY:-1}" \
       -D "$hdr" \
@@ -965,11 +983,13 @@ __apimgr_paginate_ghcr() {
 # Usage: __apimgr_paginate_glcr PATH [KEY]
 __apimgr_paginate_glcr() {
   local path="$1" key="${2:-}"
-  local base token next_url page_data merged="[]" hdr
+  local base token next_url page_data merged="[]" hdr pages=0
   base="$(__glcr_url)" || return 1
   token="$(__apimgr_provider_token glcr 2>/dev/null)"; [ -n "$token" ] || token="$(__apimgr_provider_token gitlab)" || return 1
   next_url="${base%/}/${path#/}"
   while [ -n "$next_url" ]; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     hdr="$(mktemp -t apimgr.XXXXXX)"
     page_data="$(curl -q -LSs --max-time "${APIMGR_API_TIMEOUT:-10}" --retry "${APIMGR_API_RETRY:-1}" \
       -D "$hdr" \
@@ -993,10 +1013,12 @@ __apimgr_paginate_glcr() {
 # Note: __bitbucket_api only accepts relative paths; we call __bitbucket_curl directly with absolute URLs.
 __apimgr_paginate_bitbucket() {
   local path="$1" key="${2:-values}"
-  local base next_url page_data merged="[]"
+  local base next_url page_data merged="[]" pages=0
   base="$(__apimgr_provider_url bitbucket)" || return 1
   next_url="${base%/}/${path#/}"
   while [ -n "$next_url" ]; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     page_data="$(__bitbucket_curl -X GET "$next_url" 2>/dev/null)" || return 1
     merged="$(__apimgr_jq -n --argjson a "$merged" --argjson b "$page_data" --arg k "$key" '$a + ($b[$k] // [])')"
     next_url="$(__apimgr_jq -r '.next // empty' <<<"$page_data" 2>/dev/null)"
@@ -1011,10 +1033,12 @@ __apimgr_paginate_bitbucket() {
 # Note: __pagure_api only accepts relative paths; we call __pagure_curl directly with absolute URLs.
 __apimgr_paginate_pagure() {
   local path="$1" data_key="$2" pag_key="$3"
-  local base next_url page_data merged="[]"
+  local base next_url page_data merged="[]" pages=0
   base="$(__apimgr_provider_url pagure)" || return 1
   next_url="${base%/}/${path#/}"
   while [ -n "$next_url" ]; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     page_data="$(__pagure_curl -X GET "$next_url" 2>/dev/null)" || return 1
     merged="$(__apimgr_jq -n --argjson a "$merged" --argjson b "$page_data" --arg k "$data_key" '$a + ($b[$k] // [])')"
     next_url="$(__apimgr_jq -r --arg pk "$pag_key" '.[$pk].next // empty' <<<"$page_data" 2>/dev/null)"
@@ -1027,11 +1051,13 @@ __apimgr_paginate_pagure() {
 # PATH should NOT include page/limit params — they are appended here.
 __apimgr_paginate_quay() {
   local path="$1" key="${2:-}"
-  local base pg=1 page_data merged="[]" has_more="true" sep full
+  local base pg=1 page_data merged="[]" has_more="true" sep full pages=0
   base="$(__apimgr_provider_url quay)" || return 1
   # Determine separator for appending page/limit params.
   case "$path" in *'?'*) sep="&" ;; *) sep="?" ;; esac
   while [ "$has_more" = "true" ]; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     full="${base%/}/${path#/}${sep}page=${pg}&limit=100"
     page_data="$(__quay_curl -X GET "$full" 2>/dev/null)" || return 1
     if [ -n "$key" ]; then
@@ -1050,14 +1076,18 @@ __apimgr_paginate_quay() {
 # Note: __nexus_api only accepts relative paths; we call __nexus_curl directly with absolute URLs.
 __apimgr_paginate_nexus() {
   local path="$1" key="${2:-items}"
-  local base next_token page_data merged="[]" url sep
+  local base next_token page_data merged="[]" url sep pages=0 previous_token=""
   base="$(__apimgr_provider_url nexus)" || return 1
   url="${base%/}/${path#/}"
   while true; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     page_data="$(__nexus_curl -X GET "$url" 2>/dev/null)" || return 1
     merged="$(__apimgr_jq -n --argjson a "$merged" --argjson b "$page_data" --arg k "$key" '$a + ($b[$k] // [])')"
     next_token="$(__apimgr_jq -r '.continuationToken // empty' <<<"$page_data" 2>/dev/null)"
     [ -n "$next_token" ] || break
+    [ "$next_token" != "$previous_token" ] || __apimgr_die "nexus: repeated continuation token; stopping pagination"
+    previous_token="$next_token"
     case "$url" in *'?'*) sep="&" ;; *) sep="?" ;; esac
     url="${url}${sep}continuationToken=${next_token}"
   done
@@ -1069,9 +1099,11 @@ __apimgr_paginate_nexus() {
 # Note: __onedev_api only accepts relative paths; we call __onedev_curl directly with absolute URLs.
 __apimgr_paginate_onedev() {
   local path="$1" key="${2:-}"
-  local base offset=0 count=100 page_data merged="[]" n full sep
+  local base offset=0 count=100 page_data merged="[]" n full sep pages=0
   base="$(__apimgr_provider_url onedev)" || return 1
   while true; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     case "$path" in *'?'*) sep="&" ;; *) sep="?" ;; esac
     full="${base%/}/${path#/}${sep}offset=${offset}&count=${count}"
     page_data="$(__onedev_curl -X GET "$full" 2>/dev/null)" || return 1
@@ -1093,10 +1125,12 @@ __apimgr_paginate_onedev() {
 # Note: __docker_api only accepts relative paths; we call __docker_curl directly with absolute URLs.
 __apimgr_paginate_docker() {
   local path="$1" key="${2:-results}"
-  local base next_url page_data merged="[]"
+  local base next_url page_data merged="[]" pages=0
   base="$(__apimgr_provider_url docker)" || return 1
   next_url="${base%/}/${path#/}"
   while [ -n "$next_url" ]; do
+    pages=$((pages + 1))
+    __apimgr_pagination_limit "$pages"
     page_data="$(__docker_curl -X GET "$next_url" 2>/dev/null)" || return 1
     merged="$(__apimgr_jq -n --argjson a "$merged" --argjson b "$page_data" --arg k "$key" '$a + ($b[$k] // [])')"
     next_url="$(__apimgr_jq -r '.next // empty' <<<"$page_data" 2>/dev/null)"

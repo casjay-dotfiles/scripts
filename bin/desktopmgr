@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202608311420-git
+##@Version           :  202611221014-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Tuesday, Aug 23, 2022 10:21 EDT
 # @@File             :  desktopmgr
 # @@Description      :  Desktop ManaGeR
-# @@Changelog        :  Fixed uninitialized exitCode variables causing arithmetic errors
+# @@Changelog        :  Bound installer downloads and execution time
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202608311420-git"
+VERSION="202611221014-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -320,9 +320,13 @@ __run_install_init() {
   else
     install_url="$DESKTOPMGR_REPO_URL/$app/$DESKTOPMGR_REPO_RAW/install.sh"
   fi
-  if script_body="$(curl -q -LSsf --connect-timeout 10 --retry 3 --retry-delay 5 --retry-all-errors "$install_url" 2>/dev/null)" && [ -n "$script_body" ]; then
+  if script_body="$(curl -q -LSsf --connect-timeout 10 --max-time 120 --retry 3 --retry-delay 5 --retry-all-errors "$install_url" 2>/dev/null)" && [ -n "$script_body" ]; then
     export FORCE_INSTALL="$FORCE_INSTALL"
-    bash -c "$script_body" 2>/dev/null
+    if ! command -v timeout >/dev/null 2>&1; then
+      printf_error "The timeout command is required to run an installer safely.\n"
+      return 1
+    fi
+    timeout --signal=TERM --kill-after=30s 1800s bash -c "$script_body" 2>/dev/null
     exitCode=$?
   else
     printf_error "Failed to initialize the installer for $app from: $install_url\n"
@@ -382,7 +386,7 @@ __api_list() {
   local per_page="${DESKTOPMGR_REPO_API_PER_PAGE:-1000}"
   local api_url="${DESKTOPMGR_REPO_API_URL:-https://api.github.com/orgs/$prefix/repos}"
   if __urlcheck "$api_url"; then
-    api_call="$(curl -q -LSsf -H "Accept: application/vnd.github.v3+json" "$api_url?per_page=$per_page" 2>/dev/null | jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -Ev '.github|template|^null$' | grep '^')"
+    api_call="$(curl -q -LSsf --connect-timeout 10 --max-time 60 -H "Accept: application/vnd.github.v3+json" "$api_url?per_page=$per_page" 2>/dev/null | jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -Ev '.github|template|^null$' | grep '^')"
     if [ -n "$api_call" ]; then
       printf '%s\n' "$api_call"
     else
@@ -448,7 +452,7 @@ __sudorun() {
 # Test if user has access to sudo
 __can_i_sudo() {
   (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+  __sudo_group "${1:-$USER}" || sudo -n true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo

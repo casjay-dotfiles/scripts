@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611220109-git
+##@Version           :  202611221014-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -10,7 +10,7 @@
 # @Created           :  Saturday, Aug 28, 2021 19:04 EDT
 # @File              :  dockermgr
 # @Description       :  docker script to manage containers
-# @Changelog         :  Fix init, manifest, copy, option parsing, offline use, and Docker/Podman runtime handling
+# @Changelog         :  Bound network requests with configurable curl deadlines
 # @TODO              :
 # @Other             :
 # @Resource          :
@@ -18,7 +18,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202611220109-git"
+VERSION="202611221014-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -83,11 +83,11 @@ __cmd_exists() {
 __am_i_online() {
   local DOCKERMGR_EXIT_STATUS=0
   local fallback_host
-  curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || DOCKERMGR_EXIT_STATUS=4
+  __dockermgr_curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || DOCKERMGR_EXIT_STATUS=4
   # a blocked default address must not report the whole network offline, so try fallback hosts when no url was given
   if [ "$DOCKERMGR_EXIT_STATUS" = 4 ] && [ -z "$1" ]; then
     for fallback_host in 1.0.0.1 8.8.8.8 9.9.9.9; do
-      if curl -q -sk -o /dev/null --connect-timeout 1 --max-time 2 --retry 0 "https://$fallback_host" 2>/dev/null; then
+      if __dockermgr_curl -q -sk -o /dev/null --connect-timeout 1 --max-time 2 --retry 0 "https://$fallback_host" 2>/dev/null; then
         DOCKERMGR_EXIT_STATUS=0
         break
       fi
@@ -125,7 +125,7 @@ __sudorun() {
 # Test if user has access to sudo
 __can_i_sudo() {
   (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+  __sudo_group "${1:-$USER}" || sudo -n true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
@@ -169,7 +169,7 @@ __api_list() {
   local api_user="$(basename -- "$DOCKERMGR_GIT_REPO" | sed 's|/||g' | grep '^' || echo 'dockermgr')"
   local api_url="https://api.github.com/orgs/$api_user/repos?per_page=1000"
   if __am_i_online; then
-    curl -q -LSs "$api_url" | jq -r '.[].name' | __jq_exclude | sort -u
+    __dockermgr_curl -q -LSs "$api_url" | jq -r '.[].name' | __jq_exclude | sort -u
   else
     __list_available
   fi
@@ -281,6 +281,9 @@ __help() {
   __printf_line "--dockerfile                            - Build from a local Dockerfile"
   __printf_line "--info                                 - Show image/repository info"
   __printf_line "--cron                                  - Run via the configured cron entry"
+  __printf_line "Environment Variables:"
+  __printf_line "DOCKERMGR_CURL_TIMEOUT                 - Maximum seconds for API and general downloads (default 120)"
+  __printf_line "DOCKERMGR_DOWNLOAD_TIMEOUT             - Maximum seconds for Docker Compose download (default 600)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Examples:"
   __printf_line "dockermgr init                         - Initialize Docker environment"
@@ -357,13 +360,14 @@ __trap_exit() {
 # Additional functions
 __cd() { \builtin cd "$1" || return 1; }
 __jq_exclude() { grep -vEw 'tools|templates|.github|community|template|docker-compose' | sort -u | grep -v 'null' | grep '^'; }
-__curl_save() { { [ -e "$2" ] && rm -Rf "$2" || true; } && curl -q -LSsf -H 'Cache-Control: no-cache, no-store' "$1" -o "$2" || return 1; }
+__dockermgr_curl() { command curl --connect-timeout 10 --max-time "${DOCKERMGR_CURL_TIMEOUT:-120}" "$@"; }
+__curl_save() { { [ -e "$2" ] && rm -Rf "$2" || true; } && __dockermgr_curl -q -LSsf -H 'Cache-Control: no-cache, no-store' "$1" -o "$2" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_docker_cron() { printf '# Clean old docker images\n%s\n' '5 4 * * * root docker image prune -a --force >/dev/null 2>&1' | __run_as_root tee /etc/cron.d/dockermgr >/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __disk_usage_pre() { export total_disk_usage="$(\df -k | grep '/$' | awk '{print $3}' | sed 's|[a-zA-Z]||g' | grep '^' || return 1)"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__api_test() { curl -q -LSsfI "$DOCKERMGR_HUB_URL/v2/repositories/$1" &>/dev/null || return 1; }
+__api_test() { __dockermgr_curl -q -LSsfI "$DOCKERMGR_HUB_URL/v2/repositories/$1" &>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __col() { awk -v col=$1 '{print $col}' | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -379,15 +383,15 @@ __docker_pull() { __docker pull $DOCKER_PULL_ARG "$@" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __rancher() { __install_script rancher || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__download_src_api() { curl -q -LSsf "$DOCKERMGR_GIT_SRC_REPO_API?page_size=1000" 2>/dev/null || return 1; }
+__download_src_api() { __dockermgr_curl -q -LSsf "$DOCKERMGR_GIT_SRC_REPO_API?page_size=1000" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__download_src_custom_api() { curl -q -LSsf "https://api.github.com/orgs/$1/repos?page_size=1000" 2>/dev/null || return 1; }
+__download_src_custom_api() { __dockermgr_curl -q -LSsf "https://api.github.com/orgs/$1/repos?page_size=1000" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_releases_github() { curl -q -LSsf "https://api.github.com/repos/$1/releases/latest" 2>/dev/null | jq -r '.assets|.[]|.browser_download_url' 2>/dev/null || return 1; }
+__get_releases_github() { __dockermgr_curl -q -LSsf "https://api.github.com/repos/$1/releases/latest" 2>/dev/null | jq -r '.assets|.[]|.browser_download_url' 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_version_github() { curl -q -LSsf "https://api.github.com/repos/$1/releases/latest" 2>/dev/null | jq -r '.tag_name' 2>/dev/null || return 1; }
+__get_version_github() { __dockermgr_curl -q -LSsf "https://api.github.com/repos/$1/releases/latest" 2>/dev/null | jq -r '.tag_name' 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_releases_google() { curl -q -LSsf "https://storage.googleapis.com/$1/releases/latest/$2" || return 1; }
+__get_releases_google() { __dockermgr_curl -q -LSsf "https://storage.googleapis.com/$1/releases/latest/$2" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __minikube_cmd() {
   cmd_exists minikube || printf_exit "minikube is not installed"
@@ -497,7 +501,7 @@ __docker_manifest_log() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __upload_to_docker_hub() {
   local update_response
-  update_response="$(curl -s -H "Authorization: JWT $token" -H "Content-Type: application/json" -X PATCH -d "{\"description\": \"${DOCKERHUB_DESCRIPTION:-Container image for $DOCKERHUB_REPO_NAME}\", \"full_description\": $1}" "https://hub.docker.com/v2/repositories/$DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME/")"
+  update_response="$(__dockermgr_curl -s -H "Authorization: JWT $token" -H "Content-Type: application/json" -X PATCH -d "{\"description\": \"${DOCKERHUB_DESCRIPTION:-Container image for $DOCKERHUB_REPO_NAME}\", \"full_description\": $1}" "https://hub.docker.com/v2/repositories/$DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME/")"
   echo "$update_response" | jq -e '.name' >/dev/null 2>&1 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -506,7 +510,7 @@ __server_status() {
   local name="$2"
   local script="$3"
   local exitCode="0"
-  local code="$(curl -q -Ssf -kI --max-time 2 --retry 1 "$url" -o /dev/null -w "%{http_code}" 2>/dev/null | grep -E '^2[0-9][0-9]|^30[012]' || false)"
+  local code="$(__dockermgr_curl -q -Ssf -kI --max-time 2 --retry 1 "$url" -o /dev/null -w "%{http_code}" 2>/dev/null | grep -E '^2[0-9][0-9]|^30[012]' || false)"
   if [ -n "$code" ]; then
     exitCode=0
   else
@@ -549,7 +553,7 @@ __add_docker_repo() {
     # Add Docker's official GPG key
     __run_as_root mkdir -p /etc/apt/keyrings || return 1
     if ! [ -f /etc/apt/keyrings/docker.gpg ]; then
-      curl -fsSL "https://download.docker.com/linux/$distro/gpg" -o "$DOCKERMGR_TEMP_FILE" || return 1
+      __dockermgr_curl -fsSL "https://download.docker.com/linux/$distro/gpg" -o "$DOCKERMGR_TEMP_FILE" || return 1
       __run_as_root gpg --dearmor -o /etc/apt/keyrings/docker.gpg <"$DOCKERMGR_TEMP_FILE" || return 1
       __run_as_root chmod a+r /etc/apt/keyrings/docker.gpg || return 1
     fi
@@ -567,7 +571,7 @@ __add_docker_repo() {
       fedora) repo_url="https://download.docker.com/linux/fedora/docker-ce.repo" ;;
       *) repo_url="https://download.docker.com/linux/centos/docker-ce.repo" ;;
       esac
-      __run_as_root curl -fsSL "$repo_url" -o /etc/yum.repos.d/docker-ce.repo || return 1
+      __run_as_root curl --connect-timeout 10 --max-time "${DOCKERMGR_CURL_TIMEOUT:-120}" -fsSL "$repo_url" -o /etc/yum.repos.d/docker-ce.repo || return 1
     fi
     ;;
   arch)
@@ -630,7 +634,7 @@ __update_repo_info() {
   local info=("${@:-$description}")
   local code=$(
     jq -n --arg msg "${info[@]}" '{"registry":"registry-1.docker.io","full_description": $msg }' |
-      curl -q -LSs -X PATCH -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" -o /dev/null -w "%{http_code}" "$DOCKERMGR_REGISTRY_URL/v2/repositories/${image}"/ -d @-
+      __dockermgr_curl -q -LSs -X PATCH -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" -o /dev/null -w "%{http_code}" "$DOCKERMGR_REGISTRY_URL/v2/repositories/${image}"/ -d @-
   )
   if [ "$code" = "200" ]; then
     printf_green "Successfully pushed full description to Docker Hub"
@@ -671,7 +675,7 @@ __registry_delete_tag() {
     printf '%b' "Can not delete $org_repo:$tag - no auth (login failed or token expired)\n"
     return 1
   fi
-  http_code=$(curl -q -LSsf -H "Authorization: Bearer $TOKEN" -X DELETE \
+  http_code=$(__dockermgr_curl -q -LSsf -H "Authorization: Bearer $TOKEN" -X DELETE \
     -o /dev/null -w "%{http_code}" "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org_repo/tags/$tag" 2>>"$log_file")
   if [ "$http_code" = "204" ]; then
     return 0
@@ -716,13 +720,13 @@ __registry_delete_tag_oci() {
   creds="$(__docker_config_creds "$registry")"
   # Perform OCI token auth challenge to obtain a bearer token
   local challenge realm service token
-  challenge="$(curl -q -LSsf -o /dev/null -D - "https://$registry/v2/" 2>/dev/null | grep -i 'www-authenticate:')"
+  challenge="$(__dockermgr_curl -q -LSsf -o /dev/null -D - "https://$registry/v2/" 2>/dev/null | grep -i 'www-authenticate:')"
   realm="$(printf '%s' "$challenge" | grep -o 'realm="[^"]*"' | head -1 | cut -d'"' -f2)"
   service="$(printf '%s' "$challenge" | grep -o 'service="[^"]*"' | head -1 | cut -d'"' -f2)"
   if [ -n "$realm" ] && [ -n "$creds" ]; then
-    token="$(curl -q -LSsf -u "$creds" "$realm?service=$service&scope=repository:$repo_path:pull,delete" 2>/dev/null | jq -r '.token // .access_token // empty')"
+    token="$(__dockermgr_curl -q -LSsf -u "$creds" "$realm?service=$service&scope=repository:$repo_path:pull,delete" 2>/dev/null | jq -r '.token // .access_token // empty')"
   elif [ -n "$realm" ]; then
-    token="$(curl -q -LSsf "$realm?service=$service&scope=repository:$repo_path:pull,delete" 2>/dev/null | jq -r '.token // .access_token // empty')"
+    token="$(__dockermgr_curl -q -LSsf "$realm?service=$service&scope=repository:$repo_path:pull,delete" 2>/dev/null | jq -r '.token // .access_token // empty')"
   fi
   if [ -z "$token" ]; then
     printf '%b' "Cannot get token for $registry\n" >>"$log_file"
@@ -730,14 +734,14 @@ __registry_delete_tag_oci() {
   fi
   # Resolve the digest — some registries require DELETE by digest, not by tag name
   local digest
-  digest="$(curl -q -LSsf \
+  digest="$(__dockermgr_curl -q -LSsf \
     -H "Authorization: Bearer $token" \
     -H "Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
     -I "https://$registry/v2/$repo_path/manifests/$tag" 2>/dev/null \
     | grep -i '^docker-content-digest:' | tr -d '\r' | awk '{print $2}')"
   local delete_ref="${digest:-$tag}"
   local http_code
-  http_code="$(curl -q -LSsf \
+  http_code="$(__dockermgr_curl -q -LSsf \
     -H "Authorization: Bearer $token" \
     -X DELETE \
     -o /dev/null \
@@ -771,7 +775,7 @@ __registry_delete_tag_ghcr() {
   local owner_type endpoint_base versions version_id http_code
   for owner_type in orgs users; do
     endpoint_base="https://api.github.com/$owner_type/$owner/packages/container/$repo_enc"
-    versions="$(curl -q -LSsf \
+    versions="$(__dockermgr_curl -q -LSsf \
       -H "Authorization: Bearer $pat" \
       -H "Accept: application/vnd.github+json" \
       "$endpoint_base/versions?per_page=100" 2>>"$log_file")"
@@ -782,7 +786,7 @@ __registry_delete_tag_ghcr() {
     printf '%b' "Cannot find version id for $full_ref\n" >>"$log_file"
     return 1
   fi
-  http_code="$(curl -q -LSsf \
+  http_code="$(__dockermgr_curl -q -LSsf \
     -H "Authorization: Bearer $pat" \
     -H "Accept: application/vnd.github+json" \
     -X DELETE \
@@ -816,7 +820,7 @@ __fetch_tags_dockerhub() {
     org="library"
     repo="$image"
   fi
-  curl -q -LSsf "https://hub.docker.com/v2/repositories/$org/$repo/tags?page_size=1000" 2>/dev/null |
+  __dockermgr_curl -q -LSsf "https://hub.docker.com/v2/repositories/$org/$repo/tags?page_size=1000" 2>/dev/null |
     jq -r '.results[].name' 2>/dev/null | grep -v '^null$' | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -834,10 +838,10 @@ __fetch_tags_ghcr() {
   # GHCR uses OCI distribution API
   if [ -f "$AUTH_TOKEN_NAME" ]; then
     token="$(<"$AUTH_TOKEN_NAME")"
-    curl -q -LSsf -H "Authorization: Bearer $token" "https://ghcr.io/v2/$org/$repo/tags/list" 2>/dev/null |
+    __dockermgr_curl -q -LSsf -H "Authorization: Bearer $token" "https://ghcr.io/v2/$org/$repo/tags/list" 2>/dev/null |
       jq -r '.tags[]' 2>/dev/null | grep '^' || return 1
   else
-    curl -q -LSsf "https://ghcr.io/v2/$org/$repo/tags/list" 2>/dev/null |
+    __dockermgr_curl -q -LSsf "https://ghcr.io/v2/$org/$repo/tags/list" 2>/dev/null |
       jq -r '.tags[]' 2>/dev/null | grep '^' || return 1
   fi
 }
@@ -854,10 +858,10 @@ __fetch_tags_harbor() {
     return 1
   fi
   # Try Harbor API v2.0 first
-  curl -q -LSsf "https://$registry/api/v2.0/projects/$project/repositories/$repo/artifacts?page_size=1000" 2>/dev/null |
+  __dockermgr_curl -q -LSsf "https://$registry/api/v2.0/projects/$project/repositories/$repo/artifacts?page_size=1000" 2>/dev/null |
     jq -r '.[].tags[].name' 2>/dev/null | grep -v '^null$' | grep '^' ||
     # Fallback to OCI API
-    curl -q -LSsf "https://$registry/v2/$project/$repo/tags/list" 2>/dev/null |
+    __dockermgr_curl -q -LSsf "https://$registry/v2/$project/$repo/tags/list" 2>/dev/null |
     jq -r '.tags[]' 2>/dev/null | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -865,7 +869,7 @@ __fetch_tags_oci() {
   local registry="$1"
   local image="$2"
   # Generic OCI Distribution Spec v2 API
-  curl -q -LSsf "https://$registry/v2/$image/tags/list" 2>/dev/null |
+  __dockermgr_curl -q -LSsf "https://$registry/v2/$image/tags/list" 2>/dev/null |
     jq -r '.tags[]' 2>/dev/null | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1050,7 +1054,7 @@ __api_set_visibility() {
   if echo "$target" | grep -q '/'; then
     # Single repo: org/repo format
     printf_cyan "Setting $target to $visibility..."
-    if curl -q -LSsf -X PATCH \
+    if __dockermgr_curl -q -LSsf -X PATCH \
       -H "Authorization: Bearer $token" \
       -H "Content-Type: application/json" \
       -d "{\"is_private\": $is_private}" \
@@ -1073,7 +1077,7 @@ __api_set_visibility() {
 
     while [ "$has_more" = "true" ]; do
       printf_cyan "Fetching page $page..."
-      local response="$(curl -q -LSsf "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/?page=$page&page_size=$page_size" 2>/dev/null)"
+      local response="$(__dockermgr_curl -q -LSsf "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/?page=$page&page_size=$page_size" 2>/dev/null)"
 
       if [ -z "$response" ]; then
         printf_red "Failed to fetch repositories for $org"
@@ -1088,7 +1092,7 @@ __api_set_visibility() {
           [ -z "$repo" ] && continue
           printf_cyan "  Setting $org/$repo to $visibility..."
 
-          if curl -q -LSsf -X PATCH \
+          if __dockermgr_curl -q -LSsf -X PATCH \
             -H "Authorization: Bearer $token" \
             -H "Content-Type: application/json" \
             -d "{\"is_private\": $is_private}" \
@@ -1886,7 +1890,7 @@ __k3b() {
   # Download and install k3s binary
   local temp_file="/tmp/k3s-binary"
 
-  if curl -q -LSsf "$download_url" -o "$temp_file"; then
+  if __dockermgr_curl -q -LSsf "$download_url" -o "$temp_file"; then
     if sudo mv "$temp_file" "/usr/local/bin/k3s"; then
       sudo chmod +x "/usr/local/bin/k3s"
 
@@ -2223,7 +2227,7 @@ __install_helm() {
   local temp_dir="/tmp/helm-install"
   local temp_file="/tmp/helm.tar.gz"
 
-  if curl -q -LSsf "$download_url" -o "$temp_file"; then
+  if __dockermgr_curl -q -LSsf "$download_url" -o "$temp_file"; then
     mkdir -p "$temp_dir"
     if tar -xzf "$temp_file" -C "$temp_dir" --strip-components=1; then
       if sudo mv "$temp_dir/helm" "/usr/local/bin/helm"; then
@@ -2553,7 +2557,7 @@ __install_script() {
     local APPDIR="/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_REGISTRY_IMAGE_TAG"
     local DATADIR="/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_REGISTRY_IMAGE_TAG"
     export APPNAME APPDIR INSTDIR DATADIR
-    if ! curl -q -LSsfI "$REPO" &>/dev/null; then
+    if ! __dockermgr_curl -q -LSsfI "$REPO" &>/dev/null; then
       rm -Rf "$APPDIR" "$DATADIR" "$INSTDIR" 2>/dev/null
       printf_exit 3 3 "The URL $REPO returned an error"
     fi
@@ -2747,7 +2751,7 @@ __install_kasm() {
   printf_green "Downloading kasm installation file"
   cd "/tmp" || printf_exit "Failed to cd into /tmp"
   [ -d "/tmp/kasm_release" ] && rm -Rf "/tmp/kasm_release"
-  curl -q -LSsf "$url/$file" -o "/tmp/$file" 2>/dev/null || printf_exit "Failed to download the file"
+  __dockermgr_curl -q -LSsf "$url/$file" -o "/tmp/$file" 2>/dev/null || printf_exit "Failed to download the file"
   [ -f "/tmp/$file" ] && tar -xf "/tmp/$file" || printf_exit "Failed to extract the file"
   if [ -f "/tmp/kasm_release/install.sh" ]; then
     cd "/tmp/kasm_release" || printf_exit "Failed to cd into /tmp/kasm_release"
@@ -2772,7 +2776,7 @@ __docker_compose() {
     return 0
   elif [ -n "$release" ]; then
     printf_green "Attempting to install docker-compose"
-    sudo curl -q -LSsf "https://github.com/docker/compose/releases/download/latest/docker-compose-$os-$arch" -o "/usr/local/bin/docker-compose" 2>/dev/null
+    sudo curl --connect-timeout 10 --max-time "${DOCKERMGR_DOWNLOAD_TIMEOUT:-600}" -q -LSsf "https://github.com/docker/compose/releases/download/latest/docker-compose-$os-$arch" -o "/usr/local/bin/docker-compose" 2>/dev/null
     [ -x "$(builtin type -P docker-compose 2>/dev/null)" ] || sudo chmod +x "/usr/local/bin/docker-compose"
     __cmd_exists docker-compose && printf_cyan "docker-compose has been installed" || printf_exit "Failed to download docker-compose"
   else
@@ -2783,7 +2787,7 @@ __docker_compose() {
 __api_auth_token() {
   local user="${1:-$DOCKERHUB_USERNAME}"
   local pass="${2:-$DOCKERHUB_PASSWORD}"
-  curl -q -LSsf -H "Content-Type: application/json" -X POST -d "{\"username\": \"$user\", \"password\": \"$pass\"}" "$DOCKERMGR_HUB_URL/v2/users/login/" 2>"$AUTH_TOKEN_NAME.err" | jq -r '.token' | grep '^' || { echo '' && return 1; }
+  __dockermgr_curl -q -LSsf -H "Content-Type: application/json" -X POST -d "{\"username\": \"$user\", \"password\": \"$pass\"}" "$DOCKERMGR_HUB_URL/v2/users/login/" 2>"$AUTH_TOKEN_NAME.err" | jq -r '.token' | grep '^' || { echo '' && return 1; }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __orgs_api_auth() {
@@ -2824,7 +2828,7 @@ __orgs_api_auth() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __orgs_api_list() {
   [ -n "$1" ] || printf_exit "Please provide a organization name"
-  results="$(curl -q -LSsf "$DOCKERMGR_HUB_URL/v2/repositories/$1?page_size=1000" 2>/dev/null | jq -r '.results|.[]|.name' | grep -v 'null' | grep '^' || return)"
+  results="$(__dockermgr_curl -q -LSsf "$DOCKERMGR_HUB_URL/v2/repositories/$1?page_size=1000" 2>/dev/null | jq -r '.results|.[]|.name' | grep -v 'null' | grep '^' || return)"
   if [ -n "$results" ]; then
     printf '%s\n' "$results" | printf_column 154
   else
@@ -2847,7 +2851,7 @@ __orgs_api_org_info() {
       shift 2
     fi
     [ -n "$org" ] || printf_exit "Usage: $APPNAME api info [org] [repo]"
-    curl -q -fsSL -X GET -H "Authorization: Bearer $token" "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/${repo:-}?page_size=10000" 2>/dev/null | jq
+    __dockermgr_curl -q -fsSL -X GET -H "Authorization: Bearer $token" "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/${repo:-}?page_size=10000" 2>/dev/null | jq
   else
     printf_exit 1 1 "token not set: $APPNAME api auth [username] [password]"
   fi
@@ -2856,7 +2860,7 @@ __orgs_api_org_info() {
 __orgs_api_user_info() {
   if [ -f "$AUTH_TOKEN_NAME" ]; then
     local token="$(<"$AUTH_TOKEN_NAME")"
-    curl -q -fsSL -X GET -H "Authorization: Bearer $token" "$DOCKERMGR_REGISTRY_URL/v2/user/" 2>/dev/null | jq
+    __dockermgr_curl -q -fsSL -X GET -H "Authorization: Bearer $token" "$DOCKERMGR_REGISTRY_URL/v2/user/" 2>/dev/null | jq
   else
     printf_exit 1 1 "token not set: $APPNAME api auth [username] [password]"
   fi
@@ -2879,7 +2883,7 @@ __orgs_api_delete() {
   if [ -f "$AUTH_TOKEN_NAME" ]; then
     local TOKEN="$(<"$AUTH_TOKEN_NAME")"
     printf_cyan "Attempting to delete $repo from $org on $prettify_registry"
-    curl -q -LSsfi -H "Authorization: Bearer $TOKEN" -X DELETE "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo" &>"$DOCKERMGR_CACHE_DIR/delete.log"
+    __dockermgr_curl -q -LSsfi -H "Authorization: Bearer $TOKEN" -X DELETE "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo" &>"$DOCKERMGR_CACHE_DIR/delete.log"
     if grep -qis '405 Not Allowed' "$DOCKERMGR_CACHE_DIR/delete.log"; then
       __api_auth_error
     elif grep -qis '404.*Not.*Found' "$DOCKERMGR_CACHE_DIR/delete.log"; then
@@ -2926,7 +2930,7 @@ __orgs_api_update() {
     local TOKEN="$(<"$AUTH_TOKEN_NAME")"
     printf_cyan "Attempting to update $org from:"
     printf_cyan "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo"
-    curl -q -LSsfi -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -X PATCH -d "{\"$field\":\"$field_value\"}" \
+    __dockermgr_curl -q -LSsfi -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -X PATCH -d "{\"$field\":\"$field_value\"}" \
       "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo/" &>"$DOCKERMGR_CACHE_DIR/update.log"
     if grep -qis '405 Not Allowed' "$DOCKERMGR_CACHE_DIR/update.log"; then
       __api_auth_error
@@ -4261,7 +4265,7 @@ ds)
   #   echo "dockstarter ALL=(ALL) NOPASSWD:ALL" | sudo -HE tee /etc/sudoers.d/dockstarter &>/dev/null
   #   sudo -HE -HE -u dockstarter bash -c "$(curl -q -fsSL https://get.dockstarter.com)"
   export DOCKERCONFDIR="${DOCKERCONFDIR:-$HOME/.config/dockstarter}"
-  bash -c "$(curl -q -fsSL https://get.dockstarter.com)"
+  bash -c "$(__dockermgr_curl -q -fsSL https://get.dockstarter.com)"
   # fi
   ;;
 

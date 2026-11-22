@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202605131000-git
+##@Version           :  202611221014-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  LICENSE.md
@@ -396,7 +396,7 @@ get_answer() { printf "%s" "$REPLY"; }
 answer_is_yes() { [[ "$REPLY" =~ ^[Yy]$ ]] && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl() {
-  __am_i_online && curl -q -LSs --connect-timeout 3 --retry 0 "$@"
+  __am_i_online && curl -q -LSs --connect-timeout 3 --max-time 120 --retry 0 "$@"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -409,6 +409,7 @@ die() { echo -e "$1" exit ${2:9999}; }
 killpid() { devnull kill -9 "$(pidof "$1")"; }
 running() { ps ux | grep "$1" | grep -vq 'grep ' &>/dev/null && return 1 || return 0; }
 hostname2ip() { getent hosts "$1" | cut -d' ' -f1 | head -n1 || nslookup "$1" 2>/dev/null | grep Address: | awk '{print $2}' | grep -vE '#|:' | grep ^ || return 1; }
+# shellcheck disable=SC2064
 set_trap() { trap -p "$1" | grep "$2" &>/dev/null || trap "$2" "$1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 getuser() {
@@ -604,6 +605,7 @@ replace() { [ -e "$1" ] && find "$1" -not -path "$1/.git/*" -type f -exec sed -i
 urlcheck() {
   devnull curl --config /dev/null \
     --connect-timeout 3 \
+    --max-time 30 \
     --retry 3 \
     --retry-delay 1 \
     --output /dev/null \
@@ -791,8 +793,10 @@ sudorerun() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudoreq() {
-  sudo_check=$(sudo -H -S -- echo SUDO_OK 2>&1 &)
-  [ $sudo_check == "SUDO_OK" ] && return
+  [ "${EUID:-$UID}" -eq 0 ] && return 0
+  local sudo_check
+  sudo_check="$(sudo -n -H -- echo SUDO_OK 2>/dev/null)"
+  [ "$sudo_check" = "SUDO_OK" ] && return 0
   if [ $UID != 0 ]; then
     if builtin type -P ask_for_password &>/dev/null; then
       [ "$SUDO_SUCCESS" = "TRUE" ] || ask_for_password "${@:-true}" && export SUDO_SUCCESS="TRUE" || printf_exit "Please run this script with sudo/root\n"
@@ -816,6 +820,7 @@ can_i_sudo() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudoask() {
+  [ "${EUID:-$UID}" -eq 0 ] && return 0
   if [ ! -f "$HOME/.sudo" ]; then
     [ -z "$(builtin type -P ask_for_password 2>/dev/null)" ] || ask_for_password
     while true; do
@@ -830,6 +835,7 @@ sudoask() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudoexit() {
   local exitCode=$?
+  [ "${EUID:-$UID}" -eq 0 ] && return 0
   if [ $exitCode -eq 0 ]; then
     sudoask || printf_green "Getting privileges successful continuing" &&
       sudo -n true
@@ -1034,14 +1040,14 @@ plugin_setup() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqcmd() {
   local gitrepo="${DFMGRREPO:-https://github.com/dfmgr}/${1:-$conf}/raw/${GIT_REPO_BRANCH:-main}"
-  urlverify "$gitrepo/install.sh" && bash -c "$(curl -q -LSsf $gitrepo/install.sh)" &>/dev/null
+  urlverify "$gitrepo/install.sh" && bash -c "$(curl -q -LSsf --connect-timeout 10 --max-time 120 "$gitrepo/install.sh")" &>/dev/null
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqadmincmd() {
   sudo -n true || printf_exit "Can not get sudo privileges"
   local gitrepoadmin="${SYSTEMMGRREPO:-https://github.com/systemmgr}/${1:-$conf}/raw/${GIT_REPO_BRANCH:-main}"
-  urlverify "$gitrepoadmin/install.sh" && sudo -HE bash -c "$(curl -q -LSsf $gitrepoadmin//install.sh)" &>/dev/null
+  urlverify "$gitrepoadmin/install.sh" && sudo -HE bash -c "$(curl -q -LSsf --connect-timeout 10 --max-time 120 "$gitrepoadmin//install.sh")" &>/dev/null
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

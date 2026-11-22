@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207070947-git
+##@Version           :  202611221014-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -36,9 +36,9 @@ __sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || re
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sudo_group "$USER" && __passwd() { sudo passwd "$*"; } || __passwd() { passwd "$*"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
+sudoif() { [ "${EUID:-$UID}" -eq 0 ] && return 0; (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__can_i_sudo() { __sudo_group "${1:-$USER}" || sudoif || sudo -n true &>/dev/null || return 1; }
+__can_i_sudo() { [ "${EUID:-$UID}" -eq 0 ] && return 0; __sudo_group "${1:-$USER}" || sudoif || sudo -n true &>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudorerun() {
   local CMD="${1:-$APPNAME}" && shift 1
@@ -54,8 +54,10 @@ sudorerun() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudoreq() {
-  sudo_check=$(sudo -H -S -- echo SUDO_OK 2>&1 &)
-  [ $sudo_check == "SUDO_OK" ] && return
+  [ "${EUID:-$UID}" -eq 0 ] && return 0
+  local sudo_check
+  sudo_check="$(sudo -n -H -- echo SUDO_OK 2>/dev/null)"
+  [ "$sudo_check" = "SUDO_OK" ] && return 0
   if [ $UID != 0 ]; then
     if builtin type -P ask_for_password &>/dev/null; then
       [ "$SUDO_SUCCESS" = "TRUE" ] || ask_for_password "${@:-true}" && export SUDO_SUCCESS="TRUE" || printf_exit "Please run this script with sudo/root\n"
@@ -72,6 +74,7 @@ sudoreq() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sudoask() {
+  [ "${EUID:-$UID}" -eq 0 ] && return 0
   if [ ! -f "$HOME/.sudo" ]; then
     sudo true &>/dev/null && return 0 || return 1
     while true; do
@@ -85,6 +88,7 @@ __sudoask() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sudoexit() {
+  [ "${EUID:-$UID}" -eq 0 ] && return 0
   if __can_i_sudo; then
     __sudoask || { printf_green "Getting privileges successful continuing" && true; }
   else

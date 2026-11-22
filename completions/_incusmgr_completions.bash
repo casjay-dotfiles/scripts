@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202611221110-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -36,11 +36,15 @@ _incusmgr() {
   local OPTS=""
   local SHORTOPTS="-f"
   local LONGOPTS="--completions --debug --no-color --options --config --version --help --force"
+  [[ " $LONGOPTS " == *" --color "* ]] || LONGOPTS+=" --color"
+  [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
+  [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   local ARRAY="init status version list ls ps inactive info launch run install start stop restart delete rm remove exec enter shell "
   local ARRAY+="console log rename copy clone move update snapshot restore snapshots delsnapshot "
   local ARRAY+="storage network profile volume image remote project prune config "
 
   _init_completion || return
+  if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
 
   local special i
   for ((i = 1; i < ${#words[@]} - 1; i++)); do

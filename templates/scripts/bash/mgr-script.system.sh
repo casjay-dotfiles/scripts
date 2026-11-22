@@ -45,7 +45,21 @@ if [ "$1" = "--debug" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Disables colorization
-[ "$1" = "--no-color" ] && export SHOW_RAW="true"
+SCRIPT_COLOR_MODE="${SCRIPT_COLOR_MODE:-auto}"
+for ((COLOR_ARG_INDEX = 1; COLOR_ARG_INDEX <= $#; COLOR_ARG_INDEX++)); do
+  COLOR_ARG_VALUE="${!COLOR_ARG_INDEX}"
+  case "$COLOR_ARG_VALUE" in
+  --) break ;;
+  --no-color | --raw) SCRIPT_COLOR_MODE="no" ;;
+  --color)
+    COLOR_NEXT_INDEX=$((COLOR_ARG_INDEX + 1))
+    SCRIPT_COLOR_MODE="${!COLOR_NEXT_INDEX:-auto}"
+    ;;
+  --color=*) SCRIPT_COLOR_MODE="${COLOR_ARG_VALUE#*=}" ;;
+  esac
+done
+[ -n "${NO_COLOR+x}" ] && SCRIPT_COLOR_MODE="no"
+[ "$SCRIPT_COLOR_MODE" = "no" ] && export SHOW_RAW="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # script variables
 APPNAME="${0##*/}"
@@ -235,7 +249,7 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SHOW_RAW" = "true" ]; then
   __printf_color() { printf '%s\n' "$1"; }
 else
   __printf_color() {
-    if [[ -t 1 ]]; then
+    if [[ "$SCRIPT_COLOR_MODE" == "yes" || -t 1 ]]; then
       printf '%b%s%b\n' "${2:-$PRINTF_SET_RESET}" "$1" "$PRINTF_SET_RESET"
     else
       printf '%s\n' "$1"
@@ -450,9 +464,13 @@ __run_install_init() {
   else
     install_url="$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh"
   fi
-  if script_body="$(curl -q -LSsf --connect-timeout 10 --retry 3 --retry-delay 5 --retry-all-errors "$install_url" 2>/dev/null)" && [ -n "$script_body" ]; then
+  if script_body="$(curl -q --connect-timeout 10 --max-time 60 -LSsf --retry 3 --retry-delay 5 --retry-all-errors "$install_url" 2>/dev/null)" && [ -n "$script_body" ]; then
     export FORCE_INSTALL="$FORCE_INSTALL"
-    bash -c "$script_body" 2>/dev/null
+    if ! command -v timeout >/dev/null 2>&1; then
+      printf_error "The timeout command is required to run an installer safely.\n"
+      return 1
+    fi
+    timeout --signal=TERM --kill-after=30s 1800s bash -c "$script_body" 2>/dev/null
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
   else
     printf_error "Failed to initialize the installer for $app from: $install_url\n"
@@ -488,7 +506,7 @@ __run_download() {
   local DIR_NAME="${2:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME}"
   local REPO_URL="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
   local REPO_CHECK="${REPO_URL//*:\/\/https:\/\//}"
-  local ERROR_CODE="$(curl -q -LSsfI "$REPO_CHECK" && echo '')"
+  local ERROR_CODE="$(curl -q --connect-timeout 10 --max-time 60 -LSsfI "$REPO_CHECK" && echo '')"
   local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   if [ -n "$REPO_CHECK" ]; then
     printf_cyan "The requested URL returned error: $ERROR_CODE"
@@ -529,7 +547,7 @@ __api_list() {
   local per_page="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}"
   local api_url="${GEN_SCRIPT_REPLACE_ENV_REPO_API_URL:-https://api.github.com/orgs/$prefix/repos}"
   if __urlcheck "$api_url"; then
-    api_call="$(curl -q -LSsf -H "Accept: application/vnd.github.v3+json" "$api_url?per_page=$per_page" 2>/dev/null | jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -Ev '.github|template|^null$' | grep '^')"
+    api_call="$(curl -q --connect-timeout 10 --max-time 60 -LSsf -H "Accept: application/vnd.github.v3+json" "$api_url?per_page=$per_page" 2>/dev/null | jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -Ev '.github|template|^null$' | grep '^')"
     if [ -n "$api_call" ]; then
       printf '%s\n' "$api_call"
     else
@@ -602,6 +620,10 @@ __sudoask() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run sudo
 __sudorun() {
+  if __user_is_root; then
+    "$@"
+    return $?
+  fi
   if __sudoif && __cmd_exists sudo && sudo -HE "$@"; then
     :
   else
@@ -612,15 +634,9 @@ __sudorun() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Test if user has access to sudo
 __can_i_sudo() {
-  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  if __sudo_group "${1:-$USER}"; then
-    return 0
-  elif __sudoif; then
-    return 0
-  elif __sudo true &>/dev/null; then
-    return 0
-  fi
-  return 1
+  __user_is_root && return 0
+  __cmd_exists sudo || return 1
+  sudo -n true >/dev/null 2>&1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
@@ -635,6 +651,14 @@ __sudoif() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute sudo
 __sudo() {
+  if __user_is_root; then
+    if [ "$#" -gt 0 ]; then
+      "$@"
+    else
+      echo
+    fi
+    return $?
+  fi
   CMD="${1:-echo}" && shift 1
   CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
@@ -764,7 +788,7 @@ SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 GET_OPTIONS_NO="no-*"
 GET_OPTIONS_YES="yes-*"
-LONGOPTS="all,completions:,config,reset-config,debug,force,help,options,no-color,version,"
+LONGOPTS="all,completions:,config,reset-config,debug,force,help,options,no-color,raw,color:,version,"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="available,cron,download,install,list,remove,search,update,version"
@@ -778,40 +802,14 @@ setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
-  --no-color)
-    shift 1
-    export SHOW_RAW="true"
-    NC=""
-    RESET=""
-    BLACK=""
-    RED=""
-    GREEN=""
-    YELLOW=""
-    BLUE=""
-    PURPLE=""
-    CYAN=""
-    WHITE=""
-    ORANGE=""
-    LIGHTRED=""
-    BG_GREEN=""
-    BG_RED=""
-    ICON_INFO="[ info ]"
-    ICON_GOOD="[ ok ]"
-    ICON_WARN="[ warn ]"
-    ICON_ERROR="[ error ]"
-    ICON_QUESTION="[ ? ]"
-    PRINTF_SET_BLACK=''
-    PRINTF_SET_RED=''
-    PRINTF_SET_GREEN=''
-    PRINTF_SET_YELLOW=''
-    PRINTF_SET_BLUE=''
-    PRINTF_SET_PURPLE=''
-    PRINTF_SET_CYAN=''
-    PRINTF_SET_WHITE=''
-    PRINTF_SET_RESET=''
-    printf_column() { tee | grep '^'; }
-    __printf_color() { printf '%s\n' "$1"; }
+  --color)
+    case "$2" in
+    auto|yes|no) SCRIPT_COLOR_MODE="$2" ;;
+    *) printf_red "Invalid color mode: $2"; exit 2 ;;
+    esac
+    shift 2
     ;;
+  --no-color | --raw) shift 1 ;;
   --debug)
     shift 1
     set -xo pipefail

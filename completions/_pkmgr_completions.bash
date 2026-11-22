@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040901-git
+##@Version           :  202611221110-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -118,11 +118,15 @@ _pkmgr() {
   local SHORTOPTS="-z -f"
   local LONGOPTS="--completions --config --debug --dir --help --options --no-color --version --silent "
   local LONGOPTS+="--force --enable-aur --no-color --enable-log"
+  [[ " $LONGOPTS " == *" --color "* ]] || LONGOPTS+=" --color"
+  [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
+  [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   local ARRAY="keys check aliases available install remove list curl script dotfiles upgrade export import clean "
   local ARRAY+="init makecache search required silent cpan perl pip python gem ruby npm yarn lua go reinstall bin info"
   local LIST=""
 
   _init_completion || return
+  if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
 
   if [[ "$SHOW_COMP_OPTS" != "" ]]; then
     local SHOW_COMP_OPTS_SEP="${SHOW_COMP_OPTS//,/ }"

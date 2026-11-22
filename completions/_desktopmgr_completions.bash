@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040928-git
+##@Version           :  202611221110-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -26,12 +26,16 @@ _desktopmgr() {
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
   local OPTS=""
-  local LONGOPTS="--completions --debug --no-color --options --config --version --help --silent --dir --force --list --all"
+  local LONGOPTS="--completions --debug --no-color --raw --options --config --version --help --silent --dir --force --list --all"
+  [[ " $LONGOPTS " == *" --color "* ]] || LONGOPTS+=" --color"
+  [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
+  [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   local SHORTOPTS=""
   local ARRAY="list search available update install cron version remove clone download"
   local LIST="awesome bspwm cutefish cwm dusk dwm herbstluftwm i3 leftwm mate openbox plasma qtile spectrwm sway twm xfce4 xmonad "
 
   _init_completion || return
+  if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
 
   local special i
   for ((i = 1; i < ${#words[@]} - 1; i++)); do

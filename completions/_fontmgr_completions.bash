@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040928-git
+##@Version           :  202611221110-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -26,13 +26,17 @@ _fontmgr() {
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
   local OPTS=""
-  local LONGOPTS="--completions --debug --no-color --options --config --version --help --silent --dir --force --all"
+  local LONGOPTS="--completions --debug --no-color --raw --options --config --version --help --silent --dir --force --all"
+  [[ " $LONGOPTS " == *" --color "* ]] || LONGOPTS+=" --color"
+  [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
+  [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   local SHORTOPTS=""
   local ARRAY="makecache list search available remove update install cron version"
   local LIST="agave all-the-icons AnonymousPro awesome-terminal CascadiaCode FiraCode fontawesome Hack LigatureSymbols MesloLGSNF Noto"
   local LIST+=""
 
   _init_completion || return
+  if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
 
   local special i
   for ((i = 1; i < ${#words[@]} - 1; i++)); do

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202611221110-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -27,10 +27,14 @@ _passmgr() {
   local FILEDIR=""
   local OPTS=""
   local LONGOPTS="--completions --debug --no-color --options --config --version --help --silent --dir"
+  [[ " $LONGOPTS " == *" --color "* ]] || LONGOPTS+=" --color"
+  [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
+  [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   local SHORTOPTS=""
   local ARRAY="update init ls find show grep insert edit generate rm mv cp git"
 
   _init_completion || return
+  if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
 
   if [[ "$SHOW_COMP_OPTS" != "" ]]; then
     local SHOW_COMP_OPTS_SEP="${SHOW_COMP_OPTS//,/ }"

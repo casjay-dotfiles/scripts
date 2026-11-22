@@ -78,7 +78,7 @@ if [ -f "../functions/$SCRIPTSFUNCTFILE" ]; then
 elif [ -f "$SCRIPTSFUNCTDIR/functions/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/functions/$SCRIPTSFUNCTFILE"
 else
-  curl -LSs "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/$SCRIPTSFUNCTFILE" || exit 1
+  curl --connect-timeout 10 --max-time 60 -LSs "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/$SCRIPTSFUNCTFILE" || exit 1
   . "/tmp/$SCRIPTSFUNCTFILE"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -228,7 +228,7 @@ get_user_ssh_key() {
   [ -n "$GITHUB_USER" ] || return 0
   printf_green "Grabbing ssh key: $GITHUB_USER for $USER"
   local ssh_key=""
-  ssh_key="$(curl -q -LSsf "https://github.com/$GITHUB_USER.keys" 2>/dev/null | grep '^' || echo '')"
+  ssh_key="$(curl -q --connect-timeout 10 --max-time 60 -LSsf "https://github.com/$GITHUB_USER.keys" 2>/dev/null | grep '^' || echo '')"
   if [ -n "$ssh_key" ]; then
     [ -d "/root/.ssh" ] || mkdir -p "/root/.ssh"
     [ -f "/root/.ssh/authorized_keys" ] || touch "/root/.ssh/authorized_keys"
@@ -261,7 +261,7 @@ run_init_check() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __yum() { yum "$@" $yum_opts &>/dev/null || return 1; }
 grab_remote_file() {
-  if urlverify "$1" && curl -q -SLs "$1"; then
+  if urlverify "$1" && curl -q --connect-timeout 10 --max-time 60 -SLs "$1"; then
     :
   else
     exit 1
@@ -282,7 +282,7 @@ run_external() {
   fi
 }
 save_remote_file() {
-  if urlverify "$1" && curl -q -SLs "$1" | tee "$2" &>/dev/null; then
+  if urlverify "$1" && curl -q --connect-timeout 10 --max-time 60 -SLs "$1" | tee "$2" &>/dev/null; then
     :
   else
     exit 1
@@ -721,7 +721,7 @@ printf_head "Installing custom web server files"
 devnull git clone -q "https://github.com/casjay-base/rhel" "/tmp/configs"
 devnull git clone -q "https://github.com/phpsysinfo/phpsysinfo" "/var/www/html/sysinfo"
 devnull git clone -q "https://github.com/solbu/vnstat-php-frontend" "/var/www/html/vnstat"
-sudo -HE STATICSITE="$(hostname -f)" bash -c "$(curl -LSs "https://github.com/casjay-templates/default-web-assets/raw/main/setup.sh")"
+sudo -HE STATICSITE="$(hostname -f)" bash -c "$(curl --connect-timeout 10 --max-time 60 -LSs "https://github.com/casjay-templates/default-web-assets/raw/main/setup.sh")"
 [ -f "/etc/httpd/modules/mod_wsgi_python3.so" ] && ln -sf /etc/httpd/modules/mod_wsgi_python3.so /etc/httpd/modules/mod_wsgi.so
 ##################################################################################################################
 printf_head "Deleting files"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202611221110-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -27,6 +27,9 @@ _devenvmgr() {
   local FILEDIR=""
   local OPTS=""
   local LONGOPTS="--completions --config --debug --dir --help --options --no-color --version --silent --start --list --all --template"
+  [[ " $LONGOPTS " == *" --color "* ]] || LONGOPTS+=" --color"
+  [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
+  [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   local SHORTOPTS="$LONGOPTS"
   local ARRAY="available deno django download editorconfig eslint express html hugo import jekyll "
   local ARRAY+="laravel mevn node package perl php prettier python react ruby shellcheck static tsconfig "
@@ -34,6 +37,7 @@ _devenvmgr() {
   local START="jekyll"
 
   _init_completion || return
+  if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
 
   if [[ "$SHOW_COMP_OPTS" != "" ]]; then
     local SHOW_COMP_OPTS_SEP="${SHOW_COMP_OPTS//,/ }"

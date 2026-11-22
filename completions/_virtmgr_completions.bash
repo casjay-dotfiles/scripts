@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202607182200-git
+##@Version           :  202611221110-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -30,10 +30,14 @@ _virtmgr() {
   local FILEDIR=""
   local OPTS=""
   local LONGOPTS="--completions --options --config --version --help --dir --cpu --memory --disk --arch --uefi --force --debug --no-color --silent"
+  [[ " $LONGOPTS " == *" --color "* ]] || LONGOPTS+=" --color"
+  [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
+  [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   local SHORTOPTS=""
   local ARRAY="status setup init list start restore create new delete ip ssh open manage incus"
 
   _init_completion || return
+  if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
 
   if [[ "$SHOW_COMP_OPTS" != "" ]]; then
     local SHOW_COMP_OPTS_SEP="${SHOW_COMP_OPTS//,/ }"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040840-git
+##@Version           :  202611221110-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -26,6 +26,7 @@ _apimgr_completion() {
   local SHOW_COMP_OPTS="" NOOPTS="" SHORTOPTS="" LONGOPTS="" ARRAY="" LIST="" SHOW_COMP_OPTS_SEP=""
   #####################################################################
   _init_completion || return
+  if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
   #####################################################################
   ___jq() { jq -rc "$@" 2>/dev/null; }
   ___sed_env() { sed 's|"||g;s|.*=||g' 2>/dev/null || false; }
@@ -52,6 +53,9 @@ _apimgr_completion() {
   #####################################################################
   LONGOPTS="--completions --config --reset-config --debug --dir --help --options --no-color --version --force --no- --yes-"
   LONGOPTS+=" --repo --user --org --token --official --title --body --state --limit --branch --base --tag --format --visibility --provider --api --all"
+  [[ " $LONGOPTS " == *" --color "* ]] || LONGOPTS+=" --color"
+  [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
+  [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   #####################################################################
   ARRAY="github gitlab gitea forgejo codeberg gitee pagure sourcehut onedev bitbucket docker ghcr glcr harbor quay cloudsmith artifactory jfrog nexus sonatype verify user org repo issue pr release tag image package component actions pipeline api"
   ARRAY+=""

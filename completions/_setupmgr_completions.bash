@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202610061637-git
+##@Version           :  202611221110-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -27,6 +27,7 @@ _setupmgr() {
   local CASJAYSDEVDIR="" OPTS_NO="" OPTS_YES=""
   #####################################################################
   _init_completion || return
+  if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
   #####################################################################
   ___jq() { jq -rc "$@" 2>/dev/null; }
   ___sed_env() { sed 's|"||g;s|.*=||g' 2>/dev/null || false; }
@@ -52,6 +53,9 @@ _setupmgr() {
   SHORTOPTS+=""
   #####################################################################
   LONGOPTS="--completions --config --reset-config --configure --debug --dir --help --options --color --no-color --version --silent --force --system --all "
+  [[ " $LONGOPTS " == *" --color "* ]] || LONGOPTS+=" --color"
+  [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
+  [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   #####################################################################
   ARRAY=""
   ARRAY+="9router act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun "

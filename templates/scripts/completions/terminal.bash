@@ -50,7 +50,7 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   SHORTOPTS=""
   SHORTOPTS+=""
   #####################################################################
-  LONGOPTS="--completions --config --reset-config --debug --dir --help --options --raw --version --silent --force --no- --yes- "
+  LONGOPTS="--completions --config --reset-config --debug --dir --help --options --no-color --raw --color --version --silent --force --no- --yes- "
   LONGOPTS+=""
   #####################################################################
   ARRAY=""
@@ -84,6 +84,9 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
     --completions)
       prev=""
       COMPREPLY=($(compgen -W 'long short list array' -- "$cur"))
+      ;;
+    --color)
+      COMPREPLY=($(compgen -W 'auto yes no' -- "$cur"))
       ;;
     --options)
       COMPREPLY=($(compgen -W '' -- ${cur}))

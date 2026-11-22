@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611220109-git
+##@Version           :  202611221110-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -33,6 +33,9 @@ _dockermgr() {
   local SHORTOPTS="-p -P -v -m -e -d -u -w"
   local LONGOPTS="--completions --debug --no-color --options --config --migrate --version --help --dir --force --all --describe --platform --dockerfile "
   local LONGOPTS+="--name --info --domain --hostname --network --registry --tag --no-delete --interactive --cron --hub"
+  [[ " $LONGOPTS " == *" --color "* ]] || LONGOPTS+=" --color"
+  [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
+  [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   local ARRAY="service proxy health attach multiarch builder api enter test exec active available connect cron download clone inactive init install k3b minikube "
   local ARRAY+="list log ps rancher remove rm rmi run search status update version ds network helm prune generate manifest rebuild swarm compose restart tag pull "
   local ARRAY+="commit copy readme swap org kasm fe server_status "
@@ -44,6 +47,7 @@ _dockermgr() {
   local LIST+="transmission tududi uptime vault watchtower webvirtmgr wireguard yacht ympd youtubedl-web "
 
   _init_completion || return
+  if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
 
   local special i
   for ((i = 1; i < ${#words[@]} - 1; i++)); do

@@ -43,7 +43,7 @@ if [ -f "./functions/$SCRIPTSFUNCTFILE" ]; then
 elif [ -f "$SCRIPTSFUNCTDIR/functions/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/functions/$SCRIPTSFUNCTFILE"
 else
-  curl -LSs "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/$SCRIPTSFUNCTFILE" || exit 1
+  curl --connect-timeout 10 --max-time 60 -LSs "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/$SCRIPTSFUNCTFILE" || exit 1
   . "/tmp/$SCRIPTSFUNCTFILE"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -91,7 +91,7 @@ get_user_ssh_key() {
   else
     return 0
   fi
-  ssh_key="$(curl -q -LSsf "https://github.com/$GITHUB_USER.keys" 2>/dev/null | grep '^' || echo '')"
+  ssh_key="$(curl -q --connect-timeout 10 --max-time 60 -LSsf "https://github.com/$GITHUB_USER.keys" 2>/dev/null | grep '^' || echo '')"
   if [ -n "$ssh_key" ]; then
     [ -d "/root/.ssh" ] || mkdir -p "/root/.ssh"
     [ -f "/root/.ssh/authorized_keys" ] || touch "/root/.ssh/authorized_keys"
@@ -110,7 +110,7 @@ get_user_ssh_key() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_head_clear() { clear && printf_head "$*"; }
 grab_remote_file() {
-  if urlverify "$1" && curl -q -SLs "$1"; then
+  if urlverify "$1" && curl -q --connect-timeout 10 --max-time 60 -SLs "$1"; then
     :
   else
     exit 1
@@ -130,7 +130,7 @@ run_external() {
   fi
 }
 save_remote_file() {
-  if urlverify "$1" && curl -q -SLs "$1" | tee -p "$2" &>/dev/null; then
+  if urlverify "$1" && curl -q --connect-timeout 10 --max-time 60 -SLs "$1" | tee -p "$2" &>/dev/null; then
     :
   else
     exit 1

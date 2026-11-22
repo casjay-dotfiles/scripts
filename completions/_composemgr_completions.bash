@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202610080907-git
+##@Version           :  202611221110-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -26,6 +26,7 @@ _composemgr_completion() {
   local SHOW_COMP_OPTS="" NOOPTS="" SHORTOPTS="" LONGOPTS="" ARRAY="" LIST="" SHOW_COMP_OPTS_SEP=""
   #####################################################################
   _init_completion || return
+  if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
   #####################################################################
   ___jq() { jq -rc "$@" 2>/dev/null; }
   ___sed_env() { sed 's|"||g;s|.*=||g' 2>/dev/null || false; }
@@ -52,6 +53,9 @@ _composemgr_completion() {
   #####################################################################
   LONGOPTS="--completions --config --reset-config --debug --dir --help --options --no-color --version --silent --force --migrate --no- --yes- "
   LONGOPTS+="--project --name --env --prod --devel"
+  [[ " $LONGOPTS " == *" --color "* ]] || LONGOPTS+=" --color"
+  [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
+  [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   #####################################################################
   ARRAY="init install remove up down ps logs new edit show env get generate backup network cat nginx repo restart"
   ARRAY+=""

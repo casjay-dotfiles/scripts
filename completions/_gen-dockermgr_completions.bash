@@ -2,7 +2,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Bash completion support for: gen-dockermgr
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202606040928-git
+##@Version           :  202611221110-git
 ##@Author            :  Jason Hempstead
 ##@Contact           :  jason@casjaysdev.pro
 ##@License           :  LICENSE.md
@@ -20,9 +20,13 @@ _gen-dockermgr() {
   local SHORTOPTS=""
   local LONGOPTS="--help --config --version --options --debug --no-color --silent "
   local LONGOPTS+="--nogit --nopush --noask --dir"
+  [[ " $LONGOPTS " == *" --color "* ]] || LONGOPTS+=" --color"
+  [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
+  [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   local ARRAY="script"
 
   _init_completion || return
+  if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
 
   if [[ $cur == --* ]]; then
     COMPREPLY=($(compgen -W '$LONGOPTS' -- "$cur"))

@@ -47,7 +47,7 @@ if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
 elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 elif connect_test; then
-  curl -q -LSsf "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/$SCRIPTSFUNCTFILE" || exit 1
+  curl -q --connect-timeout 10 --max-time 60 -LSsf "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/$SCRIPTSFUNCTFILE" || exit 1
   . "/tmp/$SCRIPTSFUNCTFILE"
 else
   printf '%s\n' "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" >&2
@@ -140,7 +140,7 @@ __test_public_reachable() {
   local nc="$(command -v nc 2>/dev/null || command -v netcat 2>/dev/null)"
   if [ -n "$nc" ]; then
     (timeout 20 $nc -l $port &) &>/dev/null
-    curl -q -LSsf -4 "https://ifconfig.co/port/$port" | jq -rc '.reachable' | grep -q 'true' || exitCode=1
+    curl -q --connect-timeout 10 --max-time 60 -LSsf -4 "https://ifconfig.co/port/$port" | jq -rc '.reachable' | grep -q 'true' || exitCode=1
   else
     exitCode=1
   fi
@@ -226,7 +226,7 @@ __ifconfig() { command -v ifconfig &>/dev/null && eval ifconfig "$*" 2>/dev/null
 __docker_net_ls() { docker network ls 2>&1 | grep -v 'NETWORK ID' | awk -F ' ' '{print $2}'; }
 __route() { command -v ip &>/dev/null && eval ip route 2>/dev/null | grep "${1:-default}" | grep -v '^$' | head -n1 || return 1; }
 __is_private_ip() { grep -E '192\.168\.[0-255]\.[0-255]|10\.[0-255]\.[0-255]\.[0-255]|172\.[10-32]|172\.[10-15]' 2>/dev/null | grep -vE '127\.[0-255]\.[0-255]\.[0-255]|172\.17'; }
-__public_ip() { curl -q -LSsf ${1:--4} "http://ifconfig.co" 2>/dev/null | grep -v '^$' | head -n1 | grep '^'; }
+__public_ip() { curl -q --connect-timeout 10 --max-time 60 -LSsf ${1:--4} "http://ifconfig.co" 2>/dev/null | grep -v '^$' | head -n1 | grep '^'; }
 __local_lan_ip() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | __is_private_ip | head -n1 | grep '^' || ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g' | __is_private_ip | grep -v '^$' | head -n1 | grep '^' || printf '%s\n' "$CURRENT_IP_4" | grep '^' || return 1; }
 __my_default_lan_address() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | head -n1 | grep '^' || ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g' | grep -v '^$' | head -n1 | grep '^' || printf '%s\n' "$CURRENT_IP_4" | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -240,7 +240,7 @@ __if_file_contains() { grep -sR "$1" "$2" | grep -Ev '#|^$' | grep -q '^' || ret
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
-__check_ssl_cert() { if curl -q -viLSsf "${1:-$CONTAINER_HOSTNAME}" 2>&1 | grep -qE 'SSL certificate problem|does not match'; then return 0; else return 1; fi; }
+__check_ssl_cert() { if curl -q --connect-timeout 10 --max-time 60 -viLSsf "${1:-$CONTAINER_HOSTNAME}" 2>&1 | grep -qE 'SSL certificate problem|does not match'; then return 0; else return 1; fi; }
 __create_cert() { if __cmd_exists certbot && [ -f "/etc/certbot/dns.conf" ]; then certbot certonly -vvvv --agree-tos --email ssl-admin@$HOSTNAME -n --expand --dns-rfc2136 --dns-rfc2136-credentials "/etc/certbot/dns.conf" -d "$CONTAINER_HOSTNAME" -d "*.$CONTAINER_HOSTNAME" >/dev/null 2>&1 || return 2; fi; }
 __get_service_port() { __sudo netstat -taupln | grep 'LISTEN' | awk '{print $4","$7}' | sed 's|:$||g;s|,.*/|,|g' | awk -F ':' '{print $NF}' | grep -v 'docker-proxy' | awk -F ',' '{print $2","$1}' | sort -u | grep "$1" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -

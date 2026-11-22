@@ -85,7 +85,7 @@ disable_selinux() {
   devnull setenforce 0
 }
 grab_remote_file() {
-  if urlverify "$1" && curl -sSLq "$@"; then
+  if urlverify "$1" && curl --connect-timeout 10 --max-time 60 -sSLq "$@"; then
     :
   else
     exit 1

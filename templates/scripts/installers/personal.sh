@@ -46,7 +46,7 @@ if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
 elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 elif connect_test; then
-  curl -q -LSsf "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/$SCRIPTSFUNCTFILE" || exit 1
+  curl -q --connect-timeout 10 --max-time 60 -LSsf "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/$SCRIPTSFUNCTFILE" || exit 1
   . "/tmp/$SCRIPTSFUNCTFILE"
 else
   printf '%s\n' "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" >&2
@@ -95,7 +95,7 @@ show_optvars "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup functions
 __cmd_exists() { command -v "$1" &>/dev/null; }
-__download_file() { curl -q -LSsf "$1" -o "$2" || return 1; }
+__download_file() { curl -q --connect-timeout 10 --max-time 60 -LSsf "$1" -o "$2" || return 1; }
 __service_is_active() { \systemctl is-enabled $1 | grep -q 'enabled' || return 1; }
 __service_is_running() { \systemctl is-active $1 | grep -q 'active' || return 1; }
 __get_pid() { ps -aux | grep -v 'grep' | grep "$1" | awk '{print $2}' | grep ${2:-[0-9]} || return 1; }
@@ -200,7 +200,7 @@ _pre_inst() {
       sudo bash -c "/usr/local/share/CasjaysDev/scripts/install.sh"
     else
       # shellcheck disable=SC2016
-      printf_red 'Please run sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"' 1>&2
+      printf_red 'Please run sudo bash -c "$(curl -q --connect-timeout 10 --max-time 60 -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"' 1>&2
       exit 1
     fi
   fi

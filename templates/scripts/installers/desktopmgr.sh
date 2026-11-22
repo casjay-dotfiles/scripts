@@ -57,7 +57,7 @@ if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
 elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 elif connect_test; then
-  curl -q -LSsf "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/$SCRIPTSFUNCTFILE" || exit 1
+  curl -q --connect-timeout 10 --max-time 60 -LSsf "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/$SCRIPTSFUNCTFILE" || exit 1
   . "/tmp/$SCRIPTSFUNCTFILE"
 else
   printf '%s\n' "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" >&2
@@ -113,7 +113,7 @@ __chmod() { [ -e "$2" ] && chmod -Rf "$@" 2>/dev/null || return 1; }
 __replace_one() { $sed -i "s|$1|$2|g" "$3" &>/dev/null || return 1; }
 __rm_rf() { [ -e "$1" ] && { rm -Rf "$@" &>/dev/null || return 1; } || true; }
 __rm_link() { [ -e "$1" ] && { rm -rf "$1" &>/dev/null || return 1; } || true; }
-__download_file() { curl -q -LSsf "$1" -o "$2" 2>/dev/null || return 1; }
+__download_file() { curl -q --connect-timeout 10 --max-time 60 -LSsf "$1" -o "$2" 2>/dev/null || return 1; }
 __input_is_number() { test -n "$1" && test -z "${1//[0-9]/}" || return 1; }
 __failexitcode() { [ $1 -ne 0 ] && printf_red "😠 $2 😠" && exit ${1:-4}; }
 __get_exit_status() { local s=$? && getRunStatus=$((s + ${getRunStatus:-0})) && return $s; }

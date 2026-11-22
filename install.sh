@@ -42,7 +42,11 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
 run_pre_install() {
-  if [ -f "/usr/local/bin/pkmgr" ]; then rm -Rf "/usr/local/bin/pkmgr"; fi
+  if [ -d "$CASJAYSDEVDIR/.git" ]; then
+    git -C "$CASJAYSDEVDIR" reset --hard
+  else
+    rm -Rf "$CASJAYSDEVDIR"
+  fi
   return ${?:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

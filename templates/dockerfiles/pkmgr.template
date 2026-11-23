@@ -1,10 +1,9 @@
 cat <<EOF
 #!/usr/bin/env sh
 # shellcheck shell=sh
-# shellcheck disable=SC2016
+# shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 USER_UID="\$(id -u)"
-USER_GID="\$(id -g)"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -x "\$(command -v apt 2>/dev/null)" ]; then
   export DEBIAN_FRONTEND=noninteractive
@@ -13,7 +12,7 @@ if [ -x "\$(command -v apt 2>/dev/null)" ]; then
   pkmgr_mkcache_cmd="\$pkmgr_cmd update"
   pkmgr_update_cmd="\$pkmgr_cmd upgrade -yy"
   pkmgr_install_cmd="\$pkmgr_cmd install -yy \$PKMGR_OPTS"
-  pkmgr_install_post="\$pkmgr_cmd --fix-broken install"
+  pkmgr_install_post="\$pkmgr_cmd --fix-broken install -y"
 elif [ -x "\$(command -v apt-get 2>/dev/null)" ]; then
   export DEBIAN_FRONTEND=noninteractive
   pkmgr_cmd="apt-get"
@@ -21,7 +20,7 @@ elif [ -x "\$(command -v apt-get 2>/dev/null)" ]; then
   pkmgr_mkcache_cmd="\$pkmgr_cmd update"
   pkmgr_update_cmd="\$pkmgr_cmd upgrade -yy"
   pkmgr_install_cmd="\$pkmgr_cmd install -yy \$PKMGR_OPTS"
-  pkmgr_install_post="\$pkmgr_cmd --fix-broken install"
+  pkmgr_install_post="\$pkmgr_cmd --fix-broken install -y"
 elif [ -x "\$(command -v dnf 2>/dev/null)" ]; then
   pkmgr_cmd="dnf"
   pkmgr_clean_cmd="\$pkmgr_cmd clean all"
@@ -53,16 +52,20 @@ elif [ -x "\$(command -v zypper 2>/dev/null)" ]; then
   pkmgr_update_cmd="\$pkmgr_cmd update -y \$PKMGR_OPTS"
   pkmgr_install_cmd="\$pkmgr_cmd install -y \$PKMGR_OPTS"
 else
-  pkmgr_cmd="true"
-  pkmgr_mkcache_cmd="\$pkmgr_cmd"
-  pkmgr_clean_cmd="\$pkmgr_cmd"
-  pkmgr_update_cmd="\$pkmgr_cmd"
-  pkmgr_install_cmd="\$pkmgr_cmd"
+  pkmgr_cmd=""
+  pkmgr_mkcache_cmd=""
+  pkmgr_clean_cmd=""
+  pkmgr_update_cmd=""
+  pkmgr_install_cmd=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "/config/pkmgr/settings.conf" ]; then
+  # This config file is created inside the generated container image.
+  # shellcheck disable=SC1091
   . "/config/pkmgr/settings.conf"
 elif [ -f "/etc/pkmgr/settings.conf" ]; then
+  # This config file is created inside the generated container image.
+  # shellcheck disable=SC1091
   . "/etc/pkmgr/settings.conf"
 else
   mkdir -p "/config/pkmgr"
@@ -75,65 +78,85 @@ pkmgr_mkcache_cmd="\$pkmgr_mkcache_cmd"
 EEOF
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -n "\$pkmgr_cmd" ] || { echo "Can not determine the package manager" && exit 1; }
+[ -n "\$pkmgr_cmd" ] || { echo "Cannot determine the package manager" >&2; exit 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 case "\$1" in
 pip)
   shift 1
   pip_bin="\$(command -v python3 2>/dev/null || command -v python2 2>/dev/null || command -v python 2>/dev/null || echo "")"
+  [ -n "\$pip_bin" ] || { echo "Python is not installed" >&2; exit 127; }
   py_version="\$(\$pip_bin --version | sed 's|[pP]ython ||g' | awk -F '.' '{print \$1\$2}' | grep '[0-9]' || echo "0")"
-  [ "\$py_version" -gt "310" ] && pip_opts="--break-system-packages " || pip_opts=""
   case "\$1" in
   install)
     shift 1
-    pkg_list="\$*"
-    for pkg in \$pkg_list; do
-      \$pip_bin -m pip \$pip_opts "\$pkg"
-    done
+    if [ "\$py_version" -gt "310" ]; then
+      "\$pip_bin" -m pip install --break-system-packages "\$@"
+    else
+      "\$pip_bin" -m pip install "\$@"
+    fi
     ;;
   *)
-    for pkg in "\$@"; do
-      \$pip_bin -m pip "\$pkg"
-    done
+    "\$pip_bin" -m pip "\$@"
     ;;
   esac
-  exit
+  exit \$?
   ;;
 install)
   shift 1
   [ -n "\$1" ] || exit 0
-  [ "\$USER_UID" -eq 0 ] || [ "\$USER" = "root" ] || pkmgr_install_cmd="sudo \$pkmgr_install_cmd"
   if [ -f "\$1" ]; then
     install_list="\$(tr '\n' ' ' < "\$1")"
   else
     install_list="\$*"
   fi
-  for pkg in \$install_list;do
+  if [ "\$USER_UID" -ne 0 ]; then
+    pkmgr_install_cmd="sudo -n \$pkmgr_install_cmd"
+    if [ -n "\$pkmgr_install_post" ]; then
+      pkmgr_install_post="sudo -n \$pkmgr_install_post"
+    fi
+  fi
+  PKMGR_INSTALL_STATUS=0
+  for pkg in \$install_list; do
     echo "installing packages command: \$pkmgr_install_cmd \$pkg"
-    \$pkmgr_install_cmd \$pkg
-    if [ -n "\$pkmgr_install_post" ]; then eval \$pkmgr_install_post; fi
+    if \$pkmgr_install_cmd "\$pkg"; then
+      :
+    else
+      PKMGR_PACKAGE_STATUS=\$?
+      if [ -n "\$pkmgr_install_post" ]; then \$pkmgr_install_post || true; fi
+      PKMGR_INSTALL_STATUS=\$PKMGR_PACKAGE_STATUS
+    fi
   done
-  exit
+  exit \$PKMGR_INSTALL_STATUS
   ;;
 update | upgrade)
   shift \$#
-  [ "\$USER_UID" -eq 0 ] || [ "\$USER" = "root" ] || pkmgr_update_cmd="sudo \$pkmgr_install_cmd"
+  if [ "\$USER_UID" -ne 0 ]; then
+    pkmgr_mkcache_cmd="sudo -n \$pkmgr_mkcache_cmd"
+    pkmgr_update_cmd="sudo -n \$pkmgr_update_cmd"
+  fi
   echo "Updating packages command: \$pkmgr_update_cmd"
-  \$pkmgr_mkcache_cmd
+  if \$pkmgr_mkcache_cmd; then
+    :
+  else
+    exit \$?
+  fi
   \$pkmgr_update_cmd
   exit \$?
   ;;
 clean)
   shift \$#
-  [ -n "\$1" ] || exit 0
-  [ "\$USER_UID" -eq 0 ] || [ "\$USER" = "root" ] || pkmgr_clean_cmd="sudo \$pkmgr_clean_cmd"
+  if [ "\$USER_UID" -ne 0 ]; then
+    pkmgr_clean_cmd="sudo -n \$pkmgr_clean_cmd"
+  fi
   echo "Cleaning package cache: \$pkmgr_clean_cmd"
   \$pkmgr_clean_cmd
   exit \$?
   ;;
 *)
   [ -n "\$1" ] || exit 0
-  [ "\$USER_UID" -eq 0 ] || [ "\$USER" = "root" ] || pkmgr_cmd="sudo \$pkmgr_cmd"
+  if [ "\$USER_UID" -ne 0 ]; then
+    pkmgr_cmd="sudo -n \$pkmgr_cmd"
+  fi
   echo "executing packages command: \$pkmgr_cmd \$*"
   \$pkmgr_cmd "\$@"
   exit \$?

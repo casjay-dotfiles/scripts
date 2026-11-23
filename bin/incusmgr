@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611221110-git
+##@Version           :  202611222231-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Feb 20, 2025 00:31 EST
 # @@File             :  incusmgr
 # @@Description      :  Incus container and VM manager
-# @@Changelog        :  Rewrite: self-contained, no external function sourcing
+# @@Changelog        :  add vms alias and confirmation-free pruning
 # @@TODO             :
 # @@Other            :
 # @@Resource         :
@@ -54,7 +54,7 @@ if [ -n "${NO_COLOR+x}" ] || [ "$SCRIPT_COLOR_MODE" = "no" ] || { [ "$SCRIPT_COL
 elif [ "$SCRIPT_COLOR_MODE" = "yes" ] || [ "$SCRIPT_COLOR_EXPLICIT" = "yes" ]; then
   unset SHOW_RAW
 fi
-VERSION="202611221110-git"
+VERSION="202611222231-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -155,6 +155,16 @@ __incus() {
     command "$bin" "$@"
   fi
 }
+# Bound synchronous delete calls so a stalled server operation cannot hang this script indefinitely.
+__incus_delete() {
+  local bin="${INCUSMGR_INCUS_BIN:-incus}"
+  local timeout_value="${INCUSMGR_OPERATION_TIMEOUT:-10m}"
+  if [ -n "$INCUSMGR_REMOTE" ]; then
+    timeout --foreground --signal=TERM --kill-after=10s "$timeout_value" "$bin" "$@" --project "${INCUSMGR_PROJECT:-default}"
+  else
+    timeout --foreground --signal=TERM --kill-after=10s "$timeout_value" "$bin" "$@"
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if an instance exists
 __instance_exists() { __incus list -c n -f csv 2>/dev/null | grep -qx "$1" || return 1; }
@@ -185,115 +195,133 @@ __confirm() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete all instances, all volumes from all pools, and all images
 __prune_all() {
-  local incus_list pool volume incus_images count=0
+  local incus_list pools volumes pool volume incus_images instance fingerprint count=0 failures=0
 
   printf_purple "========================================="
   printf_cyan "Starting full prune..."
   printf_purple "========================================="
 
-  incus_list="$(__incus list -c n --format csv 2>/dev/null)"
+  incus_list="$(__incus list -c n --format csv 2>/dev/null)" || { printf_red "Failed to list Incus instances; prune aborted"; return 1; }
   if [ -n "$incus_list" ]; then
     printf_yellow "Deleting instances..."
-    for c in $incus_list; do
-      printf_cyan "  Deleting instance: $c"
-      __incus delete --force "$c" 2>/dev/null \
-        && printf_green "  ✓ Deleted: $c" \
-        || printf_red "  ✗ Failed to delete: $c"
-      count=$((count + 1))
-    done
+    while IFS= read -r instance; do
+      [ -n "$instance" ] || continue
+      printf_cyan "  Deleting instance: $instance"
+      __incus_delete delete --force "$instance" \
+        && { printf_green "  ✓ Deleted: $instance"; count=$((count + 1)); } \
+        || { printf_red "  ✗ Failed to delete: $instance"; failures=$((failures + 1)); }
+    done <<<"$incus_list"
     printf_green "Deleted $count instance(s)"
+    incus_list="$( __incus list -c n --format csv 2>/dev/null )" || { printf_red "Failed to verify Incus instances; prune aborted"; return 1; }
+    if [ "$failures" -gt 0 ] || [ -n "$incus_list" ]; then
+      printf_red "Storage volumes and images were kept because instances remain or failed to delete"
+      return 1
+    fi
     count=0
   else
     printf_blue "No instances found"
   fi
 
   printf_yellow "Deleting storage volumes..."
-  for pool in $(__incus storage list -c n --format csv 2>/dev/null); do
-    for volume in $(__incus storage volume list "$pool" -c n --format csv 2>/dev/null); do
+  pools="$(__incus storage list -c n --format csv 2>/dev/null)" || { printf_red "Failed to list storage pools; prune aborted"; return 1; }
+  while IFS= read -r pool; do
+    [ -n "$pool" ] || continue
+    volumes="$(__incus storage volume list "$pool" -c n --format csv 2>/dev/null)" || { printf_red "Failed to list volumes in pool $pool; prune aborted"; return 1; }
+    while IFS= read -r volume; do
+      [ -n "$volume" ] || continue
       printf_cyan "  Deleting volume: $pool/$volume"
-      __incus storage volume delete "$pool" "$volume" 2>/dev/null \
-        && printf_green "  ✓ Deleted: $pool/$volume" \
-        || printf_red "  ✗ Failed: $pool/$volume"
-      count=$((count + 1))
-    done
-  done
-  [ $count -gt 0 ] && printf_green "Deleted $count volume(s)" || printf_blue "No volumes found"
+      __incus_delete storage volume delete "$pool" "$volume" \
+        && { printf_green "  ✓ Deleted: $pool/$volume"; count=$((count + 1)); } \
+        || { printf_red "  ✗ Failed: $pool/$volume"; failures=$((failures + 1)); }
+    done <<<"$volumes"
+  done <<<"$pools"
+  [ "$count" -gt 0 ] && printf_green "Deleted $count volume(s)" || printf_blue "No volumes found"
+  [ "$failures" -eq 0 ] || return 1
   count=0
 
-  incus_images="$(__incus image list -c f --format csv 2>/dev/null)"
+  incus_images="$(__incus image list -c f --format csv 2>/dev/null)" || { printf_red "Failed to list images; prune aborted"; return 1; }
   if [ -n "$incus_images" ]; then
     printf_yellow "Deleting images..."
-    for i in $incus_images; do
-      printf_cyan "  Deleting image: $i"
-      __incus image delete "$i" 2>/dev/null \
-        && printf_green "  ✓ Deleted: $i" \
-        || printf_red "  ✗ Failed: $i"
-      count=$((count + 1))
-    done
+    while IFS= read -r fingerprint; do
+      [ -n "$fingerprint" ] || continue
+      printf_cyan "  Deleting image: $fingerprint"
+      __incus_delete image delete "$fingerprint" \
+        && { printf_green "  ✓ Deleted: $fingerprint"; count=$((count + 1)); } \
+        || { printf_red "  ✗ Failed: $fingerprint"; failures=$((failures + 1)); }
+    done <<<"$incus_images"
     printf_green "Deleted $count image(s)"
   else
     printf_blue "No images found"
   fi
 
   printf_purple "========================================="
-  printf_green "Prune complete"
+  if [ "$failures" -eq 0 ]; then
+    printf_green "Prune complete"
+  else
+    printf_red "Prune finished with $failures failure(s)"
+  fi
   printf_purple "========================================="
+  [ "$failures" -eq 0 ]
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete all instances only
 __prune_instances() {
-  local instances count=0
-  instances="$(__incus list -c n -f csv 2>/dev/null)"
+  local instances count=0 failures=0
+  instances="$(__incus list -c n -f csv 2>/dev/null)" || { printf_red "Failed to list Incus instances"; return 1; }
   if [ -n "$instances" ]; then
     printf_yellow "Deleting instances..."
     while IFS= read -r instance; do
       [ -z "$instance" ] && continue
       printf_cyan "  Deleting: $instance"
-      __incus delete "$instance" --force &>/dev/null \
-        && printf_green "  ✓ Deleted $instance" \
-        || printf_red "  ✗ Failed to delete $instance"
-      count=$((count + 1))
+      __incus_delete delete "$instance" --force \
+        && { printf_green "  ✓ Deleted $instance"; count=$((count + 1)); } \
+        || { printf_red "  ✗ Failed to delete $instance"; failures=$((failures + 1)); }
     done <<<"$instances"
     printf_green "Deleted $count instance(s)"
   else
     printf_yellow "No instances to remove"
   fi
+  [ "$failures" -eq 0 ]
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete volumes from all storage pools
 __prune_volumes() {
-  local pool volume count=0
+  local pools volumes pool volume count=0 failures=0
   printf_yellow "Deleting storage volumes..."
-  for pool in $(__incus storage list -c n --format csv 2>/dev/null); do
-    for volume in $(__incus storage volume list "$pool" -c n --format csv 2>/dev/null); do
+  pools="$(__incus storage list -c n --format csv 2>/dev/null)" || { printf_red "Failed to list storage pools"; return 1; }
+  while IFS= read -r pool; do
+    [ -n "$pool" ] || continue
+    volumes="$(__incus storage volume list "$pool" -c n --format csv 2>/dev/null)" || { printf_red "Failed to list volumes in pool $pool"; return 1; }
+    while IFS= read -r volume; do
+      [ -n "$volume" ] || continue
       printf_cyan "  Deleting: $pool/$volume"
-      __incus storage volume delete "$pool" "$volume" &>/dev/null \
-        && printf_green "  ✓ Deleted $pool/$volume" \
-        || printf_red "  ✗ Failed $pool/$volume"
-      count=$((count + 1))
-    done
-  done
-  [ $count -gt 0 ] && printf_green "Deleted $count volume(s)" || printf_yellow "No volumes to remove"
+      __incus_delete storage volume delete "$pool" "$volume" \
+        && { printf_green "  ✓ Deleted $pool/$volume"; count=$((count + 1)); } \
+        || { printf_red "  ✗ Failed $pool/$volume"; failures=$((failures + 1)); }
+    done <<<"$volumes"
+  done <<<"$pools"
+  [ "$count" -gt 0 ] && printf_green "Deleted $count volume(s)" || printf_yellow "No volumes to remove"
+  [ "$failures" -eq 0 ]
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete all images
 __prune_images() {
-  local images count=0
-  images="$(__incus image list -c f -f csv 2>/dev/null)"
+  local images fingerprint count=0 failures=0
+  images="$(__incus image list -c f -f csv 2>/dev/null)" || { printf_red "Failed to list Incus images"; return 1; }
   if [ -n "$images" ]; then
     printf_yellow "Deleting images..."
     while IFS= read -r fingerprint; do
       [ -z "$fingerprint" ] && continue
       printf_cyan "  Deleting: $fingerprint"
-      __incus image delete "$fingerprint" &>/dev/null \
-        && printf_green "  ✓ Deleted $fingerprint" \
-        || printf_red "  ✗ Failed $fingerprint"
-      count=$((count + 1))
+      __incus_delete image delete "$fingerprint" \
+        && { printf_green "  ✓ Deleted $fingerprint"; count=$((count + 1)); } \
+        || { printf_red "  ✗ Failed $fingerprint"; failures=$((failures + 1)); }
     done <<<"$images"
     printf_green "Deleted $count image(s)"
   else
     printf_yellow "No images to remove"
   fi
+  [ "$failures" -eq 0 ]
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Update packages inside one or all running instances
@@ -449,11 +477,11 @@ __help() {
   printf_newline
   __printf_head "------------ Maintenance -------------------------"
   __printf_line "init [force]                           - Initialize Incus environment"
-  __printf_line "prune                                  - Delete all instances, volumes, and images"
-  __printf_line "prune instances                        - Delete all instances"
-  __printf_line "prune volumes                          - Delete all storage volumes (all pools)"
-  __printf_line "prune images                           - Delete all images"
-  __printf_line "prune all                              - Alias for bare prune"
+  __printf_line "prune                                  - Delete all resources; stop on failed or timed-out operations"
+  __printf_line "prune instances                        - Delete all instances (aliases: vms, containers)"
+  __printf_line "prune volumes                          - Delete all storage volumes without prompting"
+  __printf_line "prune images                           - Delete all cached images without prompting"
+  __printf_line "prune all                              - Alias for bare prune (delete timeout: INCUSMGR_OPERATION_TIMEOUT, default 10m)"
   printf_newline
   __printf_head "------------ Options -----------------------------"
   __printf_opts "  --force / -f                  - Skip confirmation prompts"
@@ -468,7 +496,7 @@ __help() {
   __printf_line "incusmgr enter mybox"
   __printf_line "incusmgr update mybox"
   __printf_line "incusmgr snapshot mybox before-upgrade"
-  __printf_line "incusmgr prune --force"
+  __printf_line "incusmgr prune all"
   printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -846,26 +874,21 @@ project)
 # ---- Maintenance ---------------------------------------------------------
 prune)
   shift 1
-  [ "$1" = "--force" ] && INCUSMGR_FORCE="true" && shift 1
   case "${1:-all}" in
-  instances | containers)
-    __confirm "Delete all instances?" || exit 0
+  instances | containers | vms)
     __prune_instances
     ;;
   volumes | storage)
-    __confirm "Delete all storage volumes?" || exit 0
     __prune_volumes
     ;;
   images)
-    __confirm "Delete all images?" || exit 0
     __prune_images
     ;;
   all | "")
-    __confirm "Delete ALL instances, volumes, and images?" || exit 0
     __prune_all
     ;;
   *)
-    printf_exit "Usage: $APPNAME prune [instances|volumes|images|all]"
+    printf_exit "Usage: $APPNAME prune [instances|vms|volumes|images|all]"
     ;;
   esac
   exit $?

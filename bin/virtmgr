@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611221110-git
+##@Version           :  202611222231-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 18, 2022 17:57 EDT
 # @@File             :  virtmgr
 # @@Description      :  Comprehensive virtualization management tool for libvirt/qemu and containers
-# @@Changelog        :  delete now accepts multiple vm names in a single call
+# @@Changelog        :  add confirmation-free prune commands for VMs and libvirt storage volumes
 # @@TODO             :  Add support for more container runtimes
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="${0##*/}"
-VERSION="202611221110-git"
+VERSION="202611222231-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -248,6 +248,7 @@ __help() {
   __printf_line "reboot <vm-name>                       - Reboot a virtual machine (restart)"
   __printf_line "new <name> <iso> [disk] [ram]          - Create new VM from ISO image"
   __printf_line "delete <vm-name> [vm-name...]          - Delete one or more virtual machines"
+  __printf_line "prune [instances|vms|volumes|storage|images|all] - Remove VMs/volumes (no prompt)"
   __printf_line "open <vm-name>                         - Open VM console viewer"
   __printf_line "manage                                 - Launch virt-manager GUI"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -293,6 +294,7 @@ __help() {
   __printf_line "virtmgr list                           - List all VMs"
   __printf_line "virtmgr start ubuntu                   - Start Ubuntu VM"
   __printf_line "virtmgr ssh ubuntu root                - SSH to Ubuntu as root"
+  __printf_line "virtmgr prune all                      - Remove all VMs and storage volumes"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -380,7 +382,7 @@ __sleep() { sleep "${1:-1}"; }
 __printf_reset() { printf_color "\r$1 " ${2:-1}; }
 __run_post() { eval "$@" >/dev/null 2>&1 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__virsh() { sudo virsh "$@" 2>/dev/null || return 1; }
+__virsh() { __sudo virsh "$@" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_ips() { __virsh net-dhcp-leases default 2>/dev/null | grep -v '^$' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -449,6 +451,67 @@ __vm_rm() {
       printf_exit "The VM $1 does not exist"
     fi
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Stop and remove all libvirt virtual machines
+__prune_vms() {
+  local vms="" vm="" state="" count=0 failures=0
+  vms="$(__virsh list --all --name)" || return 1
+  if [ -z "$vms" ]; then
+    printf_yellow "No virtual machines to remove"
+    return 0
+  fi
+  while IFS= read -r vm; do
+    [ -n "$vm" ] || continue
+    state="$(__virsh domstate "$vm")" || { printf_red "Failed to read state for $vm"; failures=$((failures + 1)); continue; }
+    case "${state,,}" in
+    running | paused | blocked | pmsuspended | "in shutdown")
+      if ! __virsh destroy "$vm"; then
+        printf_red "Failed to stop $vm; leaving it defined"
+        failures=$((failures + 1))
+        continue
+      fi
+      ;;
+    esac
+    if __virsh undefine "$vm" --managed-save --snapshots-metadata --nvram; then
+      printf_green "Removed virtual machine: $vm"
+      count=$((count + 1))
+    else
+      printf_red "Failed to remove virtual machine: $vm"
+      failures=$((failures + 1))
+    fi
+  done <<<"$vms"
+  printf_cyan "Removed $count virtual machine(s)"
+  [ "$failures" -eq 0 ]
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Delete volumes from every active or inactive libvirt storage pool
+__prune_volumes() {
+  local pools="" pool="" volume_output="" volumes="" volume="" count=0 failures=0
+  pools="$(__virsh pool-list --all --name)" || return 1
+  while IFS= read -r pool; do
+    [ -n "$pool" ] || continue
+    volume_output="$(__virsh vol-list --pool "$pool")" || { printf_red "Failed to list volumes in pool: $pool"; failures=$((failures + 1)); continue; }
+    volumes="$(printf '%s\n' "$volume_output" | sed -n -E '3,$s/^[[:space:]]*//; 3,$s/[[:space:]]{2,}.*$//; 3,${/./p}')"
+    while IFS= read -r volume; do
+      [ -n "$volume" ] || continue
+      if __virsh vol-delete "$volume" --pool "$pool"; then
+        printf_green "Deleted storage volume: $pool/$volume"
+        count=$((count + 1))
+      else
+        printf_red "Failed to delete storage volume: $pool/$volume"
+        failures=$((failures + 1))
+      fi
+    done <<<"$volumes"
+  done <<<"$pools"
+  [ "$count" -gt 0 ] && printf_cyan "Deleted $count storage volume(s)" || printf_yellow "No storage volumes to remove"
+  [ "$failures" -eq 0 ]
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Remove all virtual machines and their storage volumes
+__prune_all() {
+  __prune_vms || { printf_red "Storage volumes were kept because some VMs could not be removed"; return 1; }
+  __prune_volumes
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_id_file() {
@@ -971,7 +1034,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,no-color,version,silent"
 LONGOPTS+=",force,uefi,cpu:,memory:,disk:,arch:,boot:,type:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="status,setup,init,list,start,restore,create,new,delete,ip,ssh,open,manage"
+ARRAY="status,setup,init,list,start,restore,create,new,delete,prune,ip,ssh,open,manage"
 ARRAY+="incus"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -1171,7 +1234,7 @@ export VIRTMGR_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-[ "$VIRTMGR_FORCE" = "true" ] || __virt_check || printf_exit "Virtualization is not supported"
+[ "$1" = "prune" ] || [ "$VIRTMGR_FORCE" = "true" ] || __virt_check || printf_exit "Virtualization is not supported"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
 
@@ -1329,6 +1392,25 @@ delete)
     __vm_rm "$vm" || rc=1
   done
   exit $rc
+  ;;
+
+prune)
+  shift 1
+  case "${1:-all}" in
+  instances | vms)
+    __prune_vms
+    ;;
+  volumes | storage | images)
+    __prune_volumes
+    ;;
+  all | "")
+    __prune_all
+    ;;
+  *)
+    printf_exit "Usage: $APPNAME prune [instances|vms|volumes|storage|images|all]"
+    ;;
+  esac
+  exit $?
   ;;
 
 ip)

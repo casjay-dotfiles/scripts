@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611221110-git
+##@Version           :  202611222231-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -34,7 +34,7 @@ _virtmgr() {
   [[ " $LONGOPTS " == *" --no-color "* ]] || LONGOPTS+=" --no-color"
   [[ " $LONGOPTS " == *" --raw "* ]] || LONGOPTS+=" --raw"
   local SHORTOPTS=""
-  local ARRAY="status setup init list start restore create new delete ip ssh open manage incus"
+  local ARRAY="status setup init list start restore create new delete prune ip ssh open manage incus"
 
   _init_completion || return
   if [[ "$prev" == "--color" ]]; then COMPREPLY=($(compgen -W "auto yes no" -- "$cur")); return 0; fi
@@ -88,7 +88,7 @@ _virtmgr() {
       ;;
 
     # Commands that need VM names
-    start | delete | open | create | restore | ip | ssh)
+    start | delete | open | create | restore | ip)
       COMPREPLY=($(compgen -W "$(___get_vms 2>/dev/null)" -- "${cur}"))
       ;;
 
@@ -117,6 +117,14 @@ _virtmgr() {
         COMPREPLY=($(compgen -W '1024 2048 4096 8192' -- "${cur}"))
         ;;
       esac
+      ;;
+
+    prune)
+      if [[ "$prev" == "prune" ]]; then
+        COMPREPLY=($(compgen -W 'instances vms volumes storage images all' -- "${cur}"))
+      else
+        COMPREPLY=($(compgen -W '' -- "${cur}"))
+      fi
       ;;
 
     # Commands with no arguments

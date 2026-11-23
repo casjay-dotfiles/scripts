@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611221110-git
+##@Version           :  202611222231-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -429,7 +429,7 @@ _incusmgr() {
     prune)
       case "$prev" in
       prune)
-        COMPREPLY=($(compgen -W 'instances containers volumes storage images all' -- "${cur}"))
+        COMPREPLY=($(compgen -W 'instances containers vms volumes storage images all' -- "${cur}"))
         ;;
       *)
         COMPREPLY=($(compgen -W '' -- "${cur}"))

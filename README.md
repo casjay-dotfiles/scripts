@@ -16,6 +16,14 @@ sudo systemmgr update scripts
 Set output coloring with `--color auto|yes|no`; the `NO_COLOR` environment
 variable disables colors.
 
+## Virtual machine cleanup
+
+`virtmgr prune [instances|volumes|all]` removes libvirt VMs and/or storage
+volumes. `incusmgr prune [instances|volumes|images|all]` removes Incus
+resources. These prune commands run without a confirmation prompt; `all` can
+delete VM disks, Incus volumes, and cached images. See each command's `--help`
+for details.
+
 ## Manual install
   
 requires:

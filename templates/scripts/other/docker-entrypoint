@@ -594,7 +594,7 @@ healthcheck)
     if [ -d "/run/healthcheck" ] && ! __is_dir_empty "/run/healthcheck"; then
       for service in /run/healthcheck/*; do
         name="${service##*/}"
-        services+="$name "
+        services+=" $name"
       done
     fi
     services="$(printf '%s\n' $services | sort -u | grep -v -- '^$')"

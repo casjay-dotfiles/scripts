@@ -604,6 +604,23 @@ __git_s_modified() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | __grep 
 __git_s_updated() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | __grep -Ew -- '^U|^UU|^ U' | awk '{print $2}' | sort -u | __grep -v -- '^$' | __grep -- '^' || return 1; }
 __git_s_deleted() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | __grep -E -- '^D[D ]|^[M ]D' | awk '{print $2}' | sort -u | __grep -v -- '^$' | __grep -- '^' || return 1; }
 __git_s_message() { __git_s_added || __git_s_renamed || __git_s_modified || __git_s_deleted || return 1; }
+# List every added, modified, deleted, renamed, copied or untracked .md path (both sides of a rename), NUL-safe so spaces and untracked dirs work
+__git_s_spec() {
+  local entry="" status_xy="" orig_pending="" results=""
+  while IFS= read -r -d '' entry; do
+    if [ -n "$orig_pending" ]; then
+      orig_pending=""
+      case "$entry" in *.md) results+="$entry"$'\n' ;; esac
+      continue
+    fi
+    status_xy="${entry:0:2}"
+    case "$status_xy" in *R* | *C*) orig_pending="true" ;; esac
+    case "$entry" in *.md) results+="${entry:3}"$'\n' ;; esac
+  done < <(git -C "${GEN_CHANGELOG_CWD:-$GITCOMMIT_ROOT_DIR}" status --porcelain=v1 -z -uall 2>/dev/null)
+  results="$(printf '%s' "$results" | sort -u)"
+  [ -n "$results" ] && printf '%s\n' "$results"
+  return 0
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __changelog_commit() { gen-changelog --amend --dir "$GITCOMMIT_ROOT_DIR" || return; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1273,12 +1290,7 @@ __changed_files() {
       ;;
     spec)
       shift
-      files+="$(__git_s_added | __grep -- '\.md$') "
-      files+="$(__git_s_deleted | __grep -- '\.md$') "
-      files+="$(__git_s_renamed | __grep -- '\.md$') "
-      files+="$(__git_s_modified | __grep -- '\.md$') "
-      results="$(printf '%b\n' "$files" | tr ' ' '\n' | sort -u | __grep -v -- '^$' | __grep -- '^')"
-      [ -n "$results" ] && echo "$results"
+      __git_s_spec
       ;;
     all)
       shift 1
@@ -4802,17 +4814,19 @@ spec)
   elif [ -n "$*" ]; then
     setmess="$(printf '%b\n' "📝 ${prepend_name}: $* 📝")"
   else
-    spec_bullets="$(printf '%s\n' $repo_has_changed | sed 's/^/- /')"
+    spec_bullets="$(printf '%s\n' "$repo_has_changed" | sed 's/^/- /')"
     setmess="$(printf '%b\n' "📝 Update project spec and documentation 📝")"
     GITCOMMIT_MESSAGE_LONG="$spec_bullets"
   fi
   __gitmessage "${setmess:-$GITCOMMIT_MESSAGE_SHORT}" "${GITCOMMIT_MESSAGE_LONG:-}"
-  for spec_file in $repo_has_changed; do
-    __git_repo "$GITCOMMIT_ROOT_DIR" add -- "$spec_file" &>/dev/null
-  done
+  spec_files=()
+  while IFS= read -r spec_file; do
+    [ -n "$spec_file" ] && spec_files+=("$spec_file")
+  done <<<"$repo_has_changed"
+  __git_repo "$GITCOMMIT_ROOT_DIR" add -A -- "${spec_files[@]}" &>/dev/null
   printf_cyan "👊 Committing .md files with message: 👊"
   printf_yellow "$setmess"
-  if __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -F "$GITCOMMIT_MESSAGE_FILE" -- $repo_has_changed &>"$GITCOMMIT_TEMP_FILE"; then
+  if __git_repo "$GITCOMMIT_ROOT_DIR" commit -q $(__gitcommit_sign_flag) -F "$GITCOMMIT_MESSAGE_FILE" -- "${spec_files[@]}" &>"$GITCOMMIT_TEMP_FILE"; then
     printf_green "🔗 Successfully committed spec files 🔗"
     if [ -f "$GITCOMMIT_ROOT_DIR/.git/COMMIT_MESS" ]; then
       rm -f "$GITCOMMIT_ROOT_DIR/.git/COMMIT_MESS"
